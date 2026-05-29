@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>今天你挂科了吗？</title>
+    <link rel="stylesheet" href="/static/css/styles.css?v=20260529-weapon-balance">
+  </head>
+  <body>
+    <main class="game-shell" aria-label="今天你挂科了吗基础版">
+      <canvas id="gameCanvas" width="960" height="540" aria-label="游戏画面"></canvas>
+
+      <section id="hud" class="hud combat-hud" hidden aria-live="polite">
+        <div class="hud-group">
+          <span class="hud-label">生命值</span>
+          <strong id="hudHp">100 / 100</strong>
+        </div>
+        <div class="hud-group hud-weapon-group">
+          <span class="hud-label">当前武器</span>
+          <strong id="hudWeapon">圣剑 ∫</strong>
+        </div>
+        <div class="hud-group">
+          <span class="hud-label">剩余子弹</span>
+          <strong id="hudAmmo">无限</strong>
+        </div>
+        <button id="inventoryBtn" class="hud-inventory-button" type="button" title="按 B 打开背包">
+          <span>背包</span>
+          <kbd>B</kbd>
+        </button>
+      </section>
+
+      <section id="controlHints" class="control-hints" hidden aria-label="操作提示">
+        <span>WASD 移动</span>
+        <span>鼠标 瞄准</span>
+        <span>左键 攻击</span>
+        <span>Space 冲刺</span>
+        <span>R 换弹</span>
+        <span>1-9/Q 武器</span>
+        <span>B 背包</span>
+        <span>Esc 暂停</span>
+      </section>
+
+      <section id="mainMenu" class="screen screen-menu">
+        <div class="menu-copy">
+          <p class="eyebrow">数学知识点弹幕肉鸽基础版</p>
+          <h1>今天你挂科了吗？</h1>
+          <p class="tagline">带上圣剑 ∫，在期末复习走廊里打一场会掉绩点的 Boss 战。</p>
+        </div>
+        <div class="menu-actions" aria-label="主菜单">
+          <button id="startBtn" class="primary-action" type="button">开始复习</button>
+          <button id="guideBtn" type="button">游戏说明</button>
+          <button id="codexBtn" type="button">知识图鉴</button>
+          <button id="weaponStatsBtn" type="button">武器数据</button>
+          <button id="leaderboardBtn" type="button">排行榜</button>
+          <button id="settingsBtn" type="button">设置</button>
+        </div>
+      </section>
+
+      <section id="mapScreen" class="screen map-screen" hidden>
+        <div class="corridor-board straight-map sketch-map" aria-label="期末复习走廊地图">
+          <div class="main-road" aria-hidden="true">
+            <span class="road-segment road-central"></span>
+            <span class="road-segment road-left"></span>
+            <span class="road-segment road-top-left"></span>
+            <span class="road-segment road-top-right"></span>
+            <span class="road-segment road-right"></span>
+          </div>
+
+          <button id="bossRoomBtn" class="door-card corridor-room boss-card" type="button">
+            <span class="door-copy">
+              <strong>?</strong>
+              <small>三位一体</small>
+            </span>
+          </button>
+
+          <button id="geometryRoomBtn" class="door-card corridor-room side-room left-room row-1 subject-room geometry-room" type="button">
+            <span class="door-copy">
+              <strong>欧氏几何</strong>
+            </span>
+          </button>
+
+          <button id="monsterRoomBtn" class="door-card corridor-room side-room left-room row-2 subject-room calculus-room" type="button">
+            <span class="door-copy">
+              <strong>微积分</strong>
+            </span>
+          </button>
+
+          <button id="linearRoomBtn" class="door-card corridor-room side-room left-room row-3 subject-room linear-room" type="button">
+            <span class="door-copy">
+              <strong>线性代数</strong>
+            </span>
+          </button>
+
+          <button id="randomRoomBBtn" class="door-card corridor-room side-room right-room row-1 random-room" type="button" aria-label="随机教室 B">
+            <span class="door-copy">
+              <strong>?</strong>
+            </span>
+          </button>
+
+          <button id="randomRoomCBtn" class="door-card corridor-room side-room right-room row-2 random-room" type="button" aria-label="随机教室 C">
+            <span class="door-copy">
+              <strong>?</strong>
+            </span>
+          </button>
+
+          <button id="chestRoomBtn" class="door-card corridor-room side-room right-room row-3 random-room" type="button" aria-label="随机教室 A">
+            <span class="door-copy">
+              <strong>?</strong>
+            </span>
+          </button>
+
+          <div id="mapPlayer" class="map-player" aria-hidden="true">
+            <span>学</span>
+          </div>
+          <div id="mapPrompt" class="map-enter-prompt" hidden>按 E 进入</div>
+        </div>
+        <div id="mapLog" class="map-log" aria-live="polite">当前状态：刚进入复习走廊。</div>
+      </section>
+
+      <section id="roomClearScreen" class="screen compact-screen" hidden>
+        <p class="eyebrow" id="clearEyebrow">房间完成</p>
+        <h2 id="clearTitle">奖励已获得</h2>
+        <p id="clearText">你获得了新的武器。</p>
+        <div id="weaponChoice" class="weapon-choice" hidden>
+          <strong id="weaponChoiceName">发现武器</strong>
+          <div class="weapon-choice-actions">
+            <button id="acceptWeaponBtn" class="primary-action" type="button">加入背包</button>
+            <button id="skipWeaponBtn" type="button">不加入</button>
+          </div>
+        </div>
+        <button id="backToMapBtn" class="primary-action" type="button">返回地图</button>
+      </section>
+
+      <section id="challengeScreen" class="screen challenge-screen" hidden>
+        <div class="challenge-panel">
+          <p class="eyebrow" id="challengeEyebrow">怪物房</p>
+          <h2 id="challengeTitle">选择挑战人数</h2>
+          <p id="challengeText">人数越多，战斗压力越大，奖励也越好。</p>
+          <div class="challenge-options" aria-label="挑战人数">
+            <button class="challenge-card" type="button" data-challenge-count="1">
+              <strong>挑战 1 人</strong>
+              <span>低风险：正常版武器</span>
+            </button>
+            <button class="challenge-card" type="button" data-challenge-count="2">
+              <strong>挑战 2 人</strong>
+              <span>中风险：正常版武器 + 1 个增益</span>
+            </button>
+            <button class="challenge-card high-risk" type="button" data-challenge-count="3">
+              <strong>挑战 3 人</strong>
+              <span>高风险：正常版武器 + 2 个增益</span>
+            </button>
+          </div>
+          <button id="challengeBackBtn" type="button">返回地图</button>
+        </div>
+      </section>
+
+      <section id="pauseScreen" class="screen compact-screen" hidden>
+        <p class="eyebrow">暂停</p>
+        <h2>先喘口气</h2>
+        <p>当前房间还没有结束，继续后仍会回到战斗中。</p>
+        <div class="result-actions">
+          <button id="resumeBtn" class="primary-action" type="button">继续游戏</button>
+          <button id="pauseMenuBtn" type="button">返回主菜单</button>
+        </div>
+      </section>
+
+      <section id="resultScreen" class="screen result-screen" hidden>
+        <p class="eyebrow" id="resultEyebrow">结算</p>
+        <h2 id="resultTitle">恭喜通过期末考试！</h2>
+        <div id="resultStats" class="result-stats"></div>
+        <form id="leaderboardNameForm" class="leaderboard-name-form" hidden>
+          <label for="leaderboardNameInput">留下名字</label>
+          <div class="leaderboard-name-row">
+            <input id="leaderboardNameInput" type="text" maxlength="12" autocomplete="off" placeholder="考生">
+            <button id="leaderboardNameSubmitBtn" class="primary-action" type="submit">提交</button>
+          </div>
+          <p id="leaderboardNameStatus" aria-live="polite"></p>
+        </form>
+        <div class="result-actions">
+          <button id="restartBtn" class="primary-action" type="button">重新复习</button>
+          <button id="resultLeaderboardBtn" type="button">查看排行榜</button>
+          <button id="menuBtn" type="button">返回主菜单</button>
+        </div>
+      </section>
+
+      <section id="modal" class="modal-backdrop" hidden>
+        <div id="modalPanel" class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+          <button id="modalCloseBtn" class="icon-button" type="button" aria-label="关闭">×</button>
+          <h2 id="modalTitle">游戏说明</h2>
+          <div id="modalBody" class="modal-body"></div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      window.GAME_CONFIG = {
+        title: "今天你挂科了吗？",
+        version: "0.1.0-basic",
+        baseStats: {
+          hp: 100,
+          speed: 3.5,
+          swordDamage: 15,
+          swordCooldown: 0.5,
+          enemyHp: 60,
+          enemyBulletDamage: 10,
+          bossCoreHp: 300,
+          eliteWeaponMultiplier: 1.25
+        }
+      };
+    </script>
+    <script src="/static/js/game.js?v=20260529-cleanup"></script>
+  </body>
+</html>
