@@ -125,8 +125,12 @@
   const obstacleMinThickness = 6;
   const obstacleMaxThickness = 9.5;
   const monsterShieldDuration = 1.05;
-  const monsterShieldCooldown = 4.0;
   const weaponSealDuration = 4.0;
+  const enemySlowDuration = 2.6;
+  const enemySlowMultiplier = 0.82;
+  const jordanDomainRadius = 168;
+  const jordanDomainTickEvery = 0.55;
+  const gaussDeathBeamClearDelay = 0.9;
   let lastFunStatsFetch = 0;
   let sharedFunStats = null;
   let funFactsPageIndex = 0;
@@ -168,6 +172,7 @@
     pendingChallenge: null,
     challengeCount: 1,
     defeatedInRoom: 0,
+    monsterClearDelay: 0,
     player: null,
     enemies: [],
     boss: null,
@@ -293,16 +298,18 @@
       id: "geometryShield",
       name: "几何护盾",
       kind: "geometry",
-      damage: 10.4,
-      cooldown: 0.9,
+      damage: 9.4,
+      cooldown: 1.0,
       ranged: false,
       infiniteAmmo: true,
       special: "shieldPulse",
       color: colors.cyan,
-      shieldValue: 45,
-      shieldEvery: 8.5,
-      pulseRadius: 72,
-      shotClearRadius: 92,
+      shieldValue: 10,
+      shieldValuePerLevel: 5,
+      shieldValueMaxBonus: 2,
+      shieldEvery: 12,
+      pulseRadius: 68,
+      shotClearRadius: 84,
     },
     matrixRpg: {
       id: "matrixRpg",
@@ -538,7 +545,7 @@
         name: "拉格朗日投影",
         shortName: "L",
         kind: "calculus",
-        pattern: "wave",
+        pattern: "burstTen",
         mechanics: ["splitOnDeath"],
         color: colors.chalk,
         hp: Number(baseStats.enemyHp || 60),
@@ -585,7 +592,7 @@
         shortName: "G",
         kind: "linear",
         pattern: "wall",
-        mechanics: ["gaussZone"],
+        mechanics: ["gaussHalfField"],
         color: colors.warning,
         hp: 110,
         radius: 25,
@@ -602,7 +609,7 @@
       name: "拉格朗日投影",
       shortName: "L",
       kind: "calculus",
-      pattern: "wave",
+      pattern: "burstTen",
       mechanics: ["splitOnDeath"],
       color: colors.chalk,
       rewardWeapon: "functionGun",
@@ -618,8 +625,8 @@
       name: "洛必达投影",
       shortName: "H",
       kind: "calculus",
-      pattern: "aimed",
-      mechanics: ["behindBlink"],
+      pattern: "edgeLaser",
+      mechanics: ["missShield"],
       color: colors.paper,
       rewardWeapon: "integralSniper",
       rewardBuff: "洛必达法则",
@@ -634,7 +641,8 @@
       name: "泰勒投影",
       shortName: "T",
       kind: "calculus",
-      pattern: "pierceWave",
+      pattern: "none",
+      mechanics: ["taylorTripleDash"],
       color: colors.chalk,
       rewardWeapon: "functionGun",
       rewardBuff: "泰勒展开",
@@ -697,8 +705,8 @@
       name: "雅可比投影",
       shortName: "J",
       kind: "linear",
-      pattern: "matrix",
-      mechanics: ["gaussEnrage"],
+      pattern: "jacobiVolley",
+      mechanics: ["jacobiBackBlink"],
       color: colors.warning,
       rewardWeapon: "matrixRpg",
       rewardBuff: "雅可比矩阵",
@@ -713,12 +721,12 @@
       name: "若尔当投影",
       shortName: "J",
       kind: "linear",
-      pattern: "split",
-      mechanics: ["gaussZone"],
+      pattern: "jordanReactive",
+      mechanics: ["jordanDomain"],
       color: colors.warning,
       rewardWeapon: "luStaff",
       rewardBuff: "约旦标准型",
-      hp: 98,
+      hp: 132,
       radius: 24,
       moveAmp: 74,
       moveSpeed: 1.35,
@@ -730,7 +738,7 @@
       shortName: "G",
       kind: "linear",
       pattern: "wall",
-      mechanics: ["gaussShieldOnHit"],
+      mechanics: ["gaussHalfField"],
       color: colors.warning,
       rewardWeapon: "determinantLaser",
       rewardBuff: "高斯消元",
@@ -763,6 +771,8 @@
       gpaGuardUsed: false,
       attackTimer: 0,
       weaponSealTimer: 0,
+      enemySlowTimer: 0,
+      enemySlowMultiplier: 1,
       dashCooldown: 0,
       invuln: 0,
     };
@@ -809,6 +819,9 @@
 
     const newWeapon = cloneWeapon(weaponId);
     player.weapons.push(newWeapon);
+    if (newWeapon.special === "shieldPulse" && mode === "combat") {
+      player.shieldTimer = newWeapon.shieldEvery || 8;
+    }
     game.lastWeaponReward = { type: "new", weapon: newWeapon };
     game.weaponsFound = player.weapons.length;
     if (equip) setWeaponIndex(player.weapons.length - 1);
@@ -927,6 +940,18 @@
     return true;
   }
 
+  function geometryShieldValue(weapon) {
+    if (!weapon) return 0;
+    const bonus = clamp((weapon.level || 1) - 1, 0, weapon.shieldValueMaxBonus ?? 2);
+    return Math.round((weapon.shieldValue || 10) + bonus * (weapon.shieldValuePerLevel || 5));
+  }
+
+  function armPassiveShieldTimer(player = game.player) {
+    if (!player) return;
+    const shieldWeapon = player.weapons.find((weapon) => weapon.special === "shieldPulse");
+    player.shieldTimer = shieldWeapon ? shieldWeapon.shieldEvery || 8 : 0;
+  }
+
   function updateWeaponReloads(dt) {
     const player = game.player;
     if (!player) return;
@@ -960,8 +985,7 @@
     if (!shieldWeapon) return;
     player.shieldTimer = Math.max(0, (player.shieldTimer || 0) - dt);
     if (player.shieldTimer > 0) return;
-    const bonus = Math.max(0, (shieldWeapon.level || 1) - 1);
-    const shieldValue = Math.round((shieldWeapon.shieldValue || 40) * (1 + bonus * 0.12));
+    const shieldValue = geometryShieldValue(shieldWeapon);
     player.shield = Math.max(player.shield || 0, shieldValue);
     player.shieldTimer = shieldWeapon.shieldEvery || 8;
   }
@@ -1000,6 +1024,7 @@
     game.pendingChallenge = null;
     game.challengeCount = 1;
     game.defeatedInRoom = 0;
+    game.monsterClearDelay = 0;
     game.player = createPlayer();
     game.enemies = [];
     game.boss = null;
@@ -1044,6 +1069,7 @@
     game.pendingChallenge = null;
     game.challengeCount = 1;
     game.defeatedInRoom = 0;
+    game.monsterClearDelay = 0;
     game.playerShots = [];
     game.enemyShots = [];
     game.enemyLasers = [];
@@ -1411,6 +1437,7 @@
     game.pendingChallenge = { roomKey, room };
     game.challengeCount = 1;
     game.defeatedInRoom = 0;
+    game.monsterClearDelay = 0;
     if (ui.challengeEyebrow) ui.challengeEyebrow.textContent = room.title || "怪物房";
     if (ui.challengeTitle) ui.challengeTitle.textContent = "选择挑战人数";
     if (ui.challengeText) {
@@ -1432,6 +1459,7 @@
     game.roomTitle = room.label;
     game.challengeCount = challengeCount;
     game.defeatedInRoom = 0;
+    game.monsterClearDelay = 0;
     game.roomReward = {
       weapon: room.rewardWeapon || room.enemy.rewardWeapon,
       buff: room.rewardBuff || room.enemy.rewardBuff,
@@ -1447,6 +1475,7 @@
     game.enemyLasers = [];
     game.slashes = [];
     game.particles = [];
+    armPassiveShieldTimer(game.player);
     game.enemies = buildChallengeEnemies(room, challengeCount);
     game.obstacles = generateRoomObstacles("monster");
     showScreen("combat");
@@ -1633,6 +1662,7 @@
     game.pendingChallenge = null;
     game.challengeCount = 1;
     game.defeatedInRoom = 0;
+    game.monsterClearDelay = 0;
     game.player.x = W * 0.5;
     game.player.y = H * 0.78;
     game.playerShots = [];
@@ -1640,6 +1670,7 @@
     game.enemyLasers = [];
     game.slashes = [];
     game.particles = [];
+    armPassiveShieldTimer(game.player);
     game.enemies = [];
     game.obstacles = [];
     const direct = !completedRoomKeys.some((key) => game.completed[key]);
@@ -2490,6 +2521,10 @@
     const player = game.player;
     player.attackTimer = Math.max(0, player.attackTimer - dt);
     player.weaponSealTimer = Math.max(0, (player.weaponSealTimer || 0) - dt);
+    player.enemySlowTimer = Math.max(0, (player.enemySlowTimer || 0) - dt);
+    if (player.enemySlowTimer <= 0) {
+      player.enemySlowMultiplier = 1;
+    }
     player.dashCooldown = Math.max(0, (player.dashCooldown || 0) - dt);
     player.invuln = Math.max(0, player.invuln - dt);
     player.mistakeBoostTimer = Math.max(0, (player.mistakeBoostTimer || 0) - dt);
@@ -2524,7 +2559,17 @@
   }
 
   function movementSpeedMultiplier(player) {
-    return hasBuff(player, "熬夜咖啡") ? 2 : 1;
+    let multiplier = hasBuff(player, "熬夜咖啡") ? 2 : 1;
+    if ((player.enemySlowTimer || 0) > 0) {
+      multiplier *= player.enemySlowMultiplier || enemySlowMultiplier;
+    }
+    if (
+      game.activeRoom === "monster" &&
+      game.enemies.some((enemy) => !enemy.defeated && hasEnemyMechanic(enemy, "gaussHalfField") && enemy.y >= monsterMidY())
+    ) {
+      multiplier *= 0.82;
+    }
+    return multiplier;
   }
 
   function updatePlayer(dt) {
@@ -2624,8 +2669,7 @@
         return;
       }
       if (weapon.special === "shieldPulse") {
-        const shieldBonus = Math.max(0, (weapon.level || 1) - 1);
-        const shieldValue = Math.round((weapon.shieldValue || 40) * (1 + shieldBonus * 0.12));
+        const shieldValue = geometryShieldValue(weapon);
         const pulseRadius = weapon.pulseRadius || 72;
         const shotClearRadius = weapon.shotClearRadius || 90;
         player.shield = Math.max(player.shield || 0, shieldValue);
@@ -2731,12 +2775,8 @@
 
   function enemyDamageMultiplier(enemy) {
     let multiplier = 1;
-    const ratio = enemyHpRatio(enemy);
-    if (hasEnemyMechanic(enemy, "gaussEnrage")) {
-      multiplier *= 1 + clamp((0.55 - ratio) / 0.55, 0, 1) * 0.35;
-    }
-    if (hasEnemyMechanic(enemy, "gaussZone") && enemy.x < monsterMidX()) {
-      multiplier *= 1.24;
+    if (hasEnemyMechanic(enemy, "gaussHalfField") && enemyInTopHalf(enemy)) {
+      multiplier *= 2;
     }
     if (hasEnemyMechanic(enemy, "distanceLaw")) {
       const close = clamp((180 - enemyDistanceToPlayer(enemy)) / 120, 0, 1);
@@ -2747,24 +2787,15 @@
 
   function enemyFireRateMultiplier(enemy) {
     let multiplier = 1;
-    if (hasEnemyMechanic(enemy, "gaussZone") && enemy.x >= monsterMidX()) {
-      multiplier *= 1.22;
-    }
     if (hasEnemyMechanic(enemy, "distanceLaw")) {
       const close = clamp((190 - enemyDistanceToPlayer(enemy)) / 130, 0, 1);
       multiplier *= 1 + close * 0.25;
-    }
-    if (hasEnemyMechanic(enemy, "gaussEnrage")) {
-      multiplier *= 1 + clamp((0.5 - enemyHpRatio(enemy)) / 0.5, 0, 1) * 0.18;
     }
     return multiplier;
   }
 
   function enemyShotSpeedMultiplier(enemy) {
     let multiplier = 1;
-    if (hasEnemyMechanic(enemy, "gaussZone") && enemy.x >= monsterMidX()) {
-      multiplier *= 1.18;
-    }
     if (hasEnemyMechanic(enemy, "distanceLaw")) {
       const close = clamp((170 - enemyDistanceToPlayer(enemy)) / 120, 0, 1);
       multiplier *= 1 + close * 0.12;
@@ -2774,6 +2805,18 @@
 
   function enemyReceivedDamageMultiplier(enemy) {
     let multiplier = 1;
+    if (hasEnemyMechanic(enemy, "jordanDomain") && (enemy.jordanTransitionTimer || 0) > 0) {
+      return 0;
+    }
+    if (hasEnemyMechanic(enemy, "missShield") && (enemy.missShieldTimer || 0) > 0) {
+      multiplier *= 0.22;
+    }
+    if (hasEnemyMechanic(enemy, "taylorTripleDash") && (enemy.taylorRestTimer || 0) > 0) {
+      multiplier *= 0.1;
+    }
+    if (hasEnemyMechanic(enemy, "gaussHalfField") && enemyInTopHalf(enemy)) {
+      multiplier *= 0.5;
+    }
     if (hasEnemyMechanic(enemy, "distanceLaw")) {
       const far = clamp((enemyDistanceToPlayer(enemy) - 170) / 170, 0, 1);
       const close = clamp((130 - enemyDistanceToPlayer(enemy)) / 90, 0, 1);
@@ -2800,6 +2843,217 @@
         ownerId: enemy.id,
       }
     );
+  }
+
+  function enemyInTopHalf(enemy) {
+    return (enemy?.y ?? enemy?.baseY ?? 0) < monsterMidY();
+  }
+
+  function arenaPoint(x, y, padding = 40) {
+    return {
+      x: clamp(x, arena.left + padding, arena.right - padding),
+      y: clamp(y, arena.top + padding, arena.bottom - padding),
+    };
+  }
+
+  function randomArenaPoint(padding = 46) {
+    return {
+      x: arena.left + padding + Math.random() * Math.max(1, arena.width - padding * 2),
+      y: arena.top + padding + Math.random() * Math.max(1, arena.height - padding * 2),
+    };
+  }
+
+  function applyEnemySlow(multiplier = enemySlowMultiplier, duration = enemySlowDuration) {
+    const player = game.player;
+    if (!player) return;
+    player.enemySlowTimer = Math.max(player.enemySlowTimer || 0, duration);
+    player.enemySlowMultiplier = Math.min(player.enemySlowMultiplier || 1, multiplier);
+  }
+
+  function rayEndPoint(x, y, angle) {
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    const candidates = [];
+    if (Math.abs(dx) > 0.0001) {
+      candidates.push((arena.left - x) / dx);
+      candidates.push((arena.right - x) / dx);
+    }
+    if (Math.abs(dy) > 0.0001) {
+      candidates.push((arena.top - y) / dy);
+      candidates.push((arena.bottom - y) / dy);
+    }
+    const t = candidates.filter((value) => value > 0).sort((a, b) => a - b)[0] || 0;
+    return {
+      x: clamp(x + dx * t, arena.left, arena.right),
+      y: clamp(y + dy * t, arena.top, arena.bottom),
+    };
+  }
+
+  function laserSegment(laser) {
+    if (laser.orientation === "ray") {
+      const startX = laser.sourceX ?? laser.x ?? 0;
+      const startY = laser.sourceY ?? laser.y ?? 0;
+      const end = rayEndPoint(startX, startY, laser.angle || 0);
+      return { ax: startX, ay: startY, bx: end.x, by: end.y };
+    }
+    if (laser.orientation === "vertical") {
+      return { ax: laser.x, ay: arena.top, bx: laser.x, by: arena.bottom };
+    }
+    return { ax: arena.left, ay: laser.y, bx: arena.right, by: laser.y };
+  }
+
+  function laserHitsPlayer(laser, player) {
+    if (laser.orientation === "ray") {
+      const segment = laserSegment(laser);
+      return distancePointToSegment(player.x, player.y, segment.ax, segment.ay, segment.bx, segment.by) <= player.r + laser.width / 2;
+    }
+    const halfWidth = laser.width / 2;
+    return laser.orientation === "vertical"
+      ? Math.abs(player.x - laser.x) <= player.r + halfWidth
+      : Math.abs(player.y - laser.y) <= player.r + halfWidth;
+  }
+
+  function grantMissShield(enemy) {
+    if (!enemy || !hasEnemyMechanic(enemy, "missShield")) return;
+    const duration = Math.max(0.55, (enemy.fireTimer || enemy.fireEvery || 1) - 0.18);
+    enemy.missShieldTimer = duration;
+    enemy.shieldFlash = 0.55;
+    burst(enemy.x, enemy.y, colors.paper, 14);
+  }
+
+  function onEnemyLaserExpired(laser) {
+    if (!laser?.shieldOnMiss || laser.hit) return;
+    grantMissShield(enemyById(laser.ownerId));
+  }
+
+  function createTaylorDashPoints(enemy) {
+    const points = [];
+    let previous = { x: enemy.x, y: enemy.y };
+    for (let i = 0; i < 3; i += 1) {
+      let best = randomArenaPoint(50);
+      let bestScore = -Infinity;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const candidate = randomArenaPoint(50);
+        const score = distance(previous, candidate) + distance(game.player || enemy, candidate) * 0.28;
+        if (score > bestScore) {
+          best = candidate;
+          bestScore = score;
+        }
+      }
+      points.push(best);
+      previous = best;
+    }
+    return points;
+  }
+
+  function beginTaylorDashStep(enemy) {
+    const target = enemy.taylorDashPoints?.shift();
+    if (!target) return false;
+    enemy.taylorDashTargetX = target.x;
+    enemy.taylorDashTargetY = target.y;
+    enemy.taylorDashWarnTimer = 0.26;
+    enemy.taylorDashWarnMax = 0.26;
+    return true;
+  }
+
+  function startTaylorDash(enemy) {
+    const dx = (enemy.taylorDashTargetX || enemy.x) - enemy.x;
+    const dy = (enemy.taylorDashTargetY || enemy.y) - enemy.y;
+    const dist = Math.hypot(dx, dy);
+    enemy.taylorDashFromX = enemy.x;
+    enemy.taylorDashFromY = enemy.y;
+    enemy.taylorDashActiveTimer = clamp(dist / 820, 0.16, 0.42);
+    enemy.taylorDashActiveMax = enemy.taylorDashActiveTimer;
+    enemy.taylorDashHitPlayer = false;
+    enemy.taylorTrailTimer = 0;
+  }
+
+  function finishTaylorDashStep(enemy) {
+    enemy.baseX = enemy.x;
+    enemy.baseY = enemy.y;
+    enemy.moveT = 0;
+    if (enemy.taylorDashPoints?.length) {
+      beginTaylorDashStep(enemy);
+    } else {
+      enemy.taylorRestTimer = 1.35;
+      enemy.taylorDashTimer = 3.0 + Math.random() * 0.8;
+    }
+  }
+
+  function scheduleJacobiVolley(enemy, damageMultiplier = 1) {
+    enemy.jacobiVolleyWaves = 4;
+    enemy.jacobiVolleyTimer = 0;
+    enemy.jacobiVolleyBoost = damageMultiplier;
+  }
+
+  function fireJacobiWave(enemy) {
+    if (!game.player) return;
+    const baseAngle = Math.atan2(game.player.y - enemy.y, game.player.x - enemy.x);
+    const boost = enemy.jacobiVolleyBoost || 1;
+    for (let i = -2; i <= 2; i += 1) {
+      fireEnemyShot(enemy, enemy.x, enemy.y, baseAngle + i * 0.13, 158 + Math.abs(i) * 13, 8.5 * boost, enemy.color, {
+        r: 5,
+        life: 4.2,
+      });
+    }
+  }
+
+  function jacobiBlinkTarget(enemy) {
+    const player = game.player;
+    if (!player) return arenaPoint(enemy.x, enemy.y);
+    const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+    const behind = {
+      x: player.x - Math.cos(angle) * 92,
+      y: player.y - Math.sin(angle) * 92,
+    };
+    const behindInside =
+      behind.x >= arena.left + 42 &&
+      behind.x <= arena.right - 42 &&
+      behind.y >= arena.top + 42 &&
+      behind.y <= arena.bottom - 42;
+    if (behindInside) return behind;
+    return arenaPoint(player.x + Math.cos(angle) * 92, player.y + Math.sin(angle) * 92, 42);
+  }
+
+  function fireJordanRing(enemy, empowered = false) {
+    const count = empowered ? 18 : 14;
+    const speed = empowered ? 112 : 98;
+    const damage = empowered ? 7.5 : 6.5;
+    const start = enemy.moveT * 0.35 + Math.random() * 0.25;
+    for (let i = 0; i < count; i += 1) {
+      const angle = start + (Math.PI * 2 * i) / count;
+      fireEnemyShot(enemy, enemy.x, enemy.y, angle, speed, damage, enemy.color, {
+        r: 4.5,
+        life: 4.5,
+        wallSplit: true,
+        wallSplitDepth: 1,
+      });
+    }
+  }
+
+  function triggerGaussDeathBeams(enemy) {
+    if (!hasEnemyMechanic(enemy, "gaussHalfField") || !enemyInTopHalf(enemy)) return false;
+    const player = game.player || enemy;
+    const baseAngle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+    const sideX = -Math.sin(baseAngle);
+    const sideY = Math.cos(baseAngle);
+    game.monsterClearDelay = Math.max(game.monsterClearDelay || 0, gaussDeathBeamClearDelay);
+    for (let i = -2; i <= 2; i += 1) {
+      spawnEnemyLaser({
+        orientation: "ray",
+        angle: baseAngle,
+        sourceX: clamp(enemy.x + sideX * i * 34, arena.left + 12, arena.right - 12),
+        sourceY: clamp(enemy.y + sideY * i * 34, arena.top + 12, arena.bottom - 12),
+        warningTime: 0.46,
+        activeTime: 0.26,
+        width: 13,
+        damage: 11,
+        color: enemy.color,
+        ownerId: enemy.id,
+        deathBeam: true,
+      });
+    }
+    return true;
   }
 
   function enemyQuadrantIndex(x, y) {
@@ -2857,50 +3111,6 @@
     }
   }
 
-  function updateBehindBlink(enemy, dt) {
-    if (!hasEnemyMechanic(enemy, "behindBlink")) return;
-    if (enemy.behindHoldTimer > 0) {
-      enemy.behindHoldTimer -= dt;
-      if (enemy.behindHoldTimer <= 0) {
-        enemy.baseX = enemy.returnBaseX ?? enemy.baseX;
-        enemy.baseY = enemy.returnBaseY ?? enemy.baseY;
-        enemy.x = enemy.baseX;
-        enemy.y = enemy.baseY;
-        enemy.moveT = 0;
-        burst(enemy.x, enemy.y, enemy.color || colors.paper, 12);
-      }
-      return;
-    }
-    if (enemy.behindWarnTimer > 0) {
-      enemy.behindWarnTimer -= dt;
-      const player = game.player;
-      if (player) {
-        const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
-        enemy.behindTargetX = clamp(player.x - Math.cos(angle) * 86, arena.left + 42, arena.right - 42);
-        enemy.behindTargetY = clamp(player.y - Math.sin(angle) * 86, arena.top + 42, arena.bottom - 42);
-      }
-      if (enemy.behindWarnTimer <= 0) {
-        enemy.returnBaseX = enemy.baseX;
-        enemy.returnBaseY = enemy.baseY;
-        enemy.baseX = enemy.behindTargetX;
-        enemy.baseY = enemy.behindTargetY;
-        enemy.x = enemy.baseX;
-        enemy.y = enemy.baseY;
-        enemy.moveT = 0;
-        enemy.behindHoldTimer = 1.08;
-        burst(enemy.x, enemy.y, enemy.color || colors.paper, 16);
-      }
-      return;
-    }
-    if (enemy.behindTimer == null) enemy.behindTimer = 4.2 + Math.random() * 1.0;
-    enemy.behindTimer -= dt;
-    if (enemy.behindTimer <= 0) {
-      enemy.behindWarnTimer = 0.48;
-      enemy.behindWarnMax = 0.48;
-      enemy.behindTimer = 5.2 + Math.random() * 1.1;
-    }
-  }
-
   function updateDashScatter(enemy, dt) {
     if (!hasEnemyMechanic(enemy, "dashScatter")) return;
     if (enemy.dashWarnTimer > 0) {
@@ -2935,18 +3145,123 @@
     }
   }
 
+  function updateGaussHalfField(enemy, dt) {
+    if (!hasEnemyMechanic(enemy, "gaussHalfField")) return;
+    if (enemy.gaussHalfTimer == null) {
+      enemy.gaussHalfTop = enemyInTopHalf(enemy);
+      enemy.gaussHalfTimer = 2.0 + Math.random() * 0.6;
+    }
+    enemy.gaussHalfTimer -= dt;
+    if (enemy.gaussHalfTimer <= 0) {
+      enemy.gaussHalfTop = !enemy.gaussHalfTop;
+      enemy.gaussHalfTimer = 3.0 + Math.random() * 0.8;
+    }
+    const targetY = enemy.gaussHalfTop
+      ? arena.top + arena.height * 0.25
+      : arena.top + arena.height * 0.72;
+    enemy.baseY += (targetY - enemy.baseY) * Math.min(1, dt * 2.0);
+    if (!enemyInTopHalf(enemy)) {
+      enemy.hp = Math.min(enemy.maxHp, enemy.hp + enemy.maxHp * 0.026 * dt);
+      if (enemy.hp <= enemy.maxHp * 0.1) {
+        enemy.hp = enemy.maxHp * 0.1;
+        enemy.healFlash = Math.max(enemy.healFlash || 0, 0.12);
+      }
+    }
+  }
+
+  function updateTaylorTripleDash(enemy, dt) {
+    if (!hasEnemyMechanic(enemy, "taylorTripleDash")) return;
+    enemy.taylorRestTimer = Math.max(0, (enemy.taylorRestTimer || 0) - dt);
+    if (enemy.taylorRestTimer > 0 || (enemy.taylorDashActiveTimer || 0) > 0) return;
+    if ((enemy.taylorDashWarnTimer || 0) > 0) {
+      enemy.taylorDashWarnTimer = Math.max(0, enemy.taylorDashWarnTimer - dt);
+      if (enemy.taylorDashWarnTimer <= 0) {
+        startTaylorDash(enemy);
+      }
+      return;
+    }
+    if (enemy.taylorDashTimer == null) enemy.taylorDashTimer = 1.4 + Math.random() * 0.6;
+    enemy.taylorDashTimer -= dt;
+    if (enemy.taylorDashTimer <= 0) {
+      enemy.taylorDashPoints = createTaylorDashPoints(enemy);
+      beginTaylorDashStep(enemy);
+      enemy.taylorDashTimer = 99;
+    }
+  }
+
+  function updateJacobiVolley(enemy, dt) {
+    if ((enemy.jacobiVolleyWaves || 0) <= 0) return;
+    enemy.jacobiVolleyTimer = (enemy.jacobiVolleyTimer || 0) - dt;
+    while ((enemy.jacobiVolleyWaves || 0) > 0 && enemy.jacobiVolleyTimer <= 0) {
+      fireJacobiWave(enemy);
+      enemy.jacobiVolleyWaves -= 1;
+      enemy.jacobiVolleyTimer += 0.16;
+    }
+  }
+
+  function updateJacobiBackBlink(enemy, dt) {
+    if (!hasEnemyMechanic(enemy, "jacobiBackBlink")) return;
+    if ((enemy.jacobiBlinkWarnTimer || 0) > 0) {
+      enemy.jacobiBlinkWarnTimer = Math.max(0, enemy.jacobiBlinkWarnTimer - dt);
+      if (enemy.jacobiBlinkWarnTimer <= 0) {
+        const target = enemy.jacobiBlinkTarget || jacobiBlinkTarget(enemy);
+        enemy.baseX = clamp(target.x, arena.left + 42, arena.right - 42);
+        enemy.baseY = clamp(target.y, arena.top + 42, arena.bottom - 42);
+        enemy.x = enemy.baseX;
+        enemy.y = enemy.baseY;
+        enemy.moveT = 0;
+        enemy.jacobiLandingTimer = 0.35;
+        enemy.fireTimer = Math.max(enemy.fireTimer || 0, 0.72);
+        scheduleJacobiVolley(enemy, 1.5);
+        burst(enemy.x, enemy.y, enemy.color || colors.warning, 18);
+      }
+      return;
+    }
+    enemy.jacobiLandingTimer = Math.max(0, (enemy.jacobiLandingTimer || 0) - dt);
+    if (enemy.jacobiBlinkTimer == null) enemy.jacobiBlinkTimer = 3.7 + Math.random() * 0.9;
+    enemy.jacobiBlinkTimer -= dt;
+    if (enemy.jacobiBlinkTimer <= 0) {
+      enemy.jacobiBlinkTarget = jacobiBlinkTarget(enemy);
+      enemy.jacobiBlinkWarnTimer = 0.46;
+      enemy.jacobiBlinkWarnMax = 0.46;
+      enemy.jacobiBlinkTimer = 5.0 + Math.random() * 1.0;
+    }
+  }
+
+  function updateJordanDomain(enemy, dt) {
+    if (!hasEnemyMechanic(enemy, "jordanDomain")) return;
+    if ((enemy.jordanTransitionTimer || 0) > 0) {
+      enemy.jordanTransitionTimer = Math.max(0, enemy.jordanTransitionTimer - dt);
+      if (enemy.jordanTransitionTimer <= 0) {
+        enemy.jordanDomainActive = true;
+        enemy.fireTimer = Math.min(enemy.fireTimer || enemy.fireEvery, 0.32);
+        burst(enemy.x, enemy.y, enemy.color || colors.warning, 28);
+      }
+      return;
+    }
+    if (!enemy.jordanDomainActive) return;
+    const player = game.player;
+    if (!player) return;
+    enemy.jordanDomainTick = Math.max(0, (enemy.jordanDomainTick || 0) - dt);
+    if (distance(player, enemy) > jordanDomainRadius && enemy.jordanDomainTick <= 0) {
+      applyPlayerDamage(scaledIncomingDamage(5.5), enemy.color || colors.warning);
+      player.invuln = Math.max(player.invuln, 0.22);
+      enemy.jordanDomainTick = jordanDomainTickEvery;
+    }
+  }
+
   function updateEnemyMechanics(enemy, dt) {
     enemy.backHitFlash = Math.max(0, (enemy.backHitFlash || 0) - dt);
     enemy.shieldFlash = Math.max(0, (enemy.shieldFlash || 0) - dt);
     enemy.healFlash = Math.max(0, (enemy.healFlash || 0) - dt);
-    enemy.playerHitShieldTimer = Math.max(0, (enemy.playerHitShieldTimer || 0) - dt);
-    enemy.playerHitShieldCooldown = Math.max(0, (enemy.playerHitShieldCooldown || 0) - dt);
-    if ((enemy.playerHitShieldTimer || 0) <= 0) {
-      enemy.playerHitShieldCharges = 0;
-    }
+    enemy.missShieldTimer = Math.max(0, (enemy.missShieldTimer || 0) - dt);
     updateQuadrantBlink(enemy, dt);
-    updateBehindBlink(enemy, dt);
     updateDashScatter(enemy, dt);
+    updateGaussHalfField(enemy, dt);
+    updateTaylorTripleDash(enemy, dt);
+    updateJacobiVolley(enemy, dt);
+    updateJacobiBackBlink(enemy, dt);
+    updateJordanDomain(enemy, dt);
   }
 
   function spawnDashTrail(enemy) {
@@ -2961,6 +3276,28 @@
   }
 
   function updateEnemyPosition(enemy, dt) {
+    if ((enemy.taylorDashActiveTimer || 0) > 0 && enemy.taylorDashFromX != null && enemy.taylorDashTargetX != null) {
+      enemy.taylorDashActiveTimer = Math.max(0, enemy.taylorDashActiveTimer - dt);
+      const progress = 1 - enemy.taylorDashActiveTimer / Math.max(0.001, enemy.taylorDashActiveMax || 0.3);
+      const eased = 1 - Math.pow(1 - clamp(progress, 0, 1), 2.4);
+      enemy.x = enemy.taylorDashFromX + (enemy.taylorDashTargetX - enemy.taylorDashFromX) * eased;
+      enemy.y = enemy.taylorDashFromY + (enemy.taylorDashTargetY - enemy.taylorDashFromY) * eased;
+      enemy.taylorTrailTimer = (enemy.taylorTrailTimer || 0) - dt;
+      if (enemy.taylorTrailTimer <= 0) {
+        enemy.taylorTrailTimer = 0.055;
+        burst(enemy.x, enemy.y, enemy.color || colors.chalk, 3);
+      }
+      const player = game.player;
+      if (player && !enemy.taylorDashHitPlayer && player.invuln <= 0 && distance(player, enemy) <= player.r + enemy.r + 5) {
+        applyPlayerDamage(scaledIncomingDamage(22), enemy.color || colors.chalk);
+        player.invuln = Math.max(player.invuln, 0.82);
+        enemy.taylorDashHitPlayer = true;
+      }
+      if (enemy.taylorDashActiveTimer <= 0) {
+        finishTaylorDashStep(enemy);
+      }
+      return;
+    }
     if ((enemy.dashActiveTimer || 0) > 0 && enemy.dashFromX != null && enemy.dashTargetX != null) {
       enemy.dashActiveTimer = Math.max(0, enemy.dashActiveTimer - dt);
       const progress = 1 - enemy.dashActiveTimer / Math.max(0.001, enemy.dashActiveMax || 0.34);
@@ -2986,62 +3323,84 @@
       }
       return;
     }
+    if ((enemy.taylorRestTimer || 0) > 0) {
+      enemy.x = enemy.baseX;
+      enemy.y = enemy.baseY;
+      return;
+    }
+    if (enemy.randomDrift) {
+      enemy.driftTimer = (enemy.driftTimer || 0) - dt;
+      if (enemy.driftTimer <= 0 || enemy.driftTargetX == null) {
+        const point = randomArenaPoint(44);
+        enemy.driftTargetX = point.x;
+        enemy.driftTargetY = point.y;
+        enemy.driftTimer = 0.75 + Math.random() * 0.65;
+      }
+      enemy.baseX += (enemy.driftTargetX - enemy.baseX) * Math.min(1, dt * 1.8);
+      enemy.baseY += (enemy.driftTargetY - enemy.baseY) * Math.min(1, dt * 1.8);
+      enemy.x = enemy.baseX + Math.sin(enemy.moveT * enemy.moveSpeed * 1.35) * 14;
+      enemy.y = enemy.baseY + Math.cos(enemy.moveT * enemy.moveSpeed * 1.1) * 10;
+      return;
+    }
     enemy.x = enemy.baseX + Math.sin(enemy.moveT * enemy.moveSpeed) * enemy.moveAmp;
     enemy.y = enemy.baseY + Math.cos(enemy.moveT * enemy.moveSpeed * 0.7) * 18;
   }
 
-  function grantEnemyHitShield(enemy) {
-    if (!enemy || !hasEnemyMechanic(enemy, "gaussShieldOnHit")) return;
-    if ((enemy.playerHitShieldCooldown || 0) > 0) return;
-    enemy.playerHitShieldCharges = 1;
-    enemy.playerHitShieldTimer = monsterShieldDuration;
-    enemy.playerHitShieldCooldown = monsterShieldCooldown;
-    enemy.shieldFlash = 0.55;
-    burst(enemy.x, enemy.y, colors.paper, 14);
-  }
-
   function onEnemyAttackHitPlayer(source) {
-    const enemy = enemyById(source?.ownerId);
-    if (!enemy) return;
-    grantEnemyHitShield(enemy);
-    if (source.weaponSeal) {
+    if (source?.weaponSeal) {
       sealPlayerNonGeometryWeapons(weaponSealDuration);
     }
   }
 
-  function consumeEnemyShield(enemy) {
-    if ((enemy.playerHitShieldCharges || 0) <= 0 || (enemy.playerHitShieldTimer || 0) <= 0) return false;
-    enemy.playerHitShieldCharges -= 1;
-    enemy.playerHitShieldTimer = 0;
-    enemy.shieldFlash = 0.55;
-    burst(enemy.x, enemy.y, colors.paper, 16);
-    return true;
+  function splitSpawnPoint(enemy, side) {
+    const player = game.player || enemy;
+    const baseDistance = Math.max(52, distance(player, enemy));
+    const targetDistance = baseDistance * 2.05;
+    const away = Math.atan2(enemy.y - player.y, enemy.x - player.x);
+    const direct = arenaPoint(
+      player.x + Math.cos(away + side * 0.55) * targetDistance,
+      player.y + Math.sin(away + side * 0.55) * targetDistance,
+      34
+    );
+    let best = direct;
+    let bestDistance = distance(player, direct);
+    for (let i = 0; i < 14; i += 1) {
+      const angle = away + side * 0.35 + (Math.random() - 0.5) * Math.PI;
+      const radius = targetDistance * (0.72 + Math.random() * 0.5);
+      const candidate = arenaPoint(player.x + Math.cos(angle) * radius, player.y + Math.sin(angle) * radius, 34);
+      const candidateDistance = distance(player, candidate);
+      if (candidateDistance > bestDistance) {
+        best = candidate;
+        bestDistance = candidateDistance;
+      }
+    }
+    return best;
   }
 
   function spawnSplitEnemies(enemy) {
     if (!hasEnemyMechanic(enemy, "splitOnDeath") || enemy.splitChild) return false;
-    const childHp = Math.max(18, Math.round(enemy.maxHp * 0.25));
+    const childHp = Math.max(18, Math.round(enemy.maxHp * 0.5));
     [-1, 1].forEach((side, index) => {
+      const point = splitSpawnPoint(enemy, side);
       const child = {
         ...enemy,
         id: `${enemy.id}-split-${index}`,
-        x: clamp(enemy.x + side * 36, arena.left + 30, arena.right - 30),
-        y: clamp(enemy.y + 18, arena.top + 30, arena.bottom - 30),
-        baseX: clamp(enemy.x + side * 36, arena.left + 30, arena.right - 30),
-        baseY: clamp(enemy.y + 18, arena.top + 30, arena.bottom - 30),
+        x: point.x,
+        y: point.y,
+        baseX: point.x,
+        baseY: point.y,
         r: Math.max(16, enemy.r * 0.76),
         hp: childHp,
         maxHp: childHp,
         moveT: side * 1.2,
-        moveAmp: Math.max(28, enemy.moveAmp * 0.55),
-        moveSpeed: enemy.moveSpeed * 1.08,
-        fireEvery: enemy.fireEvery * 1.22,
+        moveAmp: Math.max(44, enemy.moveAmp * 0.78),
+        moveSpeed: enemy.moveSpeed * 1.42,
+        fireEvery: enemy.fireEvery * 0.94,
         fireTimer: 0.36 + index * 0.18,
         mechanics: (enemy.mechanics || []).filter((mechanic) => mechanic !== "splitOnDeath"),
         splitChild: true,
-        playerHitShieldCharges: 0,
-        playerHitShieldTimer: 0,
-        playerHitShieldCooldown: 0,
+        randomDrift: true,
+        driftTimer: 0,
         shieldFlash: 0,
         healFlash: 0,
         defeated: false,
@@ -3053,6 +3412,7 @@
   }
 
   function defeatEnemy(enemy) {
+    triggerGaussDeathBeams(enemy);
     const didSplit = spawnSplitEnemies(enemy);
     enemy.defeated = true;
     game.kills += 1;
@@ -3060,8 +3420,21 @@
     burst(enemy.x, enemy.y, didSplit ? colors.paper : enemy.color, didSplit ? 32 : 28);
   }
 
+  function tryCompleteMonsterChallenge(dt = 0) {
+    if (game.enemies.length) return false;
+    if ((game.monsterClearDelay || 0) > 0) {
+      game.monsterClearDelay = Math.max(0, game.monsterClearDelay - dt);
+      if (game.monsterClearDelay > 0) return false;
+    }
+    completeMonsterChallenge();
+    return true;
+  }
+
   function updateMonsterRoom(dt) {
-    if (!game.enemies.length) return;
+    if (!game.enemies.length) {
+      tryCompleteMonsterChallenge(dt);
+      return;
+    }
 
     game.enemies.forEach((enemy) => {
       if (enemy.defeated) return;
@@ -3079,13 +3452,16 @@
 
       applyPlayerDamageToCircle(enemy, "enemy");
       if (enemy.hp <= 0) {
+        if (lockGaussBottomHp(enemy) || ((enemy.jordanTransitionTimer || 0) > 0)) {
+          return;
+        }
         defeatEnemy(enemy);
       }
     });
 
     game.enemies = game.enemies.filter((enemy) => !enemy.defeated);
     if (!game.enemies.length) {
-      completeMonsterChallenge();
+      tryCompleteMonsterChallenge(dt);
     }
   }
 
@@ -3159,6 +3535,50 @@
     const fire = (x, y, angle, speed, damage, color = enemy.color, options = {}) => {
       fireEnemyShot(enemy, x, y, angle, speed, damage, color, options);
     };
+    if (enemy.pattern === "none") {
+      return;
+    }
+    if (enemy.pattern === "burstTen") {
+      const count = 10;
+      const spread = enemy.splitChild ? 0.78 : 0.9;
+      for (let i = 0; i < count; i += 1) {
+        const offset = (i - (count - 1) / 2) * (spread / (count - 1));
+        fire(enemy.x, enemy.y, baseAngle + offset, (enemy.splitChild ? 188 : 166) + Math.abs(offset) * 32, 8.2, enemy.color, {
+          r: 4.5,
+          life: 4.0,
+        });
+      }
+      return;
+    }
+    if (enemy.pattern === "edgeLaser") {
+      enemy.missShieldTimer = 0;
+      spawnEnemyLaser({
+        orientation: "ray",
+        angle: baseAngle,
+        sourceX: enemy.x,
+        sourceY: enemy.y,
+        warningTime: 0.58,
+        activeTime: 0.32,
+        width: 17,
+        damage: 13 * enemyDamageMultiplier(enemy),
+        color: enemy.color,
+        ownerId: enemy.id,
+        shieldOnMiss: true,
+      });
+      return;
+    }
+    if (enemy.pattern === "jacobiVolley") {
+      if ((enemy.jacobiVolleyWaves || 0) <= 0) {
+        scheduleJacobiVolley(enemy, 1);
+      }
+      return;
+    }
+    if (enemy.pattern === "jordanReactive") {
+      if (enemy.jordanDomainActive) {
+        fireJordanRing(enemy, true);
+      }
+      return;
+    }
     if (enemy.pattern === "axisLaser") {
       spawnEnemyLaser({
         orientation: "vertical",
@@ -3227,51 +3647,11 @@
       });
       return;
     }
-    if (enemy.pattern === "pierceWave") {
-      for (let i = -1; i <= 1; i += 1) {
-        fire(enemy.x, enemy.y, baseAngle + i * 0.22, 132 + Math.abs(i) * 12, 9, enemy.color, {
-          pattern: "curve",
-          curveAmp: 42 + Math.abs(i) * 8,
-          curveFreq: 4.3,
-          curvePhase: enemy.moveT + i * 1.1,
-          ignoresObstacles: true,
-          r: 6,
-          life: 4.2,
-        });
-      }
-      return;
-    }
-    if (enemy.pattern === "cross") {
-      [0, Math.PI / 2, Math.PI, Math.PI * 1.5].forEach((angle) => {
-        fire(enemy.x, enemy.y, angle, 185, 10);
-      });
-      fire(enemy.x, enemy.y, baseAngle, 210, 10);
-      return;
-    }
     if (enemy.pattern === "wall") {
       const sideX = -Math.sin(baseAngle);
       const sideY = Math.cos(baseAngle);
       for (let i = -2; i <= 2; i += 1) {
         fire(enemy.x + sideX * i * 24, enemy.y + sideY * i * 24, baseAngle, 150 + Math.abs(i) * 12, 10);
-      }
-      return;
-    }
-    if (enemy.pattern === "matrix") {
-      const forwardX = Math.cos(baseAngle);
-      const forwardY = Math.sin(baseAngle);
-      const sideX = -forwardY;
-      const sideY = forwardX;
-      for (let row = 0; row < 2; row += 1) {
-        for (let col = -1; col <= 1; col += 1) {
-          const startX = enemy.x - forwardX * row * 22 + sideX * col * 24;
-          const startY = enemy.y - forwardY * row * 22 + sideY * col * 24;
-          fire(startX, startY, baseAngle, 145 + row * 18, 10, enemy.color, {
-            pattern: "matrix",
-            shape: "square",
-            r: 7,
-            pulse: row * 0.2 + col * 0.08,
-          });
-        }
       }
       return;
     }
@@ -3291,19 +3671,6 @@
       }
       for (let i = 0; i < 3; i += 1) {
         fire(enemy.x, enemy.y, (Math.PI * 2 * i) / 3 + enemy.moveT * 0.18, 125, 8);
-      }
-      return;
-    }
-    if (enemy.pattern === "split") {
-      for (let i = -2; i <= 2; i += 1) {
-        fire(enemy.x, enemy.y, baseAngle + i * 0.18, 160 + Math.abs(i) * 14, 10);
-      }
-      return;
-    }
-    if (enemy.pattern === "aimed") {
-      fire(enemy.x, enemy.y, baseAngle, 235, 12, enemy.color, { r: 7, label: "!" });
-      for (let i = -1; i <= 1; i += 2) {
-        fire(enemy.x, enemy.y, baseAngle + i * 0.16, 185, 9);
       }
       return;
     }
@@ -4254,6 +4621,7 @@
       }
     });
     game.enemyShots.forEach(updateShot);
+    game.enemyShots.forEach(splitEnemyShotAtWall);
     game.playerShots.forEach(blockShotWithObstacles);
     game.enemyShots.forEach(blockShotWithObstacles);
 
@@ -4321,6 +4689,10 @@
   function updateLasers(dt) {
     game.enemyLasers.forEach((laser) => {
       laser.age += dt;
+      if (!laser.expiredHandled && laser.age >= laser.warningTime + laser.activeTime) {
+        laser.expiredHandled = true;
+        onEnemyLaserExpired(laser);
+      }
     });
     game.enemyLasers = game.enemyLasers.filter((laser) => laser.age < laser.warningTime + laser.activeTime);
   }
@@ -4335,6 +4707,36 @@
       game.enemyShots = game.enemyShots.filter((shot) => distance(slash, shot) > slash.r + shot.r);
     });
     game.slashes = game.slashes.filter((slash) => slash.life > 0);
+  }
+
+  function enemyShotHitArenaWall(shot) {
+    if (!shot.wallSplit || shot.wallSplitDone || (shot.wallSplitDepth || 0) <= 0 || shot.age < 0.12) return null;
+    if (shot.x <= arena.left + shot.r) return 0;
+    if (shot.x >= arena.right - shot.r) return Math.PI;
+    if (shot.y <= arena.top + shot.r) return Math.PI / 2;
+    if (shot.y >= arena.bottom - shot.r) return -Math.PI / 2;
+    return null;
+  }
+
+  function splitEnemyShotAtWall(shot) {
+    const normalAngle = enemyShotHitArenaWall(shot);
+    if (normalAngle == null) return;
+    shot.wallSplitDone = true;
+    shot.life = 0;
+    const x = clamp(shot.x, arena.left + shot.r + 1, arena.right - shot.r - 1);
+    const y = clamp(shot.y, arena.top + shot.r + 1, arena.bottom - shot.r - 1);
+    [-0.42, 0, 0.42].forEach((offset, index) => {
+      spawnEnemyShot(x, y, normalAngle + offset, 132 + index * 8, (shot.damage || 6) * 0.72, shot.color || colors.warning, {
+        r: Math.max(3, (shot.r || 4) * 0.72),
+        life: 2.4,
+        ownerId: shot.ownerId,
+        pattern: index === 1 ? "straight" : "curve",
+        curveAmp: index === 1 ? 0 : 18,
+        curveFreq: 4.5,
+        curvePhase: index,
+      });
+    });
+    burst(x, y, shot.color || colors.warning, 8);
   }
 
   function blockShotWithObstacles(shot) {
@@ -4402,6 +4804,7 @@
         if (enemy.defeated || enemy === target || shot.hitIds.has(enemy.id)) return;
         if (distance(enemy, target) > radius + enemy.r) return;
         enemy.hp -= splashDamage;
+        onMonsterDamaged(enemy, splashDamage);
         enemy.backHitFlash = Math.max(enemy.backHitFlash || 0, 0.14);
         shot.hitIds.add(enemy.id);
         burst(enemy.x, enemy.y, enemy.color || colors.warning, 8);
@@ -4442,6 +4845,7 @@
           burst(target.x, target.y, coreRef.shield > 0 ? colors.paper : coreRef.color, shot.blastRadius ? 16 : 4);
         } else {
           target.hp -= damage;
+          onMonsterDamaged(target, damage);
           target.backHitFlash = backHit ? 0.28 : target.backHitFlash || 0;
           burst(target.x, target.y, absorbed ? colors.paper : backHit ? colors.paper : target.color || colors.chalk, absorbed ? 12 : backHit ? 14 : shot.blastRadius ? 16 : 4);
         }
@@ -4472,6 +4876,7 @@
           burst(target.x, target.y, coreRef.shield > 0 ? colors.paper : coreRef.color, 5);
         } else {
           target.hp -= damage;
+          onMonsterDamaged(target, damage);
           target.backHitFlash = backHit ? 0.28 : target.backHitFlash || 0;
           burst(target.x, target.y, absorbed ? colors.paper : backHit ? colors.paper : target.color || colors.chalk, absorbed ? 12 : backHit ? 14 : 5);
         }
@@ -4597,12 +5002,7 @@
     if (player.invuln > 0) return;
     for (const laser of game.enemyLasers) {
       if (!isLaserActive(laser) || laser.hit) continue;
-      const halfWidth = laser.width / 2;
-      const hit =
-        laser.orientation === "vertical"
-          ? Math.abs(player.x - laser.x) <= player.r + halfWidth
-          : Math.abs(player.y - laser.y) <= player.r + halfWidth;
-      if (hit) {
+      if (laserHitsPlayer(laser, player)) {
         laser.hit = true;
         onEnemyAttackHitPlayer(laser);
         applyPlayerDamage(scaledIncomingDamage(laser.damage || 18), laser.color || colors.cyan);
@@ -4645,6 +5045,8 @@
       weaponSeal: Boolean(options.weaponSeal),
       harmless: Boolean(options.harmless),
       ignoresObstacles: Boolean(options.ignoresObstacles),
+      wallSplit: Boolean(options.wallSplit),
+      wallSplitDepth: options.wallSplitDepth || 0,
       armTime: options.armTime || 0,
       burstCount: options.burstCount || 0,
       burstSpeed: options.burstSpeed || 0,
@@ -4659,6 +5061,7 @@
       orientation: options.orientation,
       x: options.x || 0,
       y: options.y || 0,
+      angle: options.angle || 0,
       warningTime: options.warningTime ?? 0.6,
       activeTime: options.activeTime ?? 0.35,
       width: options.width ?? 20,
@@ -4668,6 +5071,8 @@
       sourceY: options.sourceY ?? options.y ?? 0,
       ownerId: options.ownerId || "",
       weaponSeal: Boolean(options.weaponSeal),
+      shieldOnMiss: Boolean(options.shieldOnMiss),
+      deathBeam: Boolean(options.deathBeam),
       age: 0,
       hit: false,
     });
@@ -4891,20 +5296,20 @@
 
   function drawMonsterMechanicFloor() {
     if (!game.enemies.length) return;
-    const hasZone = game.enemies.some((enemy) => hasEnemyMechanic(enemy, "gaussZone"));
+    const hasHalfField = game.enemies.some((enemy) => hasEnemyMechanic(enemy, "gaussHalfField"));
     const hasQuadrants = game.enemies.some((enemy) => hasEnemyMechanic(enemy, "quadrantBlink"));
-    if (hasZone) {
+    if (hasHalfField) {
       ctx.save();
-      ctx.fillStyle = "rgba(231,111,97,0.055)";
-      ctx.fillRect(arena.left, arena.top, monsterMidX() - arena.left, arena.bottom - arena.top);
-      ctx.fillStyle = "rgba(240,195,93,0.055)";
-      ctx.fillRect(monsterMidX(), arena.top, arena.right - monsterMidX(), arena.bottom - arena.top);
-      ctx.strokeStyle = "rgba(244,240,230,0.12)";
+      ctx.fillStyle = "rgba(231,111,97,0.06)";
+      ctx.fillRect(arena.left, arena.top, arena.width, monsterMidY() - arena.top);
+      ctx.fillStyle = "rgba(143,209,158,0.052)";
+      ctx.fillRect(arena.left, monsterMidY(), arena.width, arena.bottom - monsterMidY());
+      ctx.strokeStyle = "rgba(244,240,230,0.14)";
       ctx.lineWidth = 2;
-      ctx.setLineDash([8, 10]);
+      ctx.setLineDash([10, 10]);
       ctx.beginPath();
-      ctx.moveTo(monsterMidX(), arena.top + 10);
-      ctx.lineTo(monsterMidX(), arena.bottom - 10);
+      ctx.moveTo(arena.left + 10, monsterMidY());
+      ctx.lineTo(arena.right - 10, monsterMidY());
       ctx.stroke();
       ctx.restore();
     }
@@ -4936,18 +5341,6 @@
       ctx.stroke();
       ctx.restore();
     }
-    if (enemy.behindWarnTimer > 0) {
-      const progress = 1 - clamp(enemy.behindWarnTimer / Math.max(0.01, enemy.behindWarnMax || 0.48), 0, 1);
-      ctx.save();
-      ctx.globalAlpha = 0.24 + progress * 0.32;
-      ctx.strokeStyle = enemy.color || colors.paper;
-      ctx.lineWidth = 2;
-      ctx.setLineDash([4, 5]);
-      ctx.beginPath();
-      ctx.arc(enemy.behindTargetX || enemy.x, enemy.behindTargetY || enemy.y, 20 + progress * 14, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-    }
     if (enemy.dashWarnTimer > 0) {
       const progress = 1 - clamp(enemy.dashWarnTimer / Math.max(0.01, enemy.dashWarnMax || 0.58), 0, 1);
       ctx.save();
@@ -4958,6 +5351,34 @@
       ctx.beginPath();
       ctx.moveTo(enemy.x, enemy.y);
       ctx.lineTo(enemy.dashTargetX || enemy.x, enemy.dashTargetY || enemy.y);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if ((enemy.taylorDashWarnTimer || 0) > 0) {
+      const progress = 1 - clamp(enemy.taylorDashWarnTimer / Math.max(0.01, enemy.taylorDashWarnMax || 0.26), 0, 1);
+      ctx.save();
+      ctx.globalAlpha = 0.26 + progress * 0.36;
+      ctx.strokeStyle = enemy.color || colors.chalk;
+      ctx.lineWidth = 2 + progress * 2;
+      ctx.setLineDash([8, 6]);
+      ctx.beginPath();
+      ctx.moveTo(enemy.x, enemy.y);
+      ctx.lineTo(enemy.taylorDashTargetX || enemy.x, enemy.taylorDashTargetY || enemy.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(enemy.taylorDashTargetX || enemy.x, enemy.taylorDashTargetY || enemy.y, 18 + progress * 12, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if ((enemy.jacobiBlinkWarnTimer || 0) > 0 && enemy.jacobiBlinkTarget) {
+      const progress = 1 - clamp(enemy.jacobiBlinkWarnTimer / Math.max(0.01, enemy.jacobiBlinkWarnMax || 0.46), 0, 1);
+      ctx.save();
+      ctx.globalAlpha = 0.24 + progress * 0.34;
+      ctx.strokeStyle = enemy.color || colors.warning;
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([4, 6]);
+      ctx.beginPath();
+      ctx.arc(enemy.jacobiBlinkTarget.x, enemy.jacobiBlinkTarget.y, 22 + progress * 15, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
@@ -4976,16 +5397,33 @@
       ctx.stroke();
       ctx.restore();
     }
-    if (hasEnemyMechanic(enemy, "gaussEnrage") && enemyHpRatio(enemy) < 0.55) {
-      const pulse = 1 + Math.sin((enemy.moveT || 0) * 8) * 0.08;
+    if (enemy.jordanDomainActive) {
       ctx.save();
-      ctx.globalAlpha = 0.18 + (1 - enemyHpRatio(enemy)) * 0.16;
-      ctx.fillStyle = colors.danger;
-      circle(enemy.x, enemy.y, (enemy.r + 18) * pulse);
+      ctx.globalAlpha = 0.13 + Math.sin((enemy.moveT || 0) * 3) * 0.025;
+      ctx.fillStyle = colors.warning;
+      circle(enemy.x, enemy.y, jordanDomainRadius);
+      ctx.globalAlpha = 0.42;
+      ctx.strokeStyle = colors.warning;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([8, 7]);
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, jordanDomainRadius, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.restore();
     }
-    if ((enemy.playerHitShieldTimer || 0) > 0 || (enemy.shieldFlash || 0) > 0) {
-      const shieldAlpha = Math.max(0.18, clamp((enemy.playerHitShieldTimer || enemy.shieldFlash || 0) / monsterShieldDuration, 0, 1) * 0.42);
+    if ((enemy.taylorRestTimer || 0) > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.18 + Math.sin((enemy.moveT || 0) * 9) * 0.04;
+      ctx.strokeStyle = colors.paper;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, enemy.r + 22, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if ((enemy.missShieldTimer || 0) > 0 || (enemy.jordanTransitionTimer || 0) > 0 || (enemy.shieldFlash || 0) > 0) {
+      const timer = Math.max(enemy.missShieldTimer || 0, enemy.jordanTransitionTimer || 0, enemy.shieldFlash || 0);
+      const shieldAlpha = Math.max(0.18, clamp(timer / Math.max(monsterShieldDuration, 1.05), 0, 1) * 0.42);
       ctx.save();
       ctx.globalAlpha = shieldAlpha;
       ctx.strokeStyle = colors.paper;
@@ -5441,22 +5879,34 @@
         ctx.setLineDash([]);
         ctx.globalAlpha = 0.15;
         ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(laser.sourceX, laser.sourceY);
-        if (laser.orientation === "vertical") {
-          ctx.lineTo(laser.x, laser.sourceY);
-          ctx.lineTo(laser.x, arena.bottom);
+        if (laser.orientation === "ray") {
+          traceLaser(laser);
         } else {
-          ctx.lineTo(laser.sourceX, laser.y);
-          ctx.lineTo(arena.right, laser.y);
+          ctx.beginPath();
+          ctx.moveTo(laser.sourceX, laser.sourceY);
+          if (laser.orientation === "vertical") {
+            ctx.lineTo(laser.x, laser.sourceY);
+            ctx.lineTo(laser.x, arena.bottom);
+          } else {
+            ctx.lineTo(laser.sourceX, laser.y);
+            ctx.lineTo(arena.right, laser.y);
+          }
+          ctx.stroke();
         }
-        ctx.stroke();
       }
       ctx.restore();
     });
   }
 
   function traceLaser(laser) {
+    if (laser.orientation === "ray") {
+      const segment = laserSegment(laser);
+      ctx.beginPath();
+      ctx.moveTo(segment.ax, segment.ay);
+      ctx.lineTo(segment.bx, segment.by);
+      ctx.stroke();
+      return;
+    }
     ctx.beginPath();
     if (laser.orientation === "vertical") {
       ctx.moveTo(laser.x, arena.top);
@@ -5849,7 +6299,10 @@
 
   function weaponProjectileLabel(weapon) {
     if (weapon.special === "crossSlash") return `十字范围斩击 / 半径 ${weapon.slashRadius || 52}`;
-    if (weapon.special === "shieldPulse") return `护盾脉冲 / 半径 ${weapon.pulseRadius || 72} / 每 ${fixedNumber(weapon.shieldEvery, 1)}s 生成 ${weapon.shieldValue} 护盾`;
+    if (weapon.special === "shieldPulse") {
+      const maxBonus = weapon.shieldValueMaxBonus ?? 2;
+      return `护盾脉冲 / 半径 ${weapon.pulseRadius || 72} / 每 ${fixedNumber(weapon.shieldEvery, 1)}s 生成 ${geometryShieldValue({ ...weapon, level: 1 })}-${geometryShieldValue({ ...weapon, level: maxBonus + 1 })} 护盾`;
+    }
     if (!weapon.ranged && weapon.directBossAwakened) return `觉醒挥砍 / 半径 ${weapon.slashRadius || swordSlashRadius}`;
     if (!weapon.ranged) return "近战挥砍";
     const parts = [
@@ -6353,19 +6806,49 @@
     return Math.abs(angleDelta(sourceAngle, facing + Math.PI)) <= backHitHalfAngle;
   }
 
-  function monsterHitDamage(baseDamage, enemy, source) {
-    if (consumeEnemyShield(enemy)) {
-      return {
-        amount: 0,
-        backHit: false,
-        absorbed: true,
-      };
+  function lockGaussBottomHp(enemy) {
+    if (!hasEnemyMechanic(enemy, "gaussHalfField") || enemyInTopHalf(enemy)) return false;
+    const gate = enemy.maxHp * 0.1;
+    if (enemy.hp <= gate) {
+      enemy.hp = gate;
+      enemy.healFlash = Math.max(enemy.healFlash || 0, 0.35);
+      return true;
     }
+    return false;
+  }
+
+  function startJordanTransition(enemy) {
+    if (!hasEnemyMechanic(enemy, "jordanDomain") || enemy.jordanDomainActive || enemy.jordanTransitionStarted) return false;
+    if (enemyHpRatio(enemy) > 0.5) return false;
+    enemy.jordanTransitionStarted = true;
+    enemy.jordanTransitionTimer = 1.05;
+    enemy.hp = Math.max(enemy.hp, enemy.maxHp * 0.5);
+    enemy.fireTimer = Math.max(enemy.fireTimer || 0, 1.05);
+    enemy.shieldFlash = 0.65;
+    burst(enemy.x, enemy.y, enemy.color || colors.warning, 24);
+    return true;
+  }
+
+  function onMonsterDamaged(enemy, amount) {
+    if (!enemy || amount <= 0) return;
+    if (hasEnemyMechanic(enemy, "taylorTripleDash") && (enemy.taylorRestTimer || 0) > 0) {
+      applyEnemySlow(0.86, 2.4);
+      enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.25);
+    }
+    if (hasEnemyMechanic(enemy, "jordanDomain") && !enemy.jordanDomainActive && !(enemy.jordanTransitionTimer > 0)) {
+      fireJordanRing(enemy, false);
+    }
+    startJordanTransition(enemy);
+    lockGaussBottomHp(enemy);
+  }
+
+  function monsterHitDamage(baseDamage, enemy, source) {
     const backHit = isEnemyBackHit(enemy, source);
+    const receivedMultiplier = enemyReceivedDamageMultiplier(enemy);
     return {
-      amount: baseDamage * enemyReceivedDamageMultiplier(enemy) * (backHit ? backHitMultiplier : 1),
+      amount: baseDamage * receivedMultiplier * (backHit ? backHitMultiplier : 1),
       backHit,
-      absorbed: false,
+      absorbed: receivedMultiplier <= 0,
     };
   }
 
@@ -6696,7 +7179,10 @@
         let guard = 0;
         while (game.enemies.length && guard < 8) {
           game.enemies.forEach((enemy) => {
-            enemy.mechanics = (enemy.mechanics || []).filter((mechanic) => mechanic !== "splitOnDeath");
+            enemy.mechanics = (enemy.mechanics || []).filter(
+              (mechanic) => !["splitOnDeath", "gaussHalfField", "jordanDomain"].includes(mechanic)
+            );
+            enemy.jordanTransitionTimer = 0;
             enemy.hp = 0;
           });
           updateMonsterRoom(0);
@@ -6892,6 +7378,7 @@
       blockTimer: game.player?.blockTimer || 0,
       mistakeBoostTimer: game.player?.mistakeBoostTimer || 0,
       weaponSealTimer: game.player?.weaponSealTimer || 0,
+      enemySlowTimer: game.player?.enemySlowTimer || 0,
       gpaGuardUsed: Boolean(game.player?.gpaGuardUsed),
       weapon: game.player?.weapon ? displayWeaponName(game.player.weapon) : "",
       currentWeaponId: game.player?.weapon?.id || "",
@@ -6928,6 +7415,7 @@
       pendingChallenge: Boolean(game.pendingChallenge),
       challengeCount: game.challengeCount,
       defeatedInRoom: game.defeatedInRoom,
+      monsterClearDelay: game.monsterClearDelay || 0,
       enemyCount: game.enemies.length,
       enemyMechanics: game.enemies.map((enemy) => ({
         id: enemy.id,
@@ -6935,11 +7423,17 @@
         pattern: enemy.pattern,
         mechanics: [...(enemy.mechanics || [])],
         hp: Math.max(0, Math.ceil(enemy.hp)),
-        shieldTimer: enemy.playerHitShieldTimer || 0,
+        missShieldTimer: enemy.missShieldTimer || 0,
         quadrantWarn: enemy.quadrantWarnTimer || 0,
-        behindWarn: enemy.behindWarnTimer || 0,
         dashWarn: enemy.dashWarnTimer || 0,
         dashActive: enemy.dashActiveTimer || 0,
+        taylorDashWarn: enemy.taylorDashWarnTimer || 0,
+        taylorDashActive: enemy.taylorDashActiveTimer || 0,
+        taylorRest: enemy.taylorRestTimer || 0,
+        jacobiBlinkWarn: enemy.jacobiBlinkWarnTimer || 0,
+        jordanTransition: enemy.jordanTransitionTimer || 0,
+        jordanDomainActive: Boolean(enemy.jordanDomainActive),
+        gaussTopHalf: hasEnemyMechanic(enemy, "gaussHalfField") ? enemyInTopHalf(enemy) : null,
       })),
       obstacleCount: game.obstacles.length,
       obstacleRects: game.obstacles.map((obstacle) => ({
@@ -6995,9 +7489,11 @@
       enemyShotPatterns: game.enemyShots.map((shot) => shot.pattern || "straight"),
       enemyPiercingShotCount: game.enemyShots.filter((shot) => shot.ignoresObstacles).length,
       enemyWeaponSealShotCount: game.enemyShots.filter((shot) => shot.weaponSeal).length,
+      enemyWallSplitShotCount: game.enemyShots.filter((shot) => shot.wallSplit).length,
       bossDelayMineCount: game.enemyShots.filter((shot) => shot.pattern === "delayMine").length,
       enemyLaserCount: game.enemyLasers.length,
       activeLaserCount: game.enemyLasers.filter(isLaserActive).length,
+      gaussDeathBeamCount: game.enemyLasers.filter((laser) => laser.deathBeam).length,
     }),
   };
 
