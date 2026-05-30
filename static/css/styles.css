@@ -179,18 +179,12 @@ h2 {
   line-height: 1.08;
 }
 
-.tagline,
 .door-card span,
 .modal-body,
 .map-log,
 .result-stats {
   color: var(--muted);
   line-height: 1.7;
-}
-
-.tagline {
-  font-size: clamp(16px, 2vw, 21px);
-  max-width: 560px;
 }
 
 .fun-facts-board {
