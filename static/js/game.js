@@ -112,6 +112,14 @@
   const completedRoomKeys = ["monster", "chest", "geometry", "linear", "randomB", "randomC"];
   const playerDamageScale = 0.9;
   const bossDamageScale = 0.85;
+  const bossDomainCycleSeconds = 20;
+  const cauchyDotDuration = 3;
+  const cauchyDotDps = 2.2;
+  const cauchyDomainWallCount = 5;
+  const gaussZoneBaseCount = 3;
+  const gaussZoneDuration = 5.6;
+  const gaussZoneFireEvery = 0.78;
+  const descartesProjectionIdleSeconds = 10;
   const backHitMultiplier = 1.45;
   const backHitHalfAngle = Math.PI * 0.38;
   const swordSlashReach = 38;
@@ -773,6 +781,8 @@
       weaponSealTimer: 0,
       enemySlowTimer: 0,
       enemySlowMultiplier: 1,
+      cauchyDotTimer: 0,
+      cauchyDotTick: 0,
       dashCooldown: 0,
       invuln: 0,
     };
@@ -1644,10 +1654,8 @@
   }
 
   function bossShieldForCore(coreId, direct) {
-    const randomPrep = randomBossPrepCount();
     if (direct) return 72;
-    if (isCorePrepared(coreId)) return 0;
-    return Math.max(12, 38 - randomPrep * 8);
+    return isCorePrepared(coreId) ? 28 : 46;
   }
 
   function bossInitialCoreHp(direct) {
@@ -1675,7 +1683,6 @@
     game.obstacles = [];
     const direct = !completedRoomKeys.some((key) => game.completed[key]);
     awakenDirectBossSword(game.player, direct);
-    const prepCount = completedBossPrepCount();
     const coreHp = bossInitialCoreHp(direct);
     game.boss = {
       name: "三位一体",
@@ -1691,55 +1698,25 @@
       rotating: false,
       rotateElapsed: 0,
       rotateDuration: direct ? 0.58 : 0.72,
-      rotateTimer: direct ? 2.0 : 2.35,
-      rotateCooldown: direct ? 4.0 : 5.1,
+      rotateTimer: bossDomainCycleSeconds,
+      rotateCooldown: bossDomainCycleSeconds,
       rotationSteps: 0,
-      comboTimer: direct ? 2.9 : 3.4,
-      comboCooldown: direct ? 8.4 : 10.6,
-      comboWarning: 0,
-      comboWarningTime: direct ? 0.75 : 0.95,
-      comboType: "",
-      comboCount: 0,
+      domainCoreId: "",
+      domainName: "",
+      domainElapsed: 0,
+      domainIndex: 0,
+      gaussZones: [],
+      gaussZoneTimer: 0,
+      gaussZoneBonus: 0,
+      gaussPendingPlayerHit: false,
+      descartesQuadrant: "",
+      descartesIdleTimer: 0,
+      cauchyDomainObstacleIds: [],
       laserCount: 0,
       shotPatternCounts: {},
       weaponDamage: {},
       weaponDamageNames: {},
-      ruleCycle: 0,
-      ruleTimer: 0,
-      ruleName: "",
-      ruleCount: 0,
-      vulnerableTimer: 0,
-      vulnerableCoreId: "",
-      vulnerableCount: 0,
-      weakTimer: 0,
-      weakCooldown: direct ? 5.4 : Math.max(4.8, 7.2 - prepCount * 0.24),
-      weakDuration: direct ? 2.8 : Math.min(4.5, 3.4 + prepCount * 0.12),
-      weakCoreId: "",
-      weakCycle: 0,
-      inheritedCoreIds: [],
-      inheritedTimer: direct ? 3.3 : 4.2,
-      inheritedCount: 0,
-      obstacleTimer: direct ? 3.2 : Math.max(3.1, 5.0 - randomBossPrepCount() * 0.35),
-      obstacleCooldown: direct ? 5.2 : Math.max(4.3, 7.2 - randomBossPrepCount() * 0.45),
-      obstacleWarningTime: direct ? 1.25 : 1.55,
       obstacleBoomCount: 0,
-      ultimate: {
-        timer: direct ? 8.2 : Math.max(8.4, 10.8 - prepCount * 0.3),
-        cooldown: direct ? 16.5 : Math.max(16.0, 22.0 - prepCount * 0.6),
-        state: "idle",
-        charge: 0,
-        chargeTime: direct ? 3.0 : 3.45,
-        damageTaken: 0,
-        requiredPerCore: direct ? 88 : Math.max(58, 76 - prepCount * 2),
-        count: 0,
-        firedCount: 0,
-        interruptedCount: 0,
-        lastInterrupted: 0,
-        targetCoreIds: [],
-        focusId: "",
-        focusIndex: 0,
-        overloadHits: 0,
-      },
       intro: {
         elapsed: 0,
         blackTime: 1,
@@ -1750,7 +1727,7 @@
         total: 6.25,
         coreLightTimes: [4.25, 4.85, 5.45],
       },
-      phaseName: direct ? "裸考高压" : "三核展开",
+      phaseName: direct ? "裸考高压" : "领域轮转",
       defeatedCount: 0,
       direct,
       cores: [
@@ -1766,7 +1743,7 @@
           prepared: isCorePrepared("cauchy"),
           color: colors.chalk,
           offset: 0,
-          attack: "curve",
+          attack: "cauchySquares",
           fireEvery: direct ? 0.9 : 1.12,
           baseFireEvery: direct ? 0.9 : 1.12,
           fireTimer: 0.8,
@@ -1783,7 +1760,7 @@
           prepared: isCorePrepared("descartes"),
           color: colors.cyan,
           offset: (Math.PI * 2) / 3,
-          attack: "laser",
+          attack: "descartesCross",
           fireEvery: direct ? 1.8 : 2.2,
           baseFireEvery: direct ? 1.8 : 2.2,
           fireTimer: 1.2,
@@ -1800,14 +1777,14 @@
           prepared: isCorePrepared("gauss"),
           color: colors.warning,
           offset: (Math.PI * 4) / 3,
-          attack: "matrix",
+          attack: "gaussZones",
           fireEvery: direct ? 1.45 : 1.75,
           baseFireEvery: direct ? 1.45 : 1.75,
           fireTimer: 1.45,
         },
       ],
     };
-    game.obstacles = generateRoomObstacles("boss");
+    game.obstacles = [];
     showScreen("combat");
     updateHud();
   }
@@ -2261,7 +2238,6 @@
   function currentFailureStage() {
     if (game.activeRoom === "boss" && game.boss) {
       const defeated = Math.max(0, game.boss.defeatedCount || 0);
-      if (game.boss.ultimate?.state === "charging") return "Boss：终式蓄力";
       if (defeated >= 2) return "Boss：末核狂暴";
       if (defeated === 1) return "Boss：压力上升";
       return "Boss：三核展开";
@@ -2525,6 +2501,7 @@
     if (player.enemySlowTimer <= 0) {
       player.enemySlowMultiplier = 1;
     }
+    updatePlayerDotEffects(player, dt);
     player.dashCooldown = Math.max(0, (player.dashCooldown || 0) - dt);
     player.invuln = Math.max(0, player.invuln - dt);
     player.mistakeBoostTimer = Math.max(0, (player.mistakeBoostTimer || 0) - dt);
@@ -2558,11 +2535,22 @@
     }
   }
 
+  function updatePlayerDotEffects(player, dt) {
+    if (!player || (player.cauchyDotTimer || 0) <= 0) return;
+    player.cauchyDotTimer = Math.max(0, player.cauchyDotTimer - dt);
+    player.cauchyDotTick = (player.cauchyDotTick || 0) - dt;
+    if (player.cauchyDotTick <= 0) {
+      player.cauchyDotTick = 0.5;
+      applyPlayerDamage(scaledIncomingDamage(cauchyDotDps * 0.5), colors.warning);
+    }
+  }
+
   function movementSpeedMultiplier(player) {
     let multiplier = hasBuff(player, "熬夜咖啡") ? 2 : 1;
     if ((player.enemySlowTimer || 0) > 0) {
       multiplier *= player.enemySlowMultiplier || enemySlowMultiplier;
     }
+    multiplier *= bossDomainMoveMultiplier();
     if (
       game.activeRoom === "monster" &&
       game.enemies.some((enemy) => !enemy.defeated && hasEnemyMechanic(enemy, "gaussHalfField") && enemy.y >= monsterMidY())
@@ -2634,7 +2622,7 @@
         return;
       }
     }
-    player.attackTimer = weapon.cooldown;
+    player.attackTimer = weapon.cooldown * bossDomainAttackCooldownMultiplier();
     const attackKind = weapon.kind;
     const damageMultiplier =
       weaponDamageScale(weapon) *
@@ -3350,6 +3338,16 @@
     if (source?.weaponSeal) {
       sealPlayerNonGeometryWeapons(weaponSealDuration);
     }
+    if (source?.cauchySlow) {
+      applyEnemySlow(0.72, cauchyDotDuration);
+    }
+    if (source?.cauchyDot) {
+      game.player.cauchyDotTimer = Math.max(game.player.cauchyDotTimer || 0, cauchyDotDuration);
+      game.player.cauchyDotTick = Math.min(game.player.cauchyDotTick || 0.5, 0.5);
+    }
+    if (source?.gaussZone && game.boss) {
+      game.boss.gaussPendingPlayerHit = true;
+    }
   }
 
   function splitSpawnPoint(enemy, side) {
@@ -3687,33 +3685,25 @@
     updateBossDeaths(boss);
     updateBossMovement(boss, dt);
 
-    const aliveCores = boss.cores.filter((core) => core.hp > 0);
-    const activeCores = bossActiveCores(boss, aliveCores);
     boss.cores.forEach((core) => {
       core.hitFlash = Math.max(0, (core.hitFlash || 0) - dt);
       core.guardFlash = Math.max(0, (core.guardFlash || 0) - dt);
-      core.tellFlash = Math.max(0, (core.tellFlash || 0) - dt);
       core.overloadFlash = Math.max(0, (core.overloadFlash || 0) - dt);
-      core.vulnerableFlash = Math.max(0, (core.vulnerableFlash || 0) - dt);
     });
-    updateBossWindows(boss, dt);
+
+    updateBossDomain(boss, dt);
+
+    const aliveCores = boss.cores.filter((core) => core.hp > 0);
+    const activeCores = bossActiveCores(boss, aliveCores);
     if (!aliveCores.length) {
       finishGame(true);
       return;
     }
 
     updateBossObstacles(boss, dt);
-    updateBossWeakness(boss, activeCores, dt);
-    updateBossUltimate(boss, activeCores, dt);
-    updateBossInheritedAttacks(boss, activeCores, dt);
+    updateBossProjections(dt);
 
-    const ultimateCharging = isBossUltimateCharging(boss);
-    if (!ultimateCharging) {
-      updateBossRotation(boss, dt);
-      updateBossCombo(boss, activeCores, dt);
-    }
-
-    const attackingPaused = isBossIntroActive() || boss.rotating || boss.comboWarning > 0 || ultimateCharging;
+    const attackingPaused = isBossIntroActive() || boss.rotating;
     if (!attackingPaused) {
       activeCores.forEach((core) => {
         core.fireTimer -= dt;
@@ -3742,10 +3732,6 @@
     return game.activeRoom === "boss" && Boolean(boss?.intro) && boss.intro.elapsed < boss.intro.total;
   }
 
-  function isBossUltimateCharging(boss = game.boss) {
-    return Boolean(boss?.ultimate && boss.ultimate.state === "charging");
-  }
-
   function updateBossMovement(boss, dt) {
     if (isBossIntroActive()) return;
     boss.moveT = (boss.moveT || 0) + dt;
@@ -3753,345 +3739,365 @@
     boss.x = clamp(boss.moveBaseX + offset, arena.left + 180, arena.right - 180);
   }
 
-  function updateBossWindows(boss, dt) {
-    boss.ruleTimer = Math.max(0, (boss.ruleTimer || 0) - dt);
-    if (boss.vulnerableTimer > 0) {
-      boss.vulnerableTimer = Math.max(0, boss.vulnerableTimer - dt);
-      if (boss.vulnerableTimer === 0) {
-        boss.vulnerableCoreId = "";
-      }
-    }
-  }
-
   function bossCoreById(id) {
     return game.boss?.cores.find((core) => core.id === id);
+  }
+
+  function bossTopCore(boss = game.boss) {
+    if (!boss) return null;
+    return boss.cores
+      .filter((core) => core.hp > 0)
+      .map((core) => ({ core, pos: corePosition(core) }))
+      .sort((a, b) => a.pos.y - b.pos.y)
+      .map((item) => item.core)[0] || null;
+  }
+
+  function isBossCoreInDomain(core, boss = game.boss) {
+    return Boolean(boss && core && core.hp > 0 && boss.domainCoreId === core.id && !boss.rotating);
   }
 
   function bossFrontCoreIds(boss = game.boss) {
     if (!boss) return [];
     return boss.cores
-      .map((core) => ({ core, pos: corePosition(core) }))
-      .sort((a, b) => b.pos.y - a.pos.y)
-      .slice(0, 2)
-      .map((item) => item.core.id);
+      .filter((core) => core.hp > 0 && !isBossCoreInDomain(core, boss))
+      .map((core) => core.id);
   }
 
   function isBossCoreFront(core, boss = game.boss) {
     if (!boss || !core || core.hp <= 0) return false;
-    return bossFrontCoreIds(boss).includes(core.id);
+    return !isBossCoreInDomain(core, boss);
   }
 
   function bossActiveCores(boss = game.boss, cores = null) {
     const source = cores || boss?.cores || [];
-    const frontIds = new Set(bossFrontCoreIds(boss));
-    return source.filter((core) => core.hp > 0 && frontIds.has(core.id));
+    return source.filter((core) => core.hp > 0 && !isBossCoreInDomain(core, boss));
   }
 
-  function updateBossWeakness(boss, aliveCores, dt) {
-    if (isBossIntroActive() || isBossUltimateCharging(boss) || boss.rotating || !aliveCores.length) return;
-    if (boss.weakCoreId && !aliveCores.some((core) => core.id === boss.weakCoreId)) {
-      boss.weakCoreId = "";
-      boss.weakTimer = 0;
-      boss.weakCooldown = Math.min(boss.weakCooldown, 1.2);
+  function updateBossDomain(boss, dt) {
+    if (isBossIntroActive()) return;
+    if (!boss.domainCoreId && !boss.rotating) {
+      startBossDomain(boss, bossTopCore(boss));
     }
-    if (boss.weakTimer > 0) {
-      boss.weakTimer = Math.max(0, boss.weakTimer - dt);
-      if (boss.weakTimer === 0) {
-        boss.weakCoreId = "";
-        boss.weakCooldown = boss.direct ? 5.4 : Math.max(4.8, 7.2 - completedBossPrepCount() * 0.24);
-      }
-      return;
+    if (boss.domainCoreId) {
+      boss.domainElapsed = (boss.domainElapsed || 0) + dt;
     }
-
-    boss.weakCooldown -= dt;
-    if (boss.weakCooldown <= 0) {
-      const target = aliveCores[boss.weakCycle % aliveCores.length];
-      boss.weakCycle += 1;
-      boss.weakCoreId = target.id;
-      boss.weakTimer = boss.weakDuration;
+    updateBossRotation(boss, dt);
+    updateGaussZones(boss, dt);
+    if (boss.domainCoreId === "descartes") {
+      updateDescartesDomain(boss, dt);
     }
   }
 
-  function updateBossUltimate(boss, aliveCores, dt) {
-    const ultimate = boss.ultimate;
-    if (!ultimate || isBossIntroActive()) return;
-
-    if (ultimate.state === "charging") {
-      if (!aliveCores.length) {
-        ultimate.state = "idle";
-        ultimate.charge = 0;
-        ultimate.timer = Math.min(ultimate.cooldown, 2.2);
-        ultimate.interruptedCount += 1;
-        return;
-      }
-      ultimate.charge = Math.min(ultimate.chargeTime, ultimate.charge + dt);
-      updateBossUltimateFocus(boss, aliveCores);
-      if (ultimate.charge >= ultimate.chargeTime) {
-        finishBossUltimate(boss, aliveCores);
-      }
-      return;
+  function startBossDomain(boss, core) {
+    if (!boss || !core || core.hp <= 0) return;
+    if (boss.domainCoreId && boss.domainCoreId !== core.id) {
+      endBossDomain(boss);
     }
+    boss.domainCoreId = core.id;
+    boss.domainName = core.name;
+    boss.domainElapsed = 0;
+    boss.domainIndex = (boss.domainIndex || 0) + 1;
+    const pos = corePosition(core);
+    burst(pos.x, pos.y, core.color, 26);
 
-    if (!aliveCores.length) return;
-    if (boss.rotating || boss.comboWarning > 0) return;
-    ultimate.timer -= dt;
-    if (ultimate.timer <= 0) {
-      beginBossUltimate(boss, aliveCores);
+    if (core.id === "cauchy") {
+      enterCauchyDomain(boss);
+    } else if (core.id === "gauss") {
+      enterGaussDomain(boss, core);
+    } else if (core.id === "descartes") {
+      enterDescartesDomain(boss);
     }
   }
 
-  function beginBossUltimate(boss, aliveCores) {
-    const ultimate = boss.ultimate;
-    ultimate.state = "charging";
-    ultimate.charge = 0;
-    ultimate.damageTaken = 0;
-    ultimate.count += 1;
-    ultimate.targetCoreIds = aliveCores.map((core) => core.id);
-    ultimate.focusId = ultimate.targetCoreIds[0] || "";
-    ultimate.focusIndex = 0;
-    boss.comboWarning = 0;
-    boss.comboTimer = Math.max(boss.comboTimer, 1.8);
-    aliveCores.forEach((core) => {
-      core.fireTimer = Math.max(core.fireTimer, ultimate.chargeTime + 0.2);
+  function endBossDomain(boss) {
+    if (!boss?.domainCoreId) return;
+    if (boss.domainCoreId === "cauchy") {
+      explodeCauchyDomainWalls(boss);
+    }
+    if (boss.domainCoreId === "descartes") {
+      clearBossProjections();
+    }
+    if (boss.domainCoreId === "gauss") {
+      boss.gaussZones = [];
+    }
+    boss.cores.forEach((core) => {
+      if (core.domainShieldBonus) {
+        const remainingBonus = Math.min(core.shield || 0, core.domainShieldBonus);
+        core.shield = Math.max(0, (core.shield || 0) - remainingBonus);
+        core.maxShield = Math.max(0, (core.maxShield || 0) - core.domainShieldBonus);
+        core.domainShieldBonus = 0;
+      }
+      core.domainFireMultiplier = 1;
+      core.domainDamageMultiplier = 1;
+    });
+    boss.domainCoreId = "";
+    boss.domainName = "";
+    boss.domainElapsed = 0;
+    boss.descartesQuadrant = "";
+    boss.descartesIdleTimer = 0;
+  }
+
+  function decorateCauchyDomainWall(obstacle) {
+    if (!obstacle) return obstacle;
+    obstacle.id ||= `cauchy-wall-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    obstacle.cauchyDomain = true;
+    obstacle.marked = true;
+    obstacle.markTimer = 0;
+    obstacle.maxMarkTimer = 1;
+    obstacle.broken = false;
+    return obstacle;
+  }
+
+  function enterCauchyDomain(boss) {
+    game.obstacles = game.obstacles.filter((obstacle) => !obstacle.cauchyDomain);
+    boss.cauchyDomainObstacleIds = [];
+    for (let i = 0; i < cauchyDomainWallCount; i += 1) {
+      const obstacle = createRoomObstacle("boss", game.obstacles, null, i === 0 ? "brokenLine" : null);
+      if (obstacle) {
+        decorateCauchyDomainWall(obstacle);
+        game.obstacles.push(obstacle);
+        boss.cauchyDomainObstacleIds.push(obstacle.id);
+      }
+    }
+    boss.cores.filter((core) => core.hp > 0).forEach((core) => {
+      const wall = createCauchyCoreWall(core);
+      if (wall) {
+        decorateCauchyDomainWall(wall);
+        game.obstacles.push(wall);
+        boss.cauchyDomainObstacleIds.push(wall.id);
+      }
     });
   }
 
-  function updateBossUltimateFocus(boss, activeCores) {
-    const ultimate = boss.ultimate;
-    if (!ultimate) return;
-    const ids = activeCores.map((core) => core.id);
-    if (!ids.length) {
-      ultimate.focusId = "";
-      ultimate.targetCoreIds = [];
-      return;
+  function createCauchyCoreWall(core) {
+    const pos = corePosition(core);
+    const toward = Math.atan2(game.player.y - pos.y, game.player.x - pos.x);
+    const radius = 52;
+    const span = Math.PI * 0.72;
+    const points = [];
+    for (let i = 0; i <= 6; i += 1) {
+      const t = i / 6 - 0.5;
+      const angle = toward + t * span;
+      points.push({
+        x: pos.x + Math.cos(angle) * radius,
+        y: pos.y + Math.sin(angle) * radius,
+      });
     }
-    if (!ultimate.targetCoreIds?.length || ultimate.targetCoreIds.some((id) => !ids.includes(id))) {
-      ultimate.targetCoreIds = ids;
-    }
-    const phase = clamp(ultimate.charge / Math.max(0.01, ultimate.chargeTime), 0, 0.999);
-    const index = Math.floor(phase * ultimate.targetCoreIds.length);
-    ultimate.focusIndex = index;
-    ultimate.focusId = ultimate.targetCoreIds[index] || ids[0];
-    const focusCore = bossCoreById(ultimate.focusId);
-    if (focusCore) {
-      focusCore.overloadFlash = Math.max(focusCore.overloadFlash || 0, 0.18);
-    }
+    return obstacleFromPoints("curve", points, 8.5);
   }
 
-  function finishBossUltimate(boss, aliveCores) {
-    const ultimate = boss.ultimate;
-    const interrupted = clamp(Math.floor(ultimate.damageTaken / ultimate.requiredPerCore), 0, aliveCores.length);
-    const power = aliveCores.length - interrupted;
-    ultimate.lastInterrupted = interrupted;
-    ultimate.state = "idle";
-    ultimate.charge = 0;
-    ultimate.focusId = "";
-    ultimate.targetCoreIds = [];
-    ultimate.timer = ultimate.cooldown * bossPhaseMultiplier();
-
-    if (power <= 0) {
-      ultimate.interruptedCount += 1;
-      startBossVulnerability(boss, "ultimate-interrupt", 2.8);
-      aliveCores.forEach((core) => {
-        core.fireTimer = Math.max(core.fireTimer, 1.2);
-        const pos = corePosition(core);
-        burst(pos.x, pos.y, colors.paper, 24);
-      });
-      return;
-    }
-
-    ultimate.firedCount += 1;
-    fireBossUltimate(aliveCores, power);
-    startBossVulnerability(boss, "ultimate-recover", 1.7);
-  }
-
-  function fireBossUltimate(aliveCores, power) {
-    const boss = game.boss;
-    if (!boss) return;
-    const firingCores = aliveCores.slice(0, power);
-    firingCores.forEach((core) => fireBossCore(core));
-
-    const centerAngle = Math.atan2(game.player.y - boss.y, game.player.x - boss.x);
-    const ringCount = 8 + power * 4;
-    for (let i = 0; i < ringCount; i += 1) {
-      const angle = centerAngle + (Math.PI * 2 * i) / ringCount;
-      spawnEnemyShot(boss.x, boss.y, angle, 132 + power * 16, 11 + power, colors.paper, {
-        pattern: power >= 3 && i % 2 === 0 ? "spiral" : "straight",
-        curveAmp: power >= 3 ? 34 : 0,
-        curveFreq: 3.6,
-        curvePhase: i * 0.45,
-        side: i % 2 ? 1 : -1,
-        r: 4 + power,
-        life: 4,
-      });
-    }
-
-    if (power >= 2) {
-      const snapX = clamp(game.player.x, arena.left + 82, arena.right - 82);
-      const snapY = clamp(game.player.y, arena.top + 56, arena.bottom - 44);
-      spawnEnemyLaser({
-        orientation: "vertical",
-        x: snapX,
-        warningTime: 0.72,
-        activeTime: 0.32,
-        width: 18,
-        damage: 18,
-        color: colors.paper,
-        sourceX: boss.x,
-        sourceY: boss.y,
-      });
-      spawnEnemyLaser({
-        orientation: "horizontal",
-        y: snapY,
-        warningTime: 0.72,
-        activeTime: 0.32,
-        width: 18,
-        damage: 18,
-        color: colors.paper,
-        sourceX: boss.x,
-        sourceY: boss.y,
-      });
-    }
-
-    if (power >= 3) {
-      for (let col = -2; col <= 2; col += 1) {
-        spawnEnemyShot(boss.x + col * 34, arena.top + 18, Math.PI / 2, 128, 12, colors.warning, {
-          pattern: "matrix",
-          shape: "square",
-          r: 8,
-          life: 4.6,
-        });
-      }
-    }
-  }
-
-  function updateBossInheritedAttacks(boss, aliveCores, dt) {
-    if (isBossIntroActive() || isBossUltimateCharging(boss) || boss.comboWarning > 0 || !aliveCores.length || !boss.inheritedCoreIds.length) return;
-    boss.inheritedTimer -= dt;
-    if (boss.inheritedTimer > 0) return;
-    boss.inheritedCoreIds.forEach((id, index) => {
-      const source = aliveCores[index % aliveCores.length];
-      fireInheritedMechanism(id, corePosition(source));
-    });
-    boss.inheritedCount += boss.inheritedCoreIds.length;
-    boss.inheritedTimer = (boss.direct ? 4.0 : 5.2) * bossPhaseMultiplier();
-  }
-
-  function fireInheritedMechanism(id, pos) {
-    const inherited = bossCoreById(id);
-    const color = inherited?.color || colors.paper;
-    const angle = Math.atan2(game.player.y - pos.y, game.player.x - pos.x);
-
-    if (id === "cauchy") {
-      [-0.22, 0.22].forEach((offset, index) => {
-        spawnEnemyShot(pos.x, pos.y, angle + offset, 132, 9, color, {
-          pattern: "curve",
-          curveAmp: 70,
-          curveFreq: 4.4,
-          curvePhase: index * Math.PI,
-          side: index ? 1 : -1,
-          r: 4,
-          life: 3.4,
-        });
-      });
-      return;
-    }
-
-    if (id === "descartes") {
-      const vertical = Math.abs(game.player.x - pos.x) > Math.abs(game.player.y - pos.y);
-      spawnEnemyLaser({
-        orientation: vertical ? "vertical" : "horizontal",
-        x: vertical ? clamp(game.player.x, arena.left + 72, arena.right - 72) : 0,
-        y: vertical ? 0 : clamp(game.player.y, arena.top + 48, arena.bottom - 38),
-        warningTime: 0.58,
-        activeTime: 0.28,
-        width: 15,
-        damage: 13,
-        color,
-        sourceX: pos.x,
-        sourceY: pos.y,
-      });
-      return;
-    }
-
-    if (id === "gauss") {
-      const sideX = -Math.sin(angle);
-      const sideY = Math.cos(angle);
-      for (let col = -1; col <= 1; col += 1) {
-        spawnEnemyShot(pos.x + sideX * col * 26, pos.y + sideY * col * 26, angle, 122, 10, color, {
-          pattern: "matrix",
+  function explodeCauchyDomainWalls(boss) {
+    const walls = game.obstacles.filter((obstacle) => obstacle.cauchyDomain);
+    walls.forEach((wall) => {
+      const center = obstacleCenter(wall);
+      const base = Math.atan2(game.player.y - center.y, game.player.x - center.x);
+      [-0.44, 0, 0.44].forEach((offset, index) => {
+        spawnEnemyShot(center.x, center.y, base + offset, 128 + index * 12, 9, colors.warning, {
+          pattern: "straight",
           shape: "square",
           r: 7,
+          life: 3.2,
+        });
+      });
+      burst(center.x, center.y, colors.warning, 18);
+    });
+    boss.obstacleBoomCount = (boss.obstacleBoomCount || 0) + walls.length;
+    game.obstacles = game.obstacles.filter((obstacle) => !obstacle.cauchyDomain);
+    boss.cauchyDomainObstacleIds = [];
+  }
+
+  function enterGaussDomain(boss, core) {
+    boss.gaussZones = [];
+    const hpRatio = clamp((core.hp || 0) / Math.max(1, core.maxHp || 1), 0.001, 1);
+    const restoreRatio = Math.max(0.25, Math.ceil(hpRatio * 4) / 4);
+    const others = boss.cores.filter((item) => item !== core && item.hp > 0);
+    others.forEach((item) => {
+      item.hp = Math.max(item.hp, item.maxHp * restoreRatio);
+    });
+    const sorted = [...others].sort((a, b) => a.hp - b.hp);
+    const low = sorted[0];
+    const high = sorted[sorted.length - 1];
+    if (low) {
+      const bonus = boss.direct ? 42 : 34;
+      low.domainShieldBonus = (low.domainShieldBonus || 0) + bonus;
+      low.shield = (low.shield || 0) + bonus;
+      low.maxShield = (low.maxShield || 0) + bonus;
+    }
+    if (high && high !== low) {
+      high.domainFireMultiplier = 2;
+      high.domainDamageMultiplier = 1.5;
+      high.overloadFlash = Math.max(high.overloadFlash || 0, bossDomainCycleSeconds);
+    }
+  }
+
+  function enterDescartesDomain(boss) {
+    clearBossProjections();
+    boss.descartesQuadrant = bossPlayerQuadrant();
+    boss.descartesIdleTimer = 0;
+  }
+
+  function bossPlayerQuadrant() {
+    const player = game.player;
+    if (!player) return "";
+    const midX = (arena.left + arena.right) / 2;
+    const midY = (arena.top + arena.bottom) / 2;
+    if (player.x < midX && player.y < midY) return "q1";
+    if (player.x >= midX && player.y < midY) return "q2";
+    if (player.x < midX && player.y >= midY) return "q3";
+    return "q4";
+  }
+
+  function updateDescartesDomain(boss, dt) {
+    const quadrant = bossPlayerQuadrant();
+    if (!quadrant) return;
+    if (!boss.descartesQuadrant) {
+      boss.descartesQuadrant = quadrant;
+      return;
+    }
+    if (quadrant !== boss.descartesQuadrant) {
+      boss.descartesQuadrant = quadrant;
+      boss.descartesIdleTimer = 0;
+      spawnBossProjection(game.player.x, game.player.y, "descartes");
+      return;
+    }
+    boss.descartesIdleTimer = (boss.descartesIdleTimer || 0) + dt;
+    if (boss.descartesIdleTimer >= descartesProjectionIdleSeconds) {
+      const angle = Math.random() * Math.PI * 2;
+      spawnBossProjection(
+        game.player.x + Math.cos(angle) * 46,
+        game.player.y + Math.sin(angle) * 46,
+        "descartes"
+      );
+      boss.descartesIdleTimer = 0;
+    }
+  }
+
+  function bossDomainDamageMultiplier() {
+    return game.boss?.domainCoreId === "descartes" && bossPlayerQuadrant() === "q1" ? 0.5 : 1;
+  }
+
+  function bossDomainIncomingMultiplier() {
+    return game.boss?.domainCoreId === "descartes" && bossPlayerQuadrant() === "q2" ? 2 : 1;
+  }
+
+  function bossDomainMoveMultiplier() {
+    return game.boss?.domainCoreId === "descartes" && bossPlayerQuadrant() === "q3" ? 0.5 : 1;
+  }
+
+  function bossDomainAttackCooldownMultiplier() {
+    return game.boss?.domainCoreId === "descartes" && bossPlayerQuadrant() === "q4" ? 2 : 1;
+  }
+
+  function spawnBossProjection(x, y, source = "descartes") {
+    const point = arenaPoint(x, y, 34);
+    const id = `boss-projection-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    game.enemies.push({
+      id,
+      bossProjection: true,
+      source,
+      kind: "geometry",
+      pattern: "projection",
+      mechanics: [],
+      x: point.x,
+      y: point.y,
+      baseX: point.x,
+      baseY: point.y,
+      r: 15,
+      hp: 22,
+      maxHp: 22,
+      fireTimer: 0.55,
+      fireEvery: 1.15,
+      moveT: 0,
+      moveAmp: 0,
+      moveSpeed: 0,
+      facingAngle: 0,
+      backHitFlash: 0,
+      shieldFlash: 0,
+      healFlash: 0,
+      color: colors.cyan,
+      shortName: "影",
+      defeated: false,
+    });
+  }
+
+  function clearBossProjections() {
+    game.enemies = game.enemies.filter((enemy) => !enemy.bossProjection);
+  }
+
+  function updateBossProjections(dt) {
+    game.enemies.forEach((enemy) => {
+      if (!enemy.bossProjection || enemy.defeated) return;
+      enemy.moveT += dt;
+      enemy.fireTimer -= dt;
+      enemy.facingAngle = Math.atan2(game.player.y - enemy.y, game.player.x - enemy.x);
+      if (enemy.fireTimer <= 0) {
+        enemy.fireTimer = enemy.fireEvery;
+        spawnEnemyShot(enemy.x, enemy.y, enemy.facingAngle, 132, 7, enemy.color, {
+          pattern: "straight",
+          r: 5,
+          life: 3.5,
+        });
+      }
+      applyPlayerDamageToCircle(enemy, "enemy");
+      if (enemy.hp <= 0) {
+        enemy.defeated = true;
+        burst(enemy.x, enemy.y, enemy.color, 20);
+      }
+    });
+    game.enemies = game.enemies.filter((enemy) => !enemy.bossProjection || !enemy.defeated);
+  }
+
+  function createGaussZones(core) {
+    const boss = game.boss;
+    if (!boss || core.hp <= 0) return;
+    const count = gaussZoneBaseCount + Math.min(3, boss.gaussZoneBonus || 0);
+    boss.gaussZoneBonus = 0;
+    boss.gaussZones = Array.from({ length: count }, (_, index) => ({
+      ...randomArenaPoint(58),
+      r: 26,
+      life: gaussZoneDuration,
+      pulse: index * 0.65,
+      fireTimer: 0.15 + index * 0.12,
+      coreId: core.id,
+    }));
+  }
+
+  function updateGaussZones(boss, dt) {
+    if (!boss.gaussZones?.length) return;
+    const core = bossCoreById("gauss");
+    boss.gaussZones.forEach((zone) => {
+      zone.life -= dt;
+      zone.fireTimer -= dt;
+      if (zone.fireTimer <= 0 && core && core.hp > 0) {
+        zone.fireTimer = gaussZoneFireEvery;
+        const aim = Math.atan2(game.player.y - zone.y, game.player.x - zone.x) + (Math.random() - 0.5) * 0.3;
+        spawnEnemyShot(zone.x, zone.y, aim, 116, 8 * (core.domainDamageMultiplier || 1), core.color, {
+          pattern: "curve",
+          gaussZone: true,
+          curveAmp: 48,
+          curveFreq: 4.6,
+          curvePhase: zone.pulse,
+          side: Math.random() > 0.5 ? 1 : -1,
+          r: 5,
           life: 3.8,
         });
       }
-    }
+    });
+    boss.gaussZones = boss.gaussZones.filter((zone) => zone.life > 0);
   }
 
   function updateBossObstacles(boss, dt) {
     if (!game.obstacles.length) return;
-
-    game.obstacles.forEach((obstacle) => {
-      if (obstacle.marked) {
-        obstacle.markTimer = Math.max(0, obstacle.markTimer - dt);
-        if (obstacle.markTimer === 0) {
-          detonateBossObstacle(obstacle);
-        }
-      }
-      if (obstacle.broken) {
-        obstacle.restoreTimer = Math.max(0, obstacle.restoreTimer - dt);
-        if (obstacle.restoreTimer === 0) {
-          respawnBossObstacle(obstacle);
-        }
-      }
-    });
-
-    if (isBossIntroActive() || isBossUltimateCharging(boss)) return;
-    boss.obstacleTimer -= dt;
-    if (boss.obstacleTimer > 0) return;
-    const available = game.obstacles.filter((obstacle) => !obstacle.marked && !obstacle.broken);
-    if (!available.length) {
-      boss.obstacleTimer = 1.2;
+    if (boss.domainCoreId !== "cauchy") {
+      game.obstacles = game.obstacles.filter((obstacle) => !obstacle.cauchyDomain);
       return;
     }
-
-    const markCount = Math.min(available.length, boss.direct || boss.defeatedCount >= 1 ? 2 : 1);
-    for (let i = 0; i < markCount; i += 1) {
-      const index = Math.floor(Math.random() * available.length);
-      const obstacle = available.splice(index, 1)[0];
+    game.obstacles.forEach((obstacle) => {
+      if (!obstacle.cauchyDomain) return;
       obstacle.marked = true;
-      obstacle.markTimer = boss.obstacleWarningTime;
-      obstacle.maxMarkTimer = boss.obstacleWarningTime;
-    }
-    boss.obstacleTimer = boss.obstacleCooldown * bossPhaseMultiplier();
-  }
-
-  function respawnBossObstacle(obstacle) {
-    const replacement = createRoomObstacle("boss", game.obstacles, obstacle);
-    if (replacement) {
-      Object.assign(obstacle, replacement);
-    }
-    obstacle.marked = false;
-    obstacle.broken = false;
-    obstacle.restoreTimer = 0;
-    obstacle.markTimer = 0;
-    obstacle.maxMarkTimer = 0;
-  }
-
-  function detonateBossObstacle(obstacle) {
-    const center = obstacleCenter(obstacle);
-    const radius = 82;
-    obstacle.marked = false;
-    obstacle.broken = true;
-    obstacle.restoreTimer = 3.8;
-    game.boss.obstacleBoomCount += 1;
-    burst(center.x, center.y, colors.warning, 28);
-    game.enemyShots = game.enemyShots.filter((shot) => distance(center, shot) > radius);
-    game.playerShots = game.playerShots.filter((shot) => distance(center, shot) > radius * 0.72);
-    if (game.player && distance(center, game.player) <= radius + game.player.r && game.player.invuln <= 0) {
-      applyPlayerDamage(scaledIncomingDamage(16), colors.warning);
-      game.player.invuln = Math.max(game.player.invuln, 0.72);
-    }
+      obstacle.markTimer = 0;
+      obstacle.maxMarkTimer = 1;
+    });
   }
 
   function updateBossRotation(boss, dt) {
@@ -4103,9 +4109,8 @@
         boss.angle = boss.rotateTo;
         boss.rotating = false;
         boss.rotationSteps += 1;
-        boss.rotateTimer = boss.rotateCooldown * bossPhaseMultiplier();
-        triggerBossRotationRule(boss);
-        startBossVulnerability(boss, "rotation", 1.45);
+        boss.rotateTimer = boss.rotateCooldown;
+        startBossDomain(boss, bossTopCore(boss));
         bossActiveCores(boss).forEach((core) => {
           core.fireTimer = Math.min(core.fireTimer, 0.24);
         });
@@ -4116,78 +4121,12 @@
     if (isBossIntroActive()) return;
     boss.rotateTimer -= dt;
     if (boss.rotateTimer <= 0) {
+      endBossDomain(boss);
       boss.rotating = true;
       boss.rotateElapsed = 0;
       boss.rotateFrom = boss.angle;
       boss.rotateTo = boss.angle + (Math.PI * 2) / 3;
     }
-  }
-
-  function startBossVulnerability(boss, reason = "recover", duration = 1.6) {
-    if (!boss || isBossIntroActive()) return;
-    const activeCores = bossActiveCores(boss);
-    if (!activeCores.length) return;
-    boss.vulnerableTimer = Math.max(boss.vulnerableTimer || 0, duration);
-    boss.vulnerableCoreId = "";
-    boss.vulnerableReason = reason;
-    boss.vulnerableCount = (boss.vulnerableCount || 0) + 1;
-    activeCores.forEach((core) => {
-      core.vulnerableFlash = Math.max(core.vulnerableFlash || 0, duration);
-    });
-  }
-
-  function triggerBossRotationRule(boss) {
-    if (!boss || isBossIntroActive() || isBossUltimateCharging(boss)) return;
-    const activeCores = bossActiveCores(boss);
-    if (!activeCores.length) return;
-    const core = activeCores[(boss.ruleCycle || 0) % activeCores.length];
-    boss.ruleCycle = (boss.ruleCycle || 0) + 1;
-    boss.ruleName = core.id;
-    boss.ruleTimer = 1.15;
-    boss.ruleCount = (boss.ruleCount || 0) + 1;
-    core.tellFlash = Math.max(core.tellFlash || 0, 0.9);
-    fireBossRule(core, activeCores);
-  }
-
-  function fireBossRule(core) {
-    const pos = corePosition(core);
-    if (core.id === "cauchy") {
-      fireCauchyDelayMines(pos, core);
-      return;
-    }
-    if (core.id === "descartes") {
-      fireDescartesAxisField(pos, core);
-      return;
-    }
-    fireGaussProbabilityWave(pos, core);
-  }
-
-  function updateBossCombo(boss, aliveCores, dt) {
-    if (isBossIntroActive() || boss.rotating || aliveCores.length < 2) return;
-
-    if (boss.comboWarning > 0) {
-      boss.comboWarning = Math.max(0, boss.comboWarning - dt);
-      if (boss.comboWarning === 0) {
-        fireBossCombo(aliveCores);
-        boss.comboTimer = boss.comboCooldown * bossPhaseMultiplier();
-      }
-      return;
-    }
-
-    boss.comboTimer -= dt;
-    if (boss.comboTimer <= 0) {
-      boss.comboType = bossComboType(aliveCores);
-      boss.comboWarning = boss.comboWarningTime;
-    }
-  }
-
-  function bossComboType(aliveCores) {
-    const ids = new Set(aliveCores.map((core) => core.id));
-    if (ids.size >= 3) return "trinity";
-    if (ids.has("cauchy") && ids.has("descartes")) return "curve_laser";
-    if (ids.has("descartes") && ids.has("gauss")) return "grid_lock";
-    if (ids.has("gauss") && ids.has("cauchy")) return "matrix_spiral";
-    return "single";
   }
 
   function updateBossDeaths(boss) {
@@ -4196,10 +4135,6 @@
         core.hp = 0;
         core.defeated = true;
         core.collapseTimer = 0.8;
-        if (!boss.inheritedCoreIds.includes(core.id)) {
-          boss.inheritedCoreIds.push(core.id);
-          boss.inheritedTimer = Math.min(boss.inheritedTimer, 1.6);
-        }
         const pos = corePosition(core);
         burst(pos.x, pos.y, core.color, 46);
       }
@@ -4211,16 +4146,10 @@
     const defeatedCount = boss.cores.filter((core) => core.defeated).length;
     if (defeatedCount !== boss.defeatedCount) {
       boss.defeatedCount = defeatedCount;
-      const aliveCores = boss.cores.filter((core) => core.hp > 0);
-      boss.phaseName = defeatedCount === 0 ? (boss.direct ? "裸考高压" : "三核展开") : defeatedCount === 1 ? "压力上升" : "末核狂暴";
-      if (aliveCores.length === 1 && !aliveCores[0].enraged) {
-        aliveCores[0].enraged = true;
-        aliveCores[0].finalForm = aliveCores[0].id;
-        aliveCores[0].fireTimer = Math.min(aliveCores[0].fireTimer, 0.2);
-        boss.comboTimer = Math.min(boss.comboTimer, 2.4);
-        if (boss.ultimate) {
-          boss.ultimate.timer = Math.min(boss.ultimate.timer, 4.2);
-        }
+      boss.phaseName = defeatedCount === 0 ? (boss.direct ? "裸考高压" : "领域轮转") : defeatedCount === 1 ? "双核领域" : "末核领域";
+      if (boss.domainCoreId && bossCoreById(boss.domainCoreId)?.hp <= 0) {
+        endBossDomain(boss);
+        startBossDomain(boss, bossTopCore(boss));
       }
     }
   }
@@ -4234,8 +4163,8 @@
   }
 
   function bossCoreInterval(core) {
-    const interval = (core.baseFireEvery || core.fireEvery) * bossPhaseMultiplier() * (core.enraged ? 0.95 : 1);
-    return Math.max(core.enraged ? 0.74 : 0.52, interval);
+    const interval = (core.baseFireEvery || core.fireEvery) * bossPhaseMultiplier() / Math.max(1, core.domainFireMultiplier || 1);
+    return Math.max(0.62, interval);
   }
 
   function easeInOut(t) {
@@ -4245,300 +4174,48 @@
   function fireBossCore(core) {
     if (!isBossCoreFront(core)) return;
     const pos = corePosition(core);
-    if (core.enraged && game.boss?.cores.filter((item) => item.hp > 0).length === 1) {
-      fireLastCorePattern(pos, core);
-      return;
-    }
-    if (core.attack === "laser") {
-      fireDescartesLaser(pos, core);
-      return;
-    }
-    if (core.attack === "matrix") {
-      fireGaussMatrix(pos, core);
-      return;
-    }
-    fireCauchyCurve(pos, core);
-  }
-
-  function fireLastCorePattern(pos, core) {
     if (core.id === "cauchy") {
-      fireCauchyCurve(pos, core);
-      const baseAngle = Math.atan2(game.player.y - pos.y, game.player.x - pos.x);
-      for (let i = 0; i < 9; i += 1) {
-        spawnEnemyShot(pos.x, pos.y, baseAngle + (Math.PI * 2 * i) / 9, 122, 11, core.color, {
-          pattern: "spiral",
-          curveAmp: 84,
-          curveFreq: 5.4,
-          curvePhase: i * 0.66,
-          side: i % 2 ? 1 : -1,
-          r: 5,
-          life: 4.2,
-        });
-      }
+      fireCauchySquares(pos, core);
       return;
     }
-
     if (core.id === "descartes") {
-      fireDescartesLaser(pos, core);
-      const snapX = clamp(game.player.x, arena.left + 84, arena.right - 84);
-      const snapY = clamp(game.player.y, arena.top + 58, arena.bottom - 44);
-      [-52, 52].forEach((offset) => {
-        spawnEnemyLaser({
-          orientation: "vertical",
-          x: clamp(snapX + offset, arena.left + 54, arena.right - 54),
-          warningTime: 0.58,
-          activeTime: 0.28,
-          width: 14,
-          damage: 15,
-          color: core.color,
-          sourceX: pos.x,
-          sourceY: pos.y,
-        });
-        spawnEnemyLaser({
-          orientation: "horizontal",
-          y: clamp(snapY + offset * 0.58, arena.top + 44, arena.bottom - 38),
-          warningTime: 0.58,
-          activeTime: 0.28,
-          width: 14,
-          damage: 15,
-          color: core.color,
-          sourceX: pos.x,
-          sourceY: pos.y,
-        });
-      });
+      fireDescartesCross(pos, core);
       return;
     }
-
-    fireGaussMatrix(pos, core);
-    const angle = Math.atan2(game.player.y - pos.y, game.player.x - pos.x);
-    const sideX = -Math.sin(angle);
-    const sideY = Math.cos(angle);
-    for (let row = 0; row < 2; row += 1) {
-      for (let col = -2; col <= 2; col += 1) {
-        spawnEnemyShot(pos.x - Math.cos(angle) * row * 34 + sideX * col * 28, pos.y - Math.sin(angle) * row * 34 + sideY * col * 28, angle, 140 + row * 18, 12, core.color, {
-          pattern: "matrix",
-          shape: "square",
-          r: 8,
-          life: 4.4,
-        });
-      }
-    }
+    createGaussZones(core);
   }
 
-  function fireBossCombo(aliveCores) {
-    const boss = game.boss;
-    if (!boss) return;
-    boss.comboCount += 1;
-    const type = boss.comboType || bossComboType(aliveCores);
-    boss.comboType = type;
-
-    if (type === "trinity") {
-      fireTrinityCombo(aliveCores);
-    } else if (type === "curve_laser") {
-      fireCurveLaserCombo(aliveCores);
-    } else if (type === "grid_lock") {
-      fireGridLockCombo(aliveCores);
-    } else if (type === "matrix_spiral") {
-      fireMatrixSpiralCombo(aliveCores);
-    } else {
-      aliveCores.forEach((core) => fireBossCore(core));
-    }
-
-    aliveCores.forEach((core) => {
-      core.fireTimer = bossCoreInterval(core) * 1.05;
-    });
-    startBossVulnerability(boss, "combo", boss.direct ? 1.35 : 1.75);
-  }
-
-  function fireTrinityCombo(aliveCores) {
-    const boss = game.boss;
-    aliveCores.forEach((core) => fireBossCore(core));
-    const centerAngle = Math.atan2(game.player.y - boss.y, game.player.x - boss.x);
-    for (let i = 0; i < 12; i += 1) {
-      const angle = centerAngle + (Math.PI * 2 * i) / 12;
-      spawnEnemyShot(boss.x, boss.y, angle, 172, 11, colors.paper, {
-        pattern: i % 2 ? "straight" : "spiral",
-        curveAmp: 42,
-        curveFreq: 4.1,
-        curvePhase: i,
-        side: i % 2 ? 1 : -1,
-        r: 5,
-        life: 3.6,
-      });
-    }
-  }
-
-  function fireCurveLaserCombo(aliveCores) {
-    const cauchy = aliveCores.find((core) => core.id === "cauchy");
-    const descartes = aliveCores.find((core) => core.id === "descartes");
-    if (cauchy) fireCauchyCurve(corePosition(cauchy), cauchy);
-    const source = descartes ? corePosition(descartes) : { x: game.boss.x, y: game.boss.y };
-    const snapX = clamp(game.player.x, arena.left + 84, arena.right - 84);
-    [-42, 42].forEach((offset) => {
-      spawnEnemyLaser({
-        orientation: "vertical",
-        x: clamp(snapX + offset, arena.left + 60, arena.right - 60),
-        warningTime: 0.66,
-        activeTime: 0.34,
-        width: 17,
-        damage: 16,
-        color: descartes?.color || colors.cyan,
-        sourceX: source.x,
-        sourceY: source.y,
-      });
-    });
-  }
-
-  function fireGridLockCombo(aliveCores) {
-    const descartes = aliveCores.find((core) => core.id === "descartes");
-    const gauss = aliveCores.find((core) => core.id === "gauss");
-    if (gauss) fireGaussMatrix(corePosition(gauss), gauss);
-    const source = descartes ? corePosition(descartes) : { x: game.boss.x, y: game.boss.y };
-    const snapX = clamp(game.player.x, arena.left + 88, arena.right - 88);
-    const snapY = clamp(game.player.y, arena.top + 60, arena.bottom - 48);
-    [-64, 64].forEach((offset) => {
-      spawnEnemyLaser({
-        orientation: "vertical",
-        x: clamp(snapX + offset, arena.left + 56, arena.right - 56),
-        warningTime: 0.7,
-        activeTime: 0.3,
-        width: 15,
-        damage: 15,
-        color: descartes?.color || colors.cyan,
-        sourceX: source.x,
-        sourceY: source.y,
-      });
-      spawnEnemyLaser({
-        orientation: "horizontal",
-        y: clamp(snapY + offset * 0.66, arena.top + 46, arena.bottom - 42),
-        warningTime: 0.7,
-        activeTime: 0.3,
-        width: 15,
-        damage: 15,
-        color: descartes?.color || colors.cyan,
-        sourceX: source.x,
-        sourceY: source.y,
-      });
-    });
-  }
-
-  function fireMatrixSpiralCombo(aliveCores) {
-    const gauss = aliveCores.find((core) => core.id === "gauss");
-    const cauchy = aliveCores.find((core) => core.id === "cauchy");
-    if (gauss) fireGaussMatrix(corePosition(gauss), gauss);
-    const color = cauchy?.color || colors.chalk;
-    const baseAngle = Math.atan2(game.player.y - game.boss.y, game.player.x - game.boss.x);
-    for (let i = 0; i < 10; i += 1) {
-      spawnEnemyShot(game.boss.x, game.boss.y, baseAngle + (Math.PI * 2 * i) / 10, 136, 10, color, {
-        pattern: "spiral",
-        curveAmp: 64,
-        curveFreq: 4.8,
-        curvePhase: i * 0.7,
-        side: i % 2 ? 1 : -1,
-        r: 5,
-        life: 3.8,
-      });
-    }
-  }
-
-  function fireCauchyDelayMines(pos, core) {
-    const count = game.boss?.direct ? 4 : 3;
-    const baseAngle = Math.atan2(game.player.y - pos.y, game.player.x - pos.x);
-    for (let i = 0; i < count; i += 1) {
-      const angle = baseAngle + (Math.PI * 2 * i) / count + (i % 2 ? 0.28 : -0.16);
-      const radius = 46 + i * 22;
-      const x = clamp(game.player.x + Math.cos(angle) * radius, arena.left + 62, arena.right - 62);
-      const y = clamp(game.player.y + Math.sin(angle) * radius, arena.top + 54, arena.bottom - 48);
-      spawnEnemyShot(x, y, 0, 0, 0, core.color, {
-        pattern: "delayMine",
-        r: 12,
-        life: 1.25,
-        armTime: 0.76 + i * 0.08,
-        burstCount: 6,
-        burstSpeed: 126 + i * 8,
-        harmless: true,
-        ignoresObstacles: true,
-        pulse: i * 0.2,
-      });
-    }
-  }
-
-  function fireDescartesAxisField(pos, core) {
-    const snapX = clamp(game.player.x, arena.left + 76, arena.right - 76);
-    const snapY = clamp(game.player.y, arena.top + 50, arena.bottom - 38);
-    const offset = ((game.boss?.ruleCycle || 0) % 2 ? 1 : -1) * 72;
-    [
-      { orientation: "vertical", x: snapX, y: 0, width: 12 },
-      { orientation: "horizontal", x: 0, y: snapY, width: 12 },
-      {
-        orientation: Math.abs(game.player.x - game.boss.x) > Math.abs(game.player.y - game.boss.y) ? "vertical" : "horizontal",
-        x: clamp(snapX + offset, arena.left + 58, arena.right - 58),
-        y: clamp(snapY + offset * 0.62, arena.top + 44, arena.bottom - 40),
-        width: 9,
-      },
-    ].forEach((laser) => {
-      spawnEnemyLaser({
-        ...laser,
-        warningTime: 0.82,
-        activeTime: 0.26,
-        damage: 12,
-        color: core.color,
-        sourceX: pos.x,
-        sourceY: pos.y,
-      });
-    });
-  }
-
-  function fireGaussProbabilityWave(pos, core) {
+  function fireCauchySquares(pos, core) {
     const targetAngle = Math.atan2(game.player.y - pos.y, game.player.x - pos.x);
-    const edges = [
-      { x: arena.left + 30, y: arena.top + 76, angle: targetAngle + 0.18 },
-      { x: arena.right - 30, y: arena.top + 116, angle: targetAngle - 0.18 },
-      { x: arena.left + 96, y: arena.bottom - 32, angle: targetAngle - 0.36 },
-      { x: arena.right - 96, y: arena.bottom - 32, angle: targetAngle + 0.36 },
-    ];
-    for (let i = 0; i < 8; i += 1) {
-      const edge = edges[i % edges.length];
-      const jitter = (Math.random() - 0.5) * 0.34;
-      const aim = Math.atan2(game.player.y - edge.y, game.player.x - edge.x) + jitter;
-      spawnEnemyShot(edge.x, edge.y, aim, 112 + Math.random() * 44, 10, core.color, {
-        pattern: "matrix",
+    const sideX = -Math.sin(targetAngle);
+    const sideY = Math.cos(targetAngle);
+    const damage = 7 * (core.domainDamageMultiplier || 1);
+    [-1, 0, 1].forEach((slot) => {
+      spawnEnemyShot(pos.x + sideX * slot * 18, pos.y + sideY * slot * 18, targetAngle, 138, damage, core.color, {
+        pattern: "straight",
         shape: "square",
-        r: 6,
-        pulse: i * 0.13,
-        life: 4.2,
+        r: 8,
+        life: 3.7,
+        cauchyDot: true,
+        cauchySlow: true,
+        cauchyMarksWall: true,
       });
-    }
+    });
   }
 
-  function fireCauchyCurve(pos, core) {
-    const targetAngle = Math.atan2(game.player.y - pos.y, game.player.x - pos.x);
-    for (let i = -2; i <= 2; i += 1) {
-      spawnEnemyShot(pos.x, pos.y, targetAngle + i * 0.18, 150, 10, core.color, {
-        pattern: "curve",
-        curveAmp: 95 + Math.abs(i) * 16,
-        curveFreq: 5.2 + Math.abs(i) * 0.45,
-        curvePhase: i * 0.9,
-        side: i % 2 === 0 ? 1 : -1,
-        r: 5,
-        label: i === 0 ? "∫" : "",
-      });
-    }
-    for (let i = 0; i < 6; i += 1) {
-      spawnEnemyShot(pos.x, pos.y, (Math.PI * 2 * i) / 6 + game.boss.angle * 0.35, 105, 8, core.color, {
-        pattern: "spiral",
-        curveAmp: 58,
-        curveFreq: 4.4,
-        curvePhase: i,
-        side: 1,
-        r: 4,
-      });
-    }
+  function fireDescartesCross(pos, core) {
+    fireDescartesLaser(pos, core);
+    spawnBossProjection(
+      clamp(game.player.x, arena.left + 46, arena.right - 46),
+      clamp(game.player.y, arena.top + 46, arena.bottom - 46),
+      "descartes-attack"
+    );
   }
 
   function fireDescartesLaser(pos, core) {
     const snapX = clamp(game.player.x, arena.left + 76, arena.right - 76);
     const snapY = clamp(game.player.y, arena.top + 50, arena.bottom - 38);
+    const damage = 18 * (core.domainDamageMultiplier || 1);
     spawnEnemyLaser({
       orientation: "vertical",
       x: snapX,
@@ -4546,7 +4223,7 @@
       warningTime: 0.62,
       activeTime: 0.38,
       width: 22,
-      damage: 18,
+      damage,
       color: core.color,
       sourceX: pos.x,
       sourceY: pos.y,
@@ -4558,32 +4235,11 @@
       warningTime: 0.62,
       activeTime: 0.38,
       width: 22,
-      damage: 18,
+      damage,
       color: core.color,
       sourceX: pos.x,
       sourceY: pos.y,
     });
-  }
-
-  function fireGaussMatrix(pos, core) {
-    const targetAngle = Math.atan2(game.player.y - pos.y, game.player.x - pos.x);
-    const forwardX = Math.cos(targetAngle);
-    const forwardY = Math.sin(targetAngle);
-    const sideX = -forwardY;
-    const sideY = forwardX;
-    const spacing = 24;
-    for (let row = 0; row < 3; row += 1) {
-      for (let col = -1; col <= 1; col += 1) {
-        const startX = pos.x - forwardX * row * spacing + sideX * col * spacing;
-        const startY = pos.y - forwardY * row * spacing + sideY * col * spacing;
-        spawnEnemyShot(startX, startY, targetAngle, 128 + row * 18, 12, core.color, {
-          pattern: "matrix",
-          shape: "square",
-          r: 8,
-          pulse: 0.16 * (row + col + 2),
-        });
-      }
-    }
   }
 
   function updateProjectiles(dt) {
@@ -4591,16 +4247,6 @@
       shot.age = (shot.age || 0) + dt;
       shot.prevX = shot.x;
       shot.prevY = shot.y;
-      if (shot.pattern === "delayMine") {
-        if (!shot.burstDone && shot.age >= (shot.armTime || 0.75)) {
-          detonateDelayMine(shot);
-          shot.burstDone = true;
-          shot.life = 0;
-          return;
-        }
-        shot.life -= dt;
-        return;
-      }
       let curveOffset = 0;
       if (shot.pattern === "curve" || shot.pattern === "spiral") {
         curveOffset = Math.sin(shot.age * (shot.curveFreq || 4) + (shot.curvePhase || 0)) * (shot.curveAmp || 0);
@@ -4627,24 +4273,6 @@
 
     game.playerShots = game.playerShots.filter((shot) => shot.life > 0 && inBounds(shot.x, shot.y, 40));
     game.enemyShots = game.enemyShots.filter((shot) => shot.life > 0 && inBounds(shot.x, shot.y, 60));
-  }
-
-  function detonateDelayMine(shot) {
-    const count = shot.burstCount || 6;
-    const base = (game.boss?.angle || 0) * 0.35 + (shot.pulse || 0);
-    burst(shot.x, shot.y, shot.color || colors.chalk, 12);
-    for (let i = 0; i < count; i += 1) {
-      const angle = base + (Math.PI * 2 * i) / count;
-      spawnEnemyShot(shot.x, shot.y, angle, shot.burstSpeed || 132, 9, shot.color || colors.chalk, {
-        pattern: i % 2 ? "curve" : "straight",
-        curveAmp: i % 2 ? 32 : 0,
-        curveFreq: 4.2,
-        curvePhase: i * 0.7,
-        side: i % 2 ? 1 : -1,
-        r: 4,
-        life: 3.2,
-      });
-    }
   }
 
   function splitPlayerShot(shot) {
@@ -4744,8 +4372,33 @@
     if (shot.ignoresObstacles) return;
     const obstacle = game.obstacles.find((item) => !item.broken && circleObstacleCollision(shot, item, shot.r || 4));
     if (!obstacle) return;
+    if (shot.weaponId && obstacle.cauchyDomain) {
+      reflectPlayerShotFromCauchyWall(shot, obstacle);
+      shot.life = 0;
+      return;
+    }
+    if (shot.cauchyMarksWall) {
+      decorateCauchyDomainWall(obstacle);
+    }
     shot.life = 0;
     burst(shot.x, shot.y, colors.muted, shot.shape === "beam" ? 7 : 4);
+  }
+
+  function reflectPlayerShotFromCauchyWall(shot, obstacle) {
+    const center = obstacleCenter(obstacle);
+    const angle = Math.atan2(game.player.y - shot.y, game.player.x - shot.x);
+    spawnEnemyShot(shot.x, shot.y, angle, 156, Math.max(7, (shot.damage || 8) * 0.45), colors.warning, {
+      pattern: "curve",
+      shape: shot.shape === "beam" ? "square" : shot.shape || "circle",
+      curveAmp: 30,
+      curveFreq: 4.4,
+      curvePhase: Math.random() * Math.PI,
+      side: Math.random() > 0.5 ? 1 : -1,
+      r: Math.max(5, shot.r || 5),
+      life: 3.2,
+    });
+    obstacle.marked = true;
+    burst(center.x, center.y, colors.warning, 10);
   }
 
   function resolvePlayerObstacles() {
@@ -4887,16 +4540,25 @@
 
   function damageBossCore(core, amount, sourceWeaponId = "", sourceWeaponName = "") {
     const boss = game.boss;
-    if (!isBossCoreFront(core, boss)) {
-      core.guardFlash = 0.28;
-      return 0;
-    }
+    if (!boss || !core || core.hp <= 0) return 0;
     let remaining = Math.max(0, Number(amount || 0));
     let absorbed = 0;
     if ((core.shield || 0) > 0) {
+      if (!bossShieldAllowsWeapon(core, sourceWeaponId)) {
+        core.guardFlash = 0.28;
+        return 0;
+      }
       absorbed = Math.min(core.shield, remaining);
       core.shield = Math.max(0, core.shield - absorbed);
       remaining -= absorbed;
+    }
+    if (isBossCoreInDomain(core, boss)) {
+      core.guardFlash = 0.28;
+      if (absorbed > 0) {
+        recordBossWeaponDamage(sourceWeaponId, sourceWeaponName, absorbed);
+        core.hitFlash = 0.18;
+      }
+      return absorbed;
     }
     const hpDamage = remaining > 0 ? Math.min(Math.max(0, core.hp), remaining) : 0;
     if (remaining > 0) {
@@ -4904,33 +4566,17 @@
     }
     recordBossWeaponDamage(sourceWeaponId, sourceWeaponName, absorbed + hpDamage);
     core.hitFlash = 0.18;
-    if (boss?.ultimate?.state === "charging") {
-      let contribution = remaining + absorbed * 0.55;
-      if (boss.ultimate.focusId) {
-        if (boss.ultimate.focusId === core.id) {
-          contribution *= 1.8;
-          boss.ultimate.overloadHits = (boss.ultimate.overloadHits || 0) + 1;
-          core.overloadFlash = Math.max(core.overloadFlash || 0, 0.42);
-        } else {
-          contribution *= 0.48;
-        }
-      }
-      boss.ultimate.damageTaken += contribution;
+    if (core.id === "gauss" && boss.gaussPendingPlayerHit && absorbed + hpDamage > 0) {
+      triggerGaussHitRetaliation(core);
     }
     return absorbed + hpDamage;
   }
 
   function scaledBossDamage(baseDamage, weaponKind, coreRef) {
     if (!coreRef) return baseDamage;
-    if (!isBossCoreFront(coreRef)) return 0;
     let damage = baseDamage * bossKindMultiplier(weaponKind, coreRef);
     const boss = game.boss;
-    if (boss?.weakTimer > 0 && boss.weakCoreId) {
-      damage *= boss.weakCoreId === coreRef.id ? 1.4 : 0.88;
-    }
-    if (boss?.vulnerableTimer > 0 && (!boss.vulnerableCoreId || boss.vulnerableCoreId === coreRef.id)) {
-      damage *= 1.28;
-    }
+    damage *= bossDomainDamageMultiplier();
     if (coreRef.prepared) {
       damage *= 1.08;
     }
@@ -4940,6 +4586,28 @@
   function bossKindMultiplier(weaponKind, coreRef) {
     if (!coreRef) return 1;
     return weaponKind === "sword" || weaponKind === coreRef.kind ? 1.25 : 0.8;
+  }
+
+  function bossShieldAllowsWeapon(core, sourceWeaponId) {
+    const weapon = weapons[sourceWeaponId];
+    return sourceWeaponId === "sword" || weapon?.kind === core.kind;
+  }
+
+  function triggerGaussHitRetaliation(core) {
+    const boss = game.boss;
+    if (!boss) return;
+    boss.gaussPendingPlayerHit = false;
+    boss.gaussZoneBonus = Math.min(3, (boss.gaussZoneBonus || 0) + 1);
+    const pos = corePosition(core);
+    const count = 10;
+    for (let i = 0; i < count; i += 1) {
+      spawnEnemyShot(pos.x, pos.y, (Math.PI * 2 * i) / count, 122, 8, core.color, {
+        pattern: "straight",
+        r: 5,
+        life: 3.4,
+      });
+    }
+    burst(pos.x, pos.y, core.color, 22);
   }
 
   function applyPlayerDamage(amount, color) {
@@ -4981,7 +4649,7 @@
 
   function scaledIncomingDamage(amount) {
     const value = Number(amount) || 0;
-    return game.activeRoom === "boss" ? value * bossDamageScale : value;
+    return game.activeRoom === "boss" ? value * bossDamageScale * bossDomainIncomingMultiplier() : value;
   }
 
   function checkPlayerHits() {
@@ -5043,6 +4711,10 @@
       label: options.label || "",
       ownerId: options.ownerId || "",
       weaponSeal: Boolean(options.weaponSeal),
+      cauchyDot: Boolean(options.cauchyDot),
+      cauchySlow: Boolean(options.cauchySlow),
+      cauchyMarksWall: Boolean(options.cauchyMarksWall),
+      gaussZone: Boolean(options.gaussZone),
       harmless: Boolean(options.harmless),
       ignoresObstacles: Boolean(options.ignoresObstacles),
       wallSplit: Boolean(options.wallSplit),
@@ -5589,17 +5261,13 @@
   function drawBossRoom() {
     const boss = game.boss;
     if (!boss) return;
-    const ultimateCharging = isBossUltimateCharging(boss);
-
-    if (ultimateCharging) {
-      drawBossUltimateCharge(boss);
-    }
+    drawBossDomainField(boss);
 
     ctx.save();
     ctx.translate(boss.x, boss.y);
     ctx.rotate(boss.angle * 0.35);
-    ctx.strokeStyle = ultimateCharging ? "rgba(244,240,230,0.62)" : boss.rotating ? "rgba(240,195,93,0.44)" : "rgba(255,255,255,0.14)";
-    ctx.lineWidth = ultimateCharging || boss.rotating ? 3 : 2;
+    ctx.strokeStyle = boss.rotating ? "rgba(240,195,93,0.44)" : "rgba(255,255,255,0.14)";
+    ctx.lineWidth = boss.rotating ? 3 : 2;
     ctx.beginPath();
     ctx.arc(0, 0, 44, 0, Math.PI * 2);
     ctx.stroke();
@@ -5609,8 +5277,8 @@
 
     ctx.beginPath();
     const positions = boss.cores.map(corePosition);
-    ctx.strokeStyle = ultimateCharging ? "rgba(244,240,230,0.58)" : boss.comboWarning > 0 ? "rgba(231,111,97,0.55)" : "rgba(255,255,255,0.16)";
-    ctx.lineWidth = ultimateCharging || boss.comboWarning > 0 ? 3 : 2;
+    ctx.strokeStyle = boss.rotating ? "rgba(240,195,93,0.34)" : "rgba(255,255,255,0.16)";
+    ctx.lineWidth = boss.rotating ? 3 : 2;
     positions.forEach((pos, index) => {
       if (index === 0) ctx.moveTo(pos.x, pos.y);
       else ctx.lineTo(pos.x, pos.y);
@@ -5625,21 +5293,18 @@
       const front = alive && frontIds.has(core.id);
       const invulnerable = alive && !front;
       const introAlpha = bossIntroCoreAlpha(index);
-      const weak = front && boss.weakTimer > 0 && boss.weakCoreId === core.id;
-      const vulnerable = front && boss.vulnerableTimer > 0 && (!boss.vulnerableCoreId || boss.vulnerableCoreId === core.id);
-      const overload = ultimateCharging && boss.ultimate?.focusId === core.id;
-      const tell = front && alive && !ultimateCharging && !boss.rotating && (core.fireTimer || 0) > 0 && (core.fireTimer || 0) < 0.46;
+      const overload = front && alive && ((core.domainFireMultiplier || 1) > 1 || (core.domainDamageMultiplier || 1) > 1);
+      const tell = front && alive && !boss.rotating && (core.fireTimer || 0) > 0 && (core.fireTimer || 0) < 0.46;
       const flash = clamp((core.hitFlash || 0) / 0.18, 0, 1);
       const guardFlash = clamp((core.guardFlash || 0) / 0.28, 0, 1);
-      const overloadFlash = clamp((core.overloadFlash || 0) / 0.42, 0, 1);
-      const vulnerableFlash = clamp((core.vulnerableFlash || 0) / 1.75, 0, 1);
-      const pulse = 1 + Math.sin(performance.now() / (weak || vulnerable || overload ? 92 : 180) + core.offset) * (weak || vulnerable || overload ? 0.09 : 0.05);
+      const overloadFlash = clamp((core.overloadFlash || 0) / bossDomainCycleSeconds, 0, 1);
+      const pulse = 1 + Math.sin(performance.now() / (overload ? 92 : 180) + core.offset) * (overload ? 0.09 : 0.05);
       ctx.save();
       ctx.globalAlpha = alive ? introAlpha * (invulnerable ? 0.52 : 1) : 0.24;
-      ctx.shadowColor = invulnerable ? colors.paper : overload ? colors.paper : vulnerable ? colors.warning : weak ? colors.paper : core.enraged ? colors.danger : core.color;
-      ctx.shadowBlur = alive ? (invulnerable ? guardFlash * 18 : overload ? 34 : vulnerable ? 28 : weak ? 30 : core.enraged ? 24 : 10) + flash * 16 : 0;
-      ctx.fillStyle = invulnerable ? "rgba(244,240,230,0.045)" : overload ? "rgba(244,240,230,0.2)" : vulnerable ? "rgba(240,195,93,0.14)" : weak ? "rgba(244,240,230,0.16)" : core.enraged ? "rgba(231,111,97,0.18)" : "rgba(255,255,255,0.08)";
-      circle(pos.x, pos.y, (overload ? 46 : weak || vulnerable ? 43 : core.enraged ? 40 : 34) * pulse + flash * 3);
+      ctx.shadowColor = invulnerable ? colors.paper : overload ? colors.warning : core.enraged ? colors.danger : core.color;
+      ctx.shadowBlur = alive ? (invulnerable ? guardFlash * 18 : overload ? 30 : core.enraged ? 24 : 10) + flash * 16 : 0;
+      ctx.fillStyle = invulnerable ? "rgba(244,240,230,0.045)" : overload ? "rgba(240,195,93,0.16)" : core.enraged ? "rgba(231,111,97,0.18)" : "rgba(255,255,255,0.08)";
+      circle(pos.x, pos.y, (overload ? 43 : core.enraged ? 40 : 34) * pulse + flash * 3);
       ctx.shadowBlur = 0;
       drawCoreGlyph(core, pos);
       ctx.fillStyle = invulnerable ? "rgba(244,240,230,0.45)" : core.color;
@@ -5658,24 +5323,6 @@
         ctx.setLineDash([9, 7]);
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, 37 + Math.sin(performance.now() / 120) * 2 + guardFlash * 5, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-      if (weak) {
-        ctx.strokeStyle = colors.paper;
-        ctx.lineWidth = 2;
-        ctx.setLineDash([5, 5]);
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 39 + Math.sin(performance.now() / 70) * 3, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-      if (vulnerable) {
-        ctx.strokeStyle = `rgba(240,195,93,${0.48 + vulnerableFlash * 0.24})`;
-        ctx.lineWidth = 2.5;
-        ctx.setLineDash([10, 5]);
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 45 + Math.sin(performance.now() / 80) * 3, 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -5702,47 +5349,55 @@
       }
       ctx.restore();
     });
+    game.enemies.filter((enemy) => enemy.bossProjection).forEach(drawMonsterEnemy);
 
     ctx.textAlign = "start";
   }
 
-  function drawBossUltimateCharge(boss) {
-    const ultimate = boss.ultimate;
-    const activeCores = bossActiveCores(boss);
-    const progress = clamp((ultimate?.charge || 0) / (ultimate?.chargeTime || 1), 0, 1);
-    const pressure = clamp((ultimate?.damageTaken || 0) / Math.max(1, (ultimate?.requiredPerCore || 1) * Math.max(1, activeCores.length)), 0, 1);
+  function drawBossDomainField(boss) {
+    if (!boss?.domainCoreId) return;
+    const core = bossCoreById(boss.domainCoreId);
+    const color = core?.color || colors.paper;
     ctx.save();
-    ctx.translate(boss.x, boss.y);
-    ctx.strokeStyle = "rgba(244,240,230,0.52)";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(0, 0, 72 + Math.sin(performance.now() / 70) * 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(143,209,158,0.66)";
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    ctx.arc(0, 0, 84, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * pressure);
-    ctx.stroke();
-    ctx.restore();
-
-    ctx.save();
-    ctx.globalAlpha = 0.46 + progress * 0.28;
-    ctx.strokeStyle = "rgba(244,240,230,0.48)";
-    ctx.lineWidth = 1.5;
-    activeCores.forEach((core) => {
-      const pos = corePosition(core);
-      if (ultimate?.focusId === core.id) {
-        ctx.strokeStyle = "rgba(244,240,230,0.72)";
-        ctx.lineWidth = 3;
-      } else {
-        ctx.strokeStyle = "rgba(244,240,230,0.3)";
+    if (boss.domainCoreId === "descartes") {
+      const midX = (arena.left + arena.right) / 2;
+      const midY = (arena.top + arena.bottom) / 2;
+      const zones = [
+        { key: "q1", x: arena.left, y: arena.top, w: midX - arena.left, h: midY - arena.top },
+        { key: "q2", x: midX, y: arena.top, w: arena.right - midX, h: midY - arena.top },
+        { key: "q3", x: arena.left, y: midY, w: midX - arena.left, h: arena.bottom - midY },
+        { key: "q4", x: midX, y: midY, w: arena.right - midX, h: arena.bottom - midY },
+      ];
+      zones.forEach((zone) => {
+        const active = boss.descartesQuadrant === zone.key;
+        ctx.fillStyle = active ? "rgba(102,207,255,0.075)" : "rgba(102,207,255,0.032)";
+        ctx.fillRect(zone.x, zone.y, zone.w, zone.h);
+        ctx.strokeStyle = active ? "rgba(102,207,255,0.34)" : "rgba(102,207,255,0.15)";
+        ctx.lineWidth = active ? 2 : 1;
+        ctx.strokeRect(zone.x, zone.y, zone.w, zone.h);
+      });
+    } else if (boss.domainCoreId === "gauss") {
+      (boss.gaussZones || []).forEach((zone) => {
+        const alpha = clamp(zone.life / gaussZoneDuration, 0, 1);
+        ctx.fillStyle = `rgba(240,195,93,${0.07 + alpha * 0.08})`;
+        circle(zone.x, zone.y, zone.r + Math.sin(performance.now() / 120 + zone.pulse) * 3);
+        ctx.strokeStyle = `rgba(240,195,93,${0.26 + alpha * 0.22})`;
         ctx.lineWidth = 1.5;
-      }
-      ctx.beginPath();
-      ctx.moveTo(boss.x, boss.y);
-      ctx.lineTo(pos.x, pos.y);
-      ctx.stroke();
-    });
+        ctx.setLineDash([5, 7]);
+        ctx.beginPath();
+        ctx.arc(zone.x, zone.y, zone.r + 6, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      });
+    } else {
+      ctx.fillStyle = "rgba(240,195,93,0.035)";
+      ctx.fillRect(arena.left, arena.top, arena.width, arena.height);
+    }
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = 0.24;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([12, 8]);
+    ctx.strokeRect(arena.left + 4, arena.top + 4, arena.width - 8, arena.height - 8);
     ctx.restore();
   }
 
@@ -5813,22 +5468,7 @@
     game.enemyShots.forEach((shot) => {
       const pulse = 1 + Math.sin(((shot.age || 0) + (shot.pulse || 0)) * 12) * 0.08;
       ctx.fillStyle = shot.color || colors.danger;
-      if (shot.pattern === "delayMine") {
-        const arm = clamp((shot.age || 0) / Math.max(0.01, shot.armTime || 0.75), 0, 1);
-        ctx.save();
-        ctx.globalAlpha = 0.35 + arm * 0.42;
-        ctx.strokeStyle = shot.color || colors.chalk;
-        ctx.lineWidth = 2 + arm * 2;
-        ctx.setLineDash([5, 5]);
-        ctx.beginPath();
-        ctx.arc(shot.x, shot.y, shot.r + 9 * arm + Math.sin((shot.age || 0) * 16) * 2, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.globalAlpha = 0.22 + arm * 0.26;
-        ctx.fillStyle = shot.color || colors.chalk;
-        circle(shot.x, shot.y, Math.max(3, shot.r * 0.42));
-        ctx.restore();
-      } else if (shot.shape === "square") {
+      if (shot.shape === "square") {
         const size = shot.r * 2.25 * pulse;
         ctx.save();
         ctx.translate(shot.x, shot.y);
@@ -7282,6 +6922,15 @@
       updateHud();
       return this.state();
     },
+    setPlayerPositionForVerify(x, y) {
+      if (game.player) {
+        const point = arenaPoint(Number(x) || game.player.x, Number(y) || game.player.y, 20);
+        game.player.x = point.x;
+        game.player.y = point.y;
+        resolvePlayerObstacles();
+      }
+      return this.state();
+    },
     setBossCoreHp(id, value) {
       const core = game.boss?.cores.find((item) => item.id === id);
       if (core) {
@@ -7294,12 +6943,16 @@
       const core = game.boss?.cores.find((item) => item.id === id);
       if (!core) return null;
       const before = Math.max(0, core.hp);
+      const beforeShield = Math.max(0, core.shield || 0);
       damageBossCore(core, Number(amount) || 0, weaponId, weapons[weaponId]?.name || weaponId);
       return {
         id,
         front: isBossCoreFront(core),
+        domain: isBossCoreInDomain(core),
         before,
+        beforeShield,
         after: Math.max(0, core.hp),
+        afterShield: Math.max(0, core.shield || 0),
         state: this.state(),
       };
     },
@@ -7352,19 +7005,11 @@
     forceBossMechanic(kind) {
       const boss = game.boss;
       if (!boss) return this.state();
-      if (kind === "weak") {
-        const target = bossActiveCores(boss)[0] || boss.cores.find((core) => core.hp > 0);
-        if (target) {
-          boss.weakCoreId = target.id;
-          boss.weakTimer = boss.weakDuration || 2.5;
-          boss.weakCooldown = boss.direct ? 5.4 : Math.max(4.8, 7.2 - completedBossPrepCount() * 0.24);
-        }
-      }
-      if (kind === "ultimate" && boss.ultimate) boss.ultimate.timer = 0;
-      if (kind === "obstacle") boss.obstacleTimer = 0;
-      if (kind === "combo") boss.comboTimer = 0;
-      if (kind === "rule") triggerBossRotationRule(boss);
-      if (kind === "vulnerable") startBossVulnerability(boss, "verify", 2.2);
+      if (kind === "rotate") boss.rotateTimer = 0;
+      if (kind === "cauchy") startBossDomain(boss, bossCoreById("cauchy"));
+      if (kind === "descartes") startBossDomain(boss, bossCoreById("descartes"));
+      if (kind === "gauss") startBossDomain(boss, bossCoreById("gauss"));
+      if (kind === "gaussZones") createGaussZones(bossCoreById("gauss"));
       return this.state();
     },
     state: () => ({
@@ -7379,6 +7024,7 @@
       mistakeBoostTimer: game.player?.mistakeBoostTimer || 0,
       weaponSealTimer: game.player?.weaponSealTimer || 0,
       enemySlowTimer: game.player?.enemySlowTimer || 0,
+      cauchyDotTimer: game.player?.cauchyDotTimer || 0,
       gpaGuardUsed: Boolean(game.player?.gpaGuardUsed),
       weapon: game.player?.weapon ? displayWeaponName(game.player.weapon) : "",
       currentWeaponId: game.player?.weapon?.id || "",
@@ -7454,13 +7100,16 @@
       bossMoveOffset: game.boss ? game.boss.x - game.boss.moveBaseX : 0,
       bossMoveT: game.boss?.moveT || 0,
       bossRotationSteps: game.boss?.rotationSteps || 0,
-      bossRuleName: game.boss?.ruleName || "",
-      bossRuleCount: game.boss?.ruleCount || 0,
-      bossRuleTimer: game.boss?.ruleTimer || 0,
-      bossVulnerableTimer: game.boss?.vulnerableTimer || 0,
-      bossVulnerableCount: game.boss?.vulnerableCount || 0,
-      bossComboCount: game.boss?.comboCount || 0,
-      bossComboType: game.boss?.comboType || "",
+      bossRotateTimer: game.boss?.rotateTimer || 0,
+      bossDomainCoreId: game.boss?.domainCoreId || "",
+      bossDomainName: game.boss?.domainName || "",
+      bossDomainElapsed: game.boss?.domainElapsed || 0,
+      bossDomainCycleSeconds,
+      bossGaussZoneCount: game.boss?.gaussZones?.length || 0,
+      bossGaussZoneBonus: game.boss?.gaussZoneBonus || 0,
+      bossGaussPendingPlayerHit: Boolean(game.boss?.gaussPendingPlayerHit),
+      bossDescartesQuadrant: game.boss?.descartesQuadrant || "",
+      bossProjectionCount: game.enemies.filter((enemy) => enemy.bossProjection).length,
       bossLaserCount: game.boss?.laserCount || 0,
       bossShotPatternCounts: game.boss?.shotPatternCounts ? { ...game.boss.shotPatternCounts } : {},
       bossWeaponDamage: game.boss?.weaponDamage ? { ...game.boss.weaponDamage } : {},
@@ -7471,18 +7120,7 @@
       bossFrontCoreIds: game.boss ? bossFrontCoreIds(game.boss) : [],
       bossInvulnerableCoreIds: game.boss ? game.boss.cores.filter((core) => core.hp > 0 && !isBossCoreFront(core, game.boss)).map((core) => core.id) : [],
       bossActiveCoreCount: game.boss ? bossActiveCores(game.boss).length : 0,
-      bossWeakCore: game.boss?.weakCoreId || "",
-      bossWeakTimer: game.boss?.weakTimer || 0,
-      bossInheritedCoreIds: game.boss?.inheritedCoreIds ? [...game.boss.inheritedCoreIds] : [],
-      bossInheritedCount: game.boss?.inheritedCount || 0,
       bossObstacleBoomCount: game.boss?.obstacleBoomCount || 0,
-      bossUltimateState: game.boss?.ultimate?.state || "",
-      bossUltimateCount: game.boss?.ultimate?.count || 0,
-      bossUltimateFiredCount: game.boss?.ultimate?.firedCount || 0,
-      bossUltimateInterruptedCount: game.boss?.ultimate?.interruptedCount || 0,
-      bossUltimateDamageTaken: game.boss?.ultimate?.damageTaken || 0,
-      bossUltimateFocusId: game.boss?.ultimate?.focusId || "",
-      bossUltimateOverloadHits: game.boss?.ultimate?.overloadHits || 0,
       bossDirect: Boolean(game.boss?.direct),
       bossIntroActive: isBossIntroActive(),
       bossIntroElapsed: game.boss?.intro?.elapsed || 0,
@@ -7490,7 +7128,6 @@
       enemyPiercingShotCount: game.enemyShots.filter((shot) => shot.ignoresObstacles).length,
       enemyWeaponSealShotCount: game.enemyShots.filter((shot) => shot.weaponSeal).length,
       enemyWallSplitShotCount: game.enemyShots.filter((shot) => shot.wallSplit).length,
-      bossDelayMineCount: game.enemyShots.filter((shot) => shot.pattern === "delayMine").length,
       enemyLaserCount: game.enemyLasers.length,
       activeLaserCount: game.enemyLasers.filter(isLaserActive).length,
       gaussDeathBeamCount: game.enemyLasers.filter((laser) => laser.deathBeam).length,

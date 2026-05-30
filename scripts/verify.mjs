@@ -765,116 +765,89 @@ async function main() {
     if (bossState.bossMoveT <= 0 || Math.abs(bossState.bossMoveOffset) < 4) {
       throw new Error("Boss horizontal movement did not start");
     }
-    if (!bossState.obstacleRects.some((rect) => rect.shape !== "rect")) {
-      throw new Error(`Boss obstacles should include random non-rect shapes: ${JSON.stringify(bossState.obstacleRects)}`);
+    if (bossState.bossDomainCycleSeconds !== 20) {
+      throw new Error(`Boss domain cycle should be 20 seconds: ${JSON.stringify(bossState)}`);
     }
-    if (!bossState.obstacleRects.some((rect) => rect.shape === "brokenLine" || rect.shape === "corner")) {
-      throw new Error(`Boss obstacles should include at least one gap or angled cover shape: ${JSON.stringify(bossState.obstacleRects)}`);
+    if (bossState.bossDomainCoreId !== "cauchy") {
+      throw new Error(`Initial boss domain should belong to the top Cauchy core: ${JSON.stringify(bossState)}`);
+    }
+    if (bossState.bossRotationSteps !== 0 || bossState.bossRotateTimer > 20 || bossState.bossRotateTimer < 12) {
+      throw new Error(`Boss should not rotate before the 20 second domain cycle: ${JSON.stringify(bossState)}`);
+    }
+    if (bossState.bossActiveCoreCount !== 2 || !bossState.bossInvulnerableCoreIds.includes("cauchy")) {
+      throw new Error(`Only the non-domain cores should attack while the domain core is HP-invulnerable: ${JSON.stringify(bossState)}`);
+    }
+    if (bossState.obstacleRects.length < 5 || !bossState.obstacleRects.some((rect) => rect.shape !== "rect")) {
+      throw new Error(`Cauchy domain should create highlighted wall cover: ${JSON.stringify(bossState.obstacleRects)}`);
     }
     if (bossState.obstacleRects.some((rect) => rect.thickness > 12)) {
-      throw new Error(`Boss obstacles should stay thin: ${JSON.stringify(bossState.obstacleRects)}`);
+      throw new Error(`Boss domain obstacles should stay thin: ${JSON.stringify(bossState.obstacleRects)}`);
     }
-    if (bossState.obstacleRects.some((rect) => rect.area > 2500)) {
-      throw new Error(`Boss obstacles should stay compact: ${JSON.stringify(bossState.obstacleRects)}`);
-    }
-    for (const attackType of ["curve", "laser", "matrix"]) {
+    for (const attackType of ["cauchySquares", "descartesCross", "gaussZones"]) {
       if (!bossState.bossAttackTypes.includes(attackType)) {
         throw new Error(`Boss attack type ${attackType} was not configured`);
       }
     }
-    if (!bossState.bossShotPatternCounts.curve || !bossState.bossShotPatternCounts.matrix) {
-      throw new Error(`Boss differentiated bullet patterns did not spawn: ${JSON.stringify(bossState.bossShotPatternCounts)}`);
+    if (!bossState.bossShotPatternCounts.curve || bossState.bossGaussZoneCount < 1) {
+      throw new Error(`Gauss random-point curve zones did not spawn: ${JSON.stringify(bossState)}`);
     }
     if (bossState.bossLaserCount < 1) {
-      throw new Error("Boss laser attack did not spawn");
+      throw new Error("Descartes cross laser attack did not spawn");
     }
-    if (bossState.bossRotationSteps < 1) {
-      throw new Error("Boss did not perform a staged 120 degree rotation");
+    const cauchyWrongHit = await evaluate(cdp, "window.__examGame.damageBossCoreForVerify('cauchy', 80, 'polarShotgun')");
+    if (cauchyWrongHit.afterShield !== cauchyWrongHit.beforeShield || cauchyWrongHit.after !== cauchyWrongHit.before) {
+      throw new Error(`Non-matching weapons should not damage boss shields: ${JSON.stringify(cauchyWrongHit)}`);
     }
-    if (bossState.bossRuleCount < 1 || !bossState.bossRuleName) {
-      throw new Error(`Boss rotation rule did not trigger: ${JSON.stringify(bossState)}`);
+    const cauchySwordHit = await evaluate(cdp, "window.__examGame.damageBossCoreForVerify('cauchy', 30, 'sword')");
+    if (!cauchySwordHit.domain || cauchySwordHit.afterShield >= cauchySwordHit.beforeShield || cauchySwordHit.after !== cauchySwordHit.before) {
+      throw new Error(`The domain core shield should be damageable while HP stays invulnerable: ${JSON.stringify(cauchySwordHit)}`);
     }
-    if (bossState.bossVulnerableCount < 1) {
-      throw new Error(`Boss recovery vulnerability window did not open: ${JSON.stringify(bossState)}`);
-    }
-    if (!bossState.bossShotPatternCounts.delayMine) {
-      throw new Error(`Boss Cauchy delayed mines did not spawn: ${JSON.stringify(bossState.bossShotPatternCounts)}`);
-    }
-    if (bossState.bossComboCount < 1) {
-      throw new Error("Boss trio combo did not trigger");
-    }
-    if (bossState.bossActiveCoreCount !== 2 || bossState.bossInvulnerableCoreIds.length !== 1) {
-      throw new Error("Boss front/back core state was not established");
-    }
-    const backCoreId = bossState.bossInvulnerableCoreIds[0];
-    const backHitState = await evaluate(cdp, `window.__examGame.damageBossCoreForVerify('${backCoreId}', 80)`);
-    if (!backHitState || backHitState.front || backHitState.after !== backHitState.before) {
-      throw new Error("Boss back core was not invulnerable");
-    }
-    const frontCoreId = bossState.bossFrontCoreIds[0];
-    await evaluate(cdp, `window.__examGame.damageBossCoreForVerify('${frontCoreId}', 30, 'functionGun')`);
-    const bossDamageTrackState = await evaluate(cdp, `window.__examGame.damageBossCoreForVerify('${frontCoreId}', 80, 'sword').state`);
+    const trackingCoreId = bossState.bossFrontCoreIds.includes("descartes") ? "descartes" : bossState.bossFrontCoreIds[0];
+    const trackingWeapon = trackingCoreId === "gauss" ? "matrixRpg" : trackingCoreId === "descartes" ? "coordinateBlade" : "functionGun";
+    await evaluate(cdp, `window.__examGame.damageBossCoreForVerify('${trackingCoreId}', 30, '${trackingWeapon}')`);
+    const bossDamageTrackState = await evaluate(cdp, `window.__examGame.damageBossCoreForVerify('${trackingCoreId}', 80, 'sword').state`);
     if (
       bossDamageTrackState.bossTopDamageWeapon.id !== "sword" ||
-      !bossDamageTrackState.bossWeaponDamage.sword ||
-      !bossDamageTrackState.bossWeaponDamage.functionGun
+      !bossDamageTrackState.bossWeaponDamage.sword
     ) {
       throw new Error(`Boss weapon damage tracking failed: ${JSON.stringify(bossDamageTrackState.bossWeaponDamage)}`);
     }
-    const obstacleBefore = bossState.obstacleRects || [];
-    await evaluate(cdp, "window.__examGame.setPlayerHp(999); window.__examGame.forceBossMechanic('obstacle')");
-    await wait(6200);
-    const obstacleRespawnState = await evaluate(cdp, "window.__examGame.setPlayerHp(999); window.__examGame.state()");
-    if (obstacleRespawnState.bossObstacleBoomCount <= bossState.bossObstacleBoomCount) {
-      throw new Error("Boss obstacle detonation did not trigger");
+
+    await evaluate(cdp, "window.__examGame.setPlayerHp(999); window.__examGame.forceBossMechanic('rotate')");
+    await wait(950);
+    const rotatedBossState = await evaluate(cdp, "window.__examGame.state()");
+    if (rotatedBossState.bossRotationSteps < 1 || rotatedBossState.bossDomainCoreId === bossState.bossDomainCoreId || rotatedBossState.bossRotateTimer > 20 || rotatedBossState.bossRotateTimer < 18.8) {
+      throw new Error(`Boss should rotate into a new 20 second domain: ${JSON.stringify(rotatedBossState)}`);
     }
-    const obstacleMoved = obstacleRespawnState.obstacleRects.some((rect, index) => {
-      const before = obstacleBefore[index];
-      return before && (
-        Math.abs(rect.x - before.x) > 8 ||
-        Math.abs(rect.y - before.y) > 8 ||
-        Math.abs(rect.w - before.w) > 4 ||
-        Math.abs(rect.h - before.h) > 4
-      );
-    });
-    if (!obstacleMoved) {
-      throw new Error(`Boss obstacle respawn should choose a new random position: ${JSON.stringify({ before: obstacleBefore, after: obstacleRespawnState.obstacleRects })}`);
+    if (rotatedBossState.bossObstacleBoomCount <= bossState.bossObstacleBoomCount) {
+      throw new Error("Cauchy domain walls should explode when the domain ends");
     }
+
+    await evaluate(cdp, "window.__examGame.forceBossMechanic('descartes')");
+    await wait(100);
+    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(120, 120)");
+    await wait(100);
+    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(820, 120)");
+    await wait(250);
+    const descartesDomainState = await evaluate(cdp, "window.__examGame.state()");
+    if (descartesDomainState.bossDomainCoreId !== "descartes" || descartesDomainState.bossDescartesQuadrant !== "q2" || descartesDomainState.bossProjectionCount < 1) {
+      throw new Error(`Descartes domain should track quadrants and summon projections: ${JSON.stringify(descartesDomainState)}`);
+    }
+
     const bossShot = await screenshot(cdp, "boss.png");
-
-    await evaluate(cdp, "window.__examGame.setPlayerHp(999); window.__examGame.forceBossMechanic('weak')");
-    await wait(750);
-    const bossWeakState = await evaluate(cdp, "window.__examGame.state()");
-    if (!bossWeakState.bossWeakCore || bossWeakState.bossWeakTimer <= 0) {
-      throw new Error("Boss weak-point window did not activate");
-    }
-
-    await evaluate(cdp, "window.__examGame.setPlayerHp(999); window.__examGame.forceBossMechanic('ultimate')");
-    await wait(450);
-    const bossUltimateChargeState = await evaluate(cdp, "window.__examGame.state()");
-    if (bossUltimateChargeState.bossUltimateState !== "charging" || bossUltimateChargeState.bossUltimateCount < 1) {
-      throw new Error("Boss interruptible ultimate did not begin charging");
-    }
-    if (!bossUltimateChargeState.bossUltimateFocusId) {
-      throw new Error(`Boss ultimate did not highlight a focused overload core: ${JSON.stringify(bossUltimateChargeState)}`);
-    }
-    await wait(3900);
-    const bossUltimateState = await evaluate(cdp, "window.__examGame.setPlayerHp(999); window.__examGame.state()");
-    if (bossUltimateState.bossUltimateFiredCount + bossUltimateState.bossUltimateInterruptedCount < 1) {
-      throw new Error("Boss interruptible ultimate did not resolve");
-    }
 
     await evaluate(cdp, "window.__examGame.setBossCoreHp('cauchy', 0)");
     await wait(700);
-    const bossInheritanceState = await evaluate(cdp, "window.__examGame.state()");
-    if (!bossInheritanceState.bossInheritedCoreIds.includes("cauchy")) {
-      throw new Error("Boss defeated-core inheritance did not register");
-    }
     await evaluate(cdp, "window.__examGame.setPlayerHp(999); window.__examGame.setBossCoreHp('descartes', 0)");
     await wait(1800);
-    const bossFinalCoreState = await evaluate(cdp, "window.__examGame.state()");
-    if (bossFinalCoreState.bossDefeatedCount < 2 || bossFinalCoreState.bossInheritedCount < 1) {
-      throw new Error("Boss final-core form or inherited attacks did not activate");
+    const bossDefeatState = await evaluate(cdp, "window.__examGame.state()");
+    if (bossDefeatState.bossDefeatedCount < 2) {
+      throw new Error(`Boss defeated-count tracking failed under the document boss rules: ${JSON.stringify(bossDefeatState)}`);
+    }
+    for (const oldField of ["bossInheritedCount", "bossComboCount", "bossUltimateState", "bossWeakTimer"]) {
+      if (oldField in bossDefeatState) {
+        throw new Error(`Old boss mechanic state should not be exported anymore: ${oldField}`);
+      }
     }
 
     await evaluate(cdp, "window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyB' }))");
