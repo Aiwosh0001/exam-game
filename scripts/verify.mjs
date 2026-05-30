@@ -220,7 +220,7 @@ async function main() {
     });
     await cdp.send("Page.navigate", { url: `http://127.0.0.1:${port}/` });
     await wait(600);
-    await evaluate(cdp, "localStorage.removeItem('examGameLeaderboardV1')");
+    await evaluate(cdp, "localStorage.removeItem('examGameLeaderboardV1'); localStorage.removeItem('examGameLeaderboardCombatTimeV1')");
 
     const title = await evaluate(cdp, "document.title");
     const hasGame = await evaluate(cdp, "Boolean(window.__examGame)");
@@ -253,6 +253,64 @@ async function main() {
     const fullBalanceScores = fullWeaponIds.map((id) => weaponBalance[id]?.balanceScore || 0);
     if (Math.max(...fullBalanceScores) > 34 || Math.min(...fullBalanceScores) < 15) {
       throw new Error(`Weapon balance scores drifted too far: ${JSON.stringify(weaponBalance)}`);
+    }
+    await evaluate(cdp, "document.getElementById('modalCloseBtn').click()");
+    await wait(100);
+
+    await evaluate(cdp, "document.getElementById('funFactsBtn').click()");
+    await wait(150);
+    const funFactsState = await evaluate(cdp, `({
+      hidden: document.getElementById('modal').hidden,
+      noTitle: document.getElementById('modalPanel').classList.contains('modal-panel-no-title'),
+      summary: document.querySelector('.fun-fact-summary')?.textContent || '',
+      pageTitle: document.querySelector('.fun-fact-page-head strong')?.textContent || '',
+      cards: document.querySelectorAll('.fun-fact-card').length,
+      pager: document.querySelector('.fun-facts-pager')?.textContent || '',
+      nextCount: document.querySelectorAll('[data-fun-facts-page="1"]').length
+    })`);
+    if (
+      funFactsState.hidden ||
+      !funFactsState.noTitle ||
+      !funFactsState.summary.includes("探索") ||
+      funFactsState.pageTitle !== "探索档案" ||
+      funFactsState.cards < 8 ||
+      !funFactsState.pager.includes("1 / 4") ||
+      funFactsState.nextCount !== 1
+    ) {
+      throw new Error(`Fun facts first page did not render correctly: ${JSON.stringify(funFactsState)}`);
+    }
+    await evaluate(cdp, "document.querySelector('[data-fun-facts-page=\"1\"]').click()");
+    await wait(100);
+    const funFactsPageTwoState = await evaluate(cdp, `({
+      pageTitle: document.querySelector('.fun-fact-page-head strong')?.textContent || '',
+      body: document.querySelector('.modal-body')?.textContent || '',
+      pager: document.querySelector('.fun-facts-pager')?.textContent || ''
+    })`);
+    if (
+      funFactsPageTwoState.pageTitle !== "翻车记录" ||
+      !funFactsPageTwoState.body.includes("最危险房间") ||
+      !funFactsPageTwoState.body.includes("最容易翻车阶段") ||
+      !funFactsPageTwoState.pager.includes("2 / 4")
+    ) {
+      throw new Error(`Fun facts second page did not render correctly: ${JSON.stringify(funFactsPageTwoState)}`);
+    }
+    await evaluate(cdp, "document.querySelector('[data-fun-facts-page=\"2\"]').click()");
+    await wait(100);
+    const funFactsPageThreeState = await evaluate(cdp, `({
+      pageTitle: document.querySelector('.fun-fact-page-head strong')?.textContent || '',
+      body: document.querySelector('.modal-body')?.textContent || '',
+      pager: document.querySelector('.fun-facts-pager')?.textContent || ''
+    })`);
+    if (
+      funFactsPageThreeState.pageTitle !== "战术偏好" ||
+      !funFactsPageThreeState.body.includes("终战输出最多武器") ||
+      !funFactsPageThreeState.body.includes("裸考勇士比例") ||
+      !funFactsPageThreeState.body.includes("最狼狈通关") ||
+      !funFactsPageThreeState.body.includes("圣剑信仰指数") ||
+      !funFactsPageThreeState.body.includes("火力过剩指数") ||
+      !funFactsPageThreeState.pager.includes("3 / 4")
+    ) {
+      throw new Error(`Fun facts tactic page did not render correctly: ${JSON.stringify(funFactsPageThreeState)}`);
     }
     await evaluate(cdp, "document.getElementById('modalCloseBtn').click()");
     await wait(100);
@@ -349,6 +407,7 @@ async function main() {
           kills: 18,
           weaponsFound: 6,
           completedKeys: allRooms,
+          randomRoomTypes: { chest: 'chest', randomB: 'monster', randomC: 'chest' },
           usedNonSwordWeapon: true
         }),
         slowFullPrep: window.__examGame.scoreForVerify({
@@ -358,6 +417,44 @@ async function main() {
           kills: 18,
           weaponsFound: 6,
           completedKeys: allRooms,
+          randomRoomTypes: { chest: 'chest', randomB: 'monster', randomC: 'chest' },
+          usedNonSwordWeapon: true
+        }),
+        treasurePrep: window.__examGame.scoreForVerify({
+          seconds: 150,
+          hp: 100,
+          maxHp: 100,
+          kills: 0,
+          weaponsFound: 4,
+          completedKeys: ['chest', 'randomB', 'randomC'],
+          randomRoomTypes: { chest: 'chest', randomB: 'chest', randomC: 'chest' },
+          usedNonSwordWeapon: true
+        }),
+        sprint28: window.__examGame.scoreForVerify({
+          seconds: 28,
+          hp: 100,
+          maxHp: 100,
+          kills: 0,
+          weaponsFound: 1,
+          completedKeys: [],
+          usedNonSwordWeapon: true
+        }),
+        sprint29: window.__examGame.scoreForVerify({
+          seconds: 29,
+          hp: 100,
+          maxHp: 100,
+          kills: 0,
+          weaponsFound: 1,
+          completedKeys: [],
+          usedNonSwordWeapon: true
+        }),
+        sprint30: window.__examGame.scoreForVerify({
+          seconds: 30,
+          hp: 100,
+          maxHp: 100,
+          kills: 0,
+          weaponsFound: 1,
+          completedKeys: [],
           usedNonSwordWeapon: true
         })
       };
@@ -371,6 +468,50 @@ async function main() {
     if (scoreBalance.fastFullPrep.score <= scoreBalance.slowFullPrep.score || scoreBalance.slowFullPrep.overtimePenalty <= 0) {
       throw new Error(`Time pressure is not strong enough in the scoring model: ${JSON.stringify(scoreBalance)}`);
     }
+    if (scoreBalance.treasurePrep.score >= scoreBalance.fastFullPrep.score || scoreBalance.treasurePrep.roomScore >= scoreBalance.fastFullPrep.roomScore) {
+      throw new Error(`Treasure rooms should not outscore combat prep after combat-only timing: ${JSON.stringify(scoreBalance)}`);
+    }
+    const sprintGain28 = scoreBalance.sprint28.speedScore - scoreBalance.sprint29.speedScore;
+    const sprintGain29 = scoreBalance.sprint29.speedScore - scoreBalance.sprint30.speedScore;
+    if (sprintGain28 <= sprintGain29 || sprintGain29 <= 0) {
+      throw new Error(`Early sprint scoring should reward 28s->29s more than 29s->30s: ${JSON.stringify({ sprintGain28, sprintGain29, scoreBalance })}`);
+    }
+
+    await evaluate(cdp, "window.__examGame.showSwordEndingForVerify({ seconds: 72, completedKeys: [], kills: 0, hp: 100 })");
+    await wait(100);
+    const swordEndingState = await evaluate(cdp, `({
+      mode: window.__examGame.state().mode,
+      hasSwordClass: document.getElementById('resultScreen').classList.contains('sword-ending'),
+      statsClass: document.getElementById('resultStats').className,
+      eyebrow: document.getElementById('resultEyebrow').textContent,
+      eyebrowFontSize: parseFloat(getComputedStyle(document.getElementById('resultEyebrow')).fontSize),
+      titleHidden: document.getElementById('resultTitle').hidden,
+      body: document.getElementById('resultStats').textContent
+    })`);
+    if (
+      swordEndingState.mode !== "result" ||
+      !swordEndingState.hasSwordClass ||
+      !swordEndingState.statsClass.includes("sword-result-wrap") ||
+      !swordEndingState.eyebrow.includes("圣剑") ||
+      swordEndingState.eyebrowFontSize < 30 ||
+      !swordEndingState.titleHidden ||
+      !swordEndingState.body.includes("圣剑榜资格确认")
+    ) {
+      throw new Error(`Sword-only ending did not render correctly: ${JSON.stringify(swordEndingState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.resetGame(); window.__examGame.addWeaponForVerify('functionGun'); window.__examGame.finishGameForVerify(true, { saveLeaderboard: false })");
+    await wait(100);
+    const ordinaryEndingState = await evaluate(cdp, `({
+      hasSwordClass: document.getElementById('resultScreen').classList.contains('sword-ending'),
+      statsClass: document.getElementById('resultStats').className,
+      titleHidden: document.getElementById('resultTitle').hidden,
+      body: document.getElementById('resultStats').textContent
+    })`);
+    if (ordinaryEndingState.hasSwordClass || ordinaryEndingState.statsClass.includes("sword-result-wrap") || ordinaryEndingState.titleHidden || ordinaryEndingState.body.includes("圣剑榜资格确认")) {
+      throw new Error(`Ordinary ending should not use sword-only presentation: ${JSON.stringify(ordinaryEndingState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.resetGame()");
+    await wait(100);
 
     const initialDropModel = await evaluate(cdp, "window.__examGame.dropModelForVerify()");
     if (
@@ -385,6 +526,12 @@ async function main() {
     }
     if (initialDropModel.randomRewardFamilies.length !== 8 || initialDropModel.randomFamilyEntryCounts.functionGun !== 2) {
       throw new Error(`Random monster rewards should be grouped by weapon family: ${JSON.stringify(initialDropModel)}`);
+    }
+    if (
+      Math.abs(initialDropModel.randomRoomChances.monster - 1 / 3) > 0.001 ||
+      Math.abs(initialDropModel.randomRoomChances.chest - 2 / 3) > 0.001
+    ) {
+      throw new Error(`Random room probabilities should be monster 1/3 and chest 2/3: ${JSON.stringify(initialDropModel.randomRoomChances)}`);
     }
 
     await evaluate(cdp, "window.__examGame.openChestRoom('__verifySkipChest')");
@@ -487,6 +634,9 @@ async function main() {
     if (calculusFightState.activeRoomKey !== "monster") {
       throw new Error("Calculus challenge did not start correctly");
     }
+    if (calculusFightState.enemyMechanics.some((enemy) => enemy.kind !== "calculus")) {
+      throw new Error(`Calculus room should only spawn calculus enemies: ${JSON.stringify(calculusFightState.enemyMechanics)}`);
+    }
     await evaluate(cdp, "window.__examGame.completeActiveRoom()");
     await wait(150);
     const calculusPromptState = await evaluate(cdp, "window.__examGame.state()");
@@ -500,6 +650,7 @@ async function main() {
     await evaluate(cdp, "document.getElementById('backToMapBtn').click()");
     await wait(100);
 
+    const geometryBeforeState = await evaluate(cdp, "window.__examGame.state()");
     await evaluate(cdp, "window.__examGame.startMonsterRoom('geometry')");
     await wait(200);
     const geometryEntryState = await evaluate(cdp, "window.__examGame.state()");
@@ -509,6 +660,9 @@ async function main() {
     const geometryFightState = await chooseChallenge(cdp, 3);
     if (geometryFightState.activeRoomKey !== "geometry") {
       throw new Error("Geometry challenge did not start correctly");
+    }
+    if (geometryFightState.enemyMechanics.some((enemy) => enemy.kind !== "geometry")) {
+      throw new Error(`Geometry room should only spawn geometry enemies: ${JSON.stringify(geometryFightState.enemyMechanics)}`);
     }
     await evaluate(cdp, "window.__examGame.completeActiveRoom()");
     await wait(150);
@@ -520,8 +674,15 @@ async function main() {
     if (geometryClearState.challengeCount !== 3 || geometryClearState.defeatedInRoom !== 3 || geometryClearState.buffs.length < calculusClearState.buffs.length + 2) {
       throw new Error("Three-person challenge did not grant the expected rewards");
     }
-    if (!String(geometryClearState.weapon).includes("极坐标霰弹枪") || geometryClearState.weaponLevel !== 1) {
-      throw new Error("Three-person challenge should grant one normal weapon without an extra weapon upgrade");
+    const hadGeometryWeapon = geometryBeforeState.weaponIds.includes("polarShotgun");
+    const expectedGeometryWeaponCount = geometryBeforeState.weapons.length + (hadGeometryWeapon ? 0 : 1);
+    const expectedGeometryWeaponLevel = hadGeometryWeapon ? 2 : 1;
+    if (
+      geometryClearState.currentWeaponId !== "polarShotgun" ||
+      geometryClearState.weapons.length !== expectedGeometryWeaponCount ||
+      geometryClearState.weaponLevel !== expectedGeometryWeaponLevel
+    ) {
+      throw new Error(`Three-person challenge should grant one normal weapon or one duplicate upgrade: ${JSON.stringify({ geometryBeforeState, geometryClearState })}`);
     }
     await evaluate(cdp, "document.getElementById('backToMapBtn').click()");
     await wait(100);
@@ -535,6 +696,9 @@ async function main() {
     const linearFightState = await chooseChallenge(cdp, 1);
     if (linearFightState.activeRoomKey !== "linear") {
       throw new Error("Linear challenge did not start correctly");
+    }
+    if (linearFightState.enemyMechanics.some((enemy) => enemy.kind !== "linear")) {
+      throw new Error(`Linear room should only spawn linear enemies: ${JSON.stringify(linearFightState.enemyMechanics)}`);
     }
     await evaluate(cdp, "window.__examGame.completeActiveRoom()");
     await wait(150);
@@ -604,7 +768,13 @@ async function main() {
     if (!bossState.obstacleRects.some((rect) => rect.shape !== "rect")) {
       throw new Error(`Boss obstacles should include random non-rect shapes: ${JSON.stringify(bossState.obstacleRects)}`);
     }
-    if (bossState.obstacleRects.some((rect) => rect.area > 1900)) {
+    if (!bossState.obstacleRects.some((rect) => rect.shape === "brokenLine" || rect.shape === "corner")) {
+      throw new Error(`Boss obstacles should include at least one gap or angled cover shape: ${JSON.stringify(bossState.obstacleRects)}`);
+    }
+    if (bossState.obstacleRects.some((rect) => rect.thickness > 12)) {
+      throw new Error(`Boss obstacles should stay thin: ${JSON.stringify(bossState.obstacleRects)}`);
+    }
+    if (bossState.obstacleRects.some((rect) => rect.area > 2500)) {
       throw new Error(`Boss obstacles should stay compact: ${JSON.stringify(bossState.obstacleRects)}`);
     }
     for (const attackType of ["curve", "laser", "matrix"]) {
@@ -621,6 +791,15 @@ async function main() {
     if (bossState.bossRotationSteps < 1) {
       throw new Error("Boss did not perform a staged 120 degree rotation");
     }
+    if (bossState.bossRuleCount < 1 || !bossState.bossRuleName) {
+      throw new Error(`Boss rotation rule did not trigger: ${JSON.stringify(bossState)}`);
+    }
+    if (bossState.bossVulnerableCount < 1) {
+      throw new Error(`Boss recovery vulnerability window did not open: ${JSON.stringify(bossState)}`);
+    }
+    if (!bossState.bossShotPatternCounts.delayMine) {
+      throw new Error(`Boss Cauchy delayed mines did not spawn: ${JSON.stringify(bossState.bossShotPatternCounts)}`);
+    }
     if (bossState.bossComboCount < 1) {
       throw new Error("Boss trio combo did not trigger");
     }
@@ -631,6 +810,16 @@ async function main() {
     const backHitState = await evaluate(cdp, `window.__examGame.damageBossCoreForVerify('${backCoreId}', 80)`);
     if (!backHitState || backHitState.front || backHitState.after !== backHitState.before) {
       throw new Error("Boss back core was not invulnerable");
+    }
+    const frontCoreId = bossState.bossFrontCoreIds[0];
+    await evaluate(cdp, `window.__examGame.damageBossCoreForVerify('${frontCoreId}', 30, 'functionGun')`);
+    const bossDamageTrackState = await evaluate(cdp, `window.__examGame.damageBossCoreForVerify('${frontCoreId}', 80, 'sword').state`);
+    if (
+      bossDamageTrackState.bossTopDamageWeapon.id !== "sword" ||
+      !bossDamageTrackState.bossWeaponDamage.sword ||
+      !bossDamageTrackState.bossWeaponDamage.functionGun
+    ) {
+      throw new Error(`Boss weapon damage tracking failed: ${JSON.stringify(bossDamageTrackState.bossWeaponDamage)}`);
     }
     const obstacleBefore = bossState.obstacleRects || [];
     await evaluate(cdp, "window.__examGame.setPlayerHp(999); window.__examGame.forceBossMechanic('obstacle')");
@@ -665,6 +854,9 @@ async function main() {
     const bossUltimateChargeState = await evaluate(cdp, "window.__examGame.state()");
     if (bossUltimateChargeState.bossUltimateState !== "charging" || bossUltimateChargeState.bossUltimateCount < 1) {
       throw new Error("Boss interruptible ultimate did not begin charging");
+    }
+    if (!bossUltimateChargeState.bossUltimateFocusId) {
+      throw new Error(`Boss ultimate did not highlight a focused overload core: ${JSON.stringify(bossUltimateChargeState)}`);
     }
     await wait(3900);
     const bossUltimateState = await evaluate(cdp, "window.__examGame.setPlayerHp(999); window.__examGame.state()");

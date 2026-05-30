@@ -12,6 +12,7 @@ server.pid
 venv/
 
 data/leaderboard.json
+data/stats.json
 exam-game-pythonanywhere.zip
 极客道期末作业-修改版.docx
 make_revised_doc.py

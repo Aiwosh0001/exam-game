@@ -141,7 +141,9 @@ body.combat-active #gameCanvas {
 }
 
 .menu-copy {
-  max-width: 620px;
+  display: grid;
+  gap: 22px;
+  max-width: min(820px, 100%);
 }
 
 .eyebrow {
@@ -165,6 +167,12 @@ h1 {
   text-shadow: 0 5px 0 rgba(0, 0, 0, 0.18);
 }
 
+.screen-menu h1 {
+  font-size: 76px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 h2 {
   color: var(--paper);
   font-size: clamp(28px, 4vw, 48px);
@@ -183,6 +191,113 @@ h2 {
 .tagline {
   font-size: clamp(16px, 2vw, 21px);
   max-width: 560px;
+}
+
+.fun-facts-board {
+  display: grid;
+  gap: 14px;
+}
+
+.fun-fact-summary {
+  align-items: end;
+  background: linear-gradient(135deg, rgba(143, 209, 158, 0.16), rgba(130, 200, 216, 0.06));
+  border: 1px solid rgba(143, 209, 158, 0.32);
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+}
+
+.fun-fact-summary strong {
+  color: var(--chalk);
+  font-size: 42px;
+  line-height: 0.95;
+}
+
+.fun-fact-summary span {
+  color: var(--paper);
+  font-size: 15px;
+  font-weight: 800;
+  padding-bottom: 3px;
+}
+
+.fun-fact-page-head {
+  align-items: end;
+  border-bottom: 1px solid rgba(244, 240, 230, 0.12);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 2px 0 10px;
+}
+
+.fun-fact-page-head span {
+  color: rgba(244, 240, 230, 0.55);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.fun-fact-page-head strong {
+  color: var(--paper);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.fun-fact-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.fun-fact-section h3 {
+  color: var(--chalk);
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+
+.fun-fact-card {
+  background: rgba(244, 240, 230, 0.045);
+  border: 1px solid rgba(244, 240, 230, 0.14);
+  border-radius: 8px;
+  min-height: 74px;
+  padding: 12px;
+}
+
+.fun-fact-card span {
+  color: rgba(244, 240, 230, 0.56);
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.fun-fact-card strong {
+  color: var(--paper);
+  display: block;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.fun-facts-pager {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.fun-facts-pager button {
+  min-width: 82px;
+  padding: 8px 12px;
+}
+
+.fun-facts-pager span {
+  color: var(--paper);
+  font-size: 13px;
+  font-weight: 900;
+  min-width: 44px;
+  text-align: center;
 }
 
 .menu-actions {
@@ -808,6 +923,107 @@ h2 {
   font-size: 22px;
 }
 
+.result-screen.sword-ending {
+  background:
+    radial-gradient(circle at 50% 26%, rgba(240, 195, 93, 0.18), transparent 34%),
+    linear-gradient(180deg, rgba(15, 17, 18, 0.86), rgba(8, 9, 10, 0.92));
+}
+
+.result-screen.sword-ending .eyebrow {
+  color: var(--warning);
+  font-size: clamp(30px, 4vw, 46px);
+  font-weight: 900;
+  line-height: 1.05;
+  margin-bottom: 22px;
+}
+
+.result-screen.sword-ending h2 {
+  color: var(--paper);
+  text-shadow: 0 0 28px rgba(240, 195, 93, 0.24);
+}
+
+.result-stats.sword-result-wrap {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr;
+  max-width: 760px;
+  width: min(760px, 100%);
+}
+
+.result-stats.sword-result-wrap .sword-ending-card {
+  align-items: center;
+  background:
+    linear-gradient(135deg, rgba(240, 195, 93, 0.16), rgba(130, 200, 216, 0.06)),
+    rgba(244, 240, 230, 0.045);
+  border: 1px solid rgba(240, 195, 93, 0.42);
+  border-radius: 8px;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 92px 1fr;
+  padding: 18px;
+  text-align: left;
+}
+
+.result-stats.sword-result-wrap .sword-ending-card > div {
+  border: 0;
+  padding: 0;
+}
+
+.sword-mark {
+  align-items: center;
+  aspect-ratio: 1;
+  border: 1px solid rgba(240, 195, 93, 0.48);
+  border-radius: 50%;
+  box-shadow: inset 0 0 24px rgba(240, 195, 93, 0.16), 0 0 28px rgba(240, 195, 93, 0.14);
+  color: var(--warning);
+  display: flex;
+  font-size: 54px;
+  font-weight: 900;
+  justify-content: center;
+}
+
+.sword-ending-card span {
+  color: var(--warning);
+  display: block;
+  font-size: 13px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.sword-ending-card strong {
+  color: var(--paper);
+  display: block;
+  font-size: 26px;
+  margin-bottom: 8px;
+}
+
+.sword-ending-card p {
+  color: var(--muted);
+  line-height: 1.65;
+  margin: 0;
+}
+
+.result-stats.sword-result-wrap .sword-result-stats {
+  border: 0;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 0;
+}
+
+.result-stats.sword-result-wrap .sword-result-stats div {
+  background: rgba(244, 240, 230, 0.045);
+  border: 1px solid rgba(240, 195, 93, 0.24);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.sword-ending-line {
+  color: var(--paper);
+  margin: 2px auto 0;
+  opacity: 0.88;
+}
+
 .weapon-choice {
   background: rgba(255, 255, 255, 0.045);
   border: 1px solid var(--line);
@@ -908,18 +1124,31 @@ h2 {
   width: min(940px, 100%);
 }
 
+.modal-panel-no-title {
+  padding-top: 18px;
+}
+
+.modal-panel-no-title #modalTitle {
+  display: none;
+}
+
+.modal-panel-no-title .icon-button {
+  right: -10px;
+  top: -10px;
+}
+
 .icon-button {
   align-items: center;
-  border-radius: 8px;
+  border-radius: 6px;
   display: flex;
-  font-size: 24px;
-  height: 38px;
+  font-size: 19px;
+  height: 30px;
   justify-content: center;
   padding: 0;
   position: absolute;
-  right: 14px;
-  top: 14px;
-  width: 38px;
+  right: 16px;
+  top: 16px;
+  width: 30px;
 }
 
 .modal-body ul {
@@ -1139,6 +1368,24 @@ h2 {
   margin-bottom: 0;
 }
 
+@media (max-width: 1120px) {
+  .screen-menu {
+    align-items: center;
+    flex-direction: column;
+    gap: 24px;
+    text-align: center;
+  }
+
+  .screen-menu h1 {
+    font-size: 68px;
+  }
+
+  .menu-actions {
+    width: min(360px, 100%);
+  }
+
+}
+
 @media (max-width: 760px) {
   body {
     overflow: auto;
@@ -1150,11 +1397,37 @@ h2 {
 
   .screen-menu {
     align-items: stretch;
-    flex-direction: column;
+  }
+
+  .screen-menu h1 {
+    font-size: 42px;
+    text-align: center;
+  }
+
+  .menu-copy {
+    max-width: 100%;
+  }
+
+  .fun-fact-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .challenge-options,
   .result-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .result-stats.sword-result-wrap .sword-ending-card {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .sword-mark {
+    justify-self: center;
+    width: 78px;
+  }
+
+  .result-stats.sword-result-wrap .sword-result-stats {
     grid-template-columns: 1fr;
   }
 

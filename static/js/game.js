@@ -24,8 +24,8 @@
     shell: document.querySelector(".game-shell") || canvas.parentElement,
     start: document.getElementById("startBtn"),
     guide: document.getElementById("guideBtn"),
-    codex: document.getElementById("codexBtn"),
     weaponStats: document.getElementById("weaponStatsBtn"),
+    funFacts: document.getElementById("funFactsBtn"),
     leaderboard: document.getElementById("leaderboardBtn"),
     settings: document.getElementById("settingsBtn"),
     monsterRoom: document.getElementById("monsterRoomBtn"),
@@ -102,10 +102,14 @@
   let mode = "menu";
   let lastTime = performance.now();
   let attackHeld = false;
-  const leaderboardStorageKey = "examGameLeaderboardV1";
+  const leaderboardScoreVersion = "combat-time-v1";
+  const leaderboardStorageKey = "examGameLeaderboardCombatTimeV1";
   const leaderboardLimit = 10;
   const defaultLeaderboardName = "考生";
   const draftShieldInterval = 10;
+  const randomRoomMonsterChance = 1 / 3;
+  const randomRoomChestChance = 2 / 3;
+  const completedRoomKeys = ["monster", "chest", "geometry", "linear", "randomB", "randomC"];
   const playerDamageScale = 0.9;
   const bossDamageScale = 0.85;
   const backHitMultiplier = 1.45;
@@ -115,6 +119,17 @@
   const directBossSwordDamage = 20;
   const directBossSwordReach = 42;
   const directBossSwordRadius = 56;
+  const obstacleAreaMultiplier = 1.3;
+  const obstacleThinnessScale = 0.92;
+  const obstacleLengthScale = obstacleAreaMultiplier / obstacleThinnessScale;
+  const obstacleMinThickness = 6;
+  const obstacleMaxThickness = 9.5;
+  const monsterShieldDuration = 1.05;
+  const monsterShieldCooldown = 4.0;
+  const weaponSealDuration = 4.0;
+  let lastFunStatsFetch = 0;
+  let sharedFunStats = null;
+  let funFactsPageIndex = 0;
 
   function weaponDamageScale(weapon) {
     return weapon?.id === "sword" ? 1 : playerDamageScale;
@@ -170,6 +185,29 @@
     recentRewardFamilies: [],
   };
 
+  function recordBossWeaponDamage(weaponId, weaponName, amount) {
+    const boss = game.boss;
+    const damage = Math.max(0, Number(amount || 0));
+    if (!boss || game.activeRoom !== "boss" || !weaponId || damage <= 0) return;
+    boss.weaponDamage ||= {};
+    boss.weaponDamageNames ||= {};
+    boss.weaponDamage[weaponId] = (boss.weaponDamage[weaponId] || 0) + damage;
+    boss.weaponDamageNames[weaponId] = weaponName || weapons[weaponId]?.name || weaponId;
+  }
+
+  function topBossDamageWeapon(boss = game.boss) {
+    const entries = Object.entries(boss?.weaponDamage || {})
+      .filter(([, damage]) => Number(damage) > 0)
+      .sort((a, b) => Number(b[1]) - Number(a[1]) || String(a[0]).localeCompare(String(b[0]), "zh-CN"));
+    const [id, damage] = entries[0] || [];
+    if (!id) return { id: "", name: "", damage: 0 };
+    return {
+      id,
+      name: boss?.weaponDamageNames?.[id] || weapons[id]?.name || id,
+      damage: Math.round(Number(damage || 0) * 10) / 10,
+    };
+  }
+
   const weapons = {
     sword: {
       id: "sword",
@@ -195,7 +233,7 @@
       id: "integralSniper",
       name: "积分狙击枪",
       kind: "calculus",
-      damage: 32,
+      damage: 34,
       cooldown: 1.05,
       ranged: true,
       speed: 720,
@@ -209,7 +247,7 @@
       id: "taylorCannon",
       name: "泰勒扩散炮",
       kind: "calculus",
-      damage: 7.5,
+      damage: 8.1,
       cooldown: 0.68,
       ranged: true,
       speed: 360,
@@ -227,7 +265,7 @@
       id: "coordinateBlade",
       name: "坐标系大宝剑",
       kind: "geometry",
-      damage: 8.5,
+      damage: 9.2,
       cooldown: 0.62,
       ranged: false,
       infiniteAmmo: true,
@@ -255,7 +293,7 @@
       id: "geometryShield",
       name: "几何护盾",
       kind: "geometry",
-      damage: 9.5,
+      damage: 10.4,
       cooldown: 0.9,
       ranged: false,
       infiniteAmmo: true,
@@ -270,7 +308,7 @@
       id: "matrixRpg",
       name: "矩阵 RPG",
       kind: "linear",
-      damage: 22,
+      damage: 24,
       cooldown: 0.92,
       ranged: true,
       speed: 330,
@@ -284,7 +322,7 @@
       id: "luStaff",
       name: "LU 分解法杖",
       kind: "linear",
-      damage: 8,
+      damage: 8.6,
       cooldown: 0.64,
       ranged: true,
       speed: 390,
@@ -478,6 +516,10 @@
       randomFamilyEntryCounts: Object.fromEntries(
         Array.from(groups.entries()).map(([family, enemies]) => [family, enemies.length])
       ),
+      randomRoomChances: {
+        monster: randomRoomMonsterChance,
+        chest: randomRoomChestChance,
+      },
       recentRewardFamilies: [...(game.recentRewardFamilies || [])],
     };
   }
@@ -497,6 +539,7 @@
         shortName: "L",
         kind: "calculus",
         pattern: "wave",
+        mechanics: ["splitOnDeath"],
         color: colors.chalk,
         hp: Number(baseStats.enemyHp || 60),
         radius: 24,
@@ -518,7 +561,8 @@
         name: "笛卡尔投影",
         shortName: "D",
         kind: "geometry",
-        pattern: "cross",
+        pattern: "axisLaser",
+        mechanics: ["quadrantBlink"],
         color: colors.cyan,
         hp: 90,
         radius: 24,
@@ -541,6 +585,7 @@
         shortName: "G",
         kind: "linear",
         pattern: "wall",
+        mechanics: ["gaussZone"],
         color: colors.warning,
         hp: 110,
         radius: 25,
@@ -558,6 +603,7 @@
       shortName: "L",
       kind: "calculus",
       pattern: "wave",
+      mechanics: ["splitOnDeath"],
       color: colors.chalk,
       rewardWeapon: "functionGun",
       rewardBuff: "函数机枪",
@@ -573,6 +619,7 @@
       shortName: "H",
       kind: "calculus",
       pattern: "aimed",
+      mechanics: ["behindBlink"],
       color: colors.paper,
       rewardWeapon: "integralSniper",
       rewardBuff: "洛必达法则",
@@ -587,7 +634,7 @@
       name: "泰勒投影",
       shortName: "T",
       kind: "calculus",
-      pattern: "split",
+      pattern: "pierceWave",
       color: colors.chalk,
       rewardWeapon: "functionGun",
       rewardBuff: "泰勒展开",
@@ -603,6 +650,7 @@
       shortName: "A",
       kind: "geometry",
       pattern: "circle",
+      mechanics: ["distanceLaw"],
       color: colors.cyan,
       rewardWeapon: "coordinateBlade",
       rewardBuff: "圆面积",
@@ -617,7 +665,8 @@
       name: "笛卡尔投影",
       shortName: "D",
       kind: "geometry",
-      pattern: "cross",
+      pattern: "tripleLaser",
+      mechanics: ["distanceLaw"],
       color: colors.cyan,
       rewardWeapon: "polarShotgun",
       rewardBuff: "极坐标霰弹枪",
@@ -633,6 +682,7 @@
       shortName: "E",
       kind: "geometry",
       pattern: "triangle",
+      mechanics: ["dashScatter"],
       color: colors.cyan,
       rewardWeapon: "geometryShield",
       rewardBuff: "几何直觉",
@@ -648,6 +698,7 @@
       shortName: "J",
       kind: "linear",
       pattern: "matrix",
+      mechanics: ["gaussEnrage"],
       color: colors.warning,
       rewardWeapon: "matrixRpg",
       rewardBuff: "雅可比矩阵",
@@ -663,6 +714,7 @@
       shortName: "J",
       kind: "linear",
       pattern: "split",
+      mechanics: ["gaussZone"],
       color: colors.warning,
       rewardWeapon: "luStaff",
       rewardBuff: "约旦标准型",
@@ -678,6 +730,7 @@
       shortName: "G",
       kind: "linear",
       pattern: "wall",
+      mechanics: ["gaussShieldOnHit"],
       color: colors.warning,
       rewardWeapon: "determinantLaser",
       rewardBuff: "高斯消元",
@@ -709,6 +762,7 @@
       mistakeBoostTimer: 0,
       gpaGuardUsed: false,
       attackTimer: 0,
+      weaponSealTimer: 0,
       dashCooldown: 0,
       invuln: 0,
     };
@@ -812,9 +866,41 @@
     return true;
   }
 
+  function isWeaponSealed(weapon) {
+    const player = game.player;
+    if (!player || (player.weaponSealTimer || 0) <= 0 || !weapon) return false;
+    return weapon.id !== "sword" && weapon.kind !== "geometry";
+  }
+
+  function firstAvailableWeaponIndex(player = game.player) {
+    if (!player) return -1;
+    const geometryIndex = player.weapons.findIndex((weapon) => weapon.kind === "geometry" && !isWeaponSealed(weapon));
+    if (geometryIndex >= 0) return geometryIndex;
+    const swordIndex = player.weapons.findIndex((weapon) => weapon.id === "sword");
+    if (swordIndex >= 0) return swordIndex;
+    return player.weapons.findIndex((weapon) => !isWeaponSealed(weapon));
+  }
+
+  function sealPlayerNonGeometryWeapons(duration = weaponSealDuration) {
+    const player = game.player;
+    if (!player) return;
+    player.weaponSealTimer = Math.max(player.weaponSealTimer || 0, duration);
+    if (isWeaponSealed(player.weapon)) {
+      const fallback = firstAvailableWeaponIndex(player);
+      if (fallback >= 0) {
+        player.weaponIndex = fallback;
+        player.weapon = player.weapons[fallback];
+        player.attackTimer = 0;
+      }
+    }
+    burst(player.x, player.y, colors.cyan, 14);
+    updateHud();
+  }
+
   function setWeaponIndex(index) {
     const player = game.player;
     if (!player || index < 0 || index >= player.weapons.length) return false;
+    if (isWeaponSealed(player.weapons[index])) return false;
     player.weaponIndex = index;
     player.weapon = player.weapons[index];
     player.attackTimer = 0;
@@ -825,8 +911,11 @@
   function cycleWeapon(direction = 1) {
     const player = game.player;
     if (!player || player.weapons.length < 2) return false;
-    const nextIndex = (player.weaponIndex + direction + player.weapons.length) % player.weapons.length;
-    return setWeaponIndex(nextIndex);
+    for (let step = 1; step <= player.weapons.length; step += 1) {
+      const nextIndex = (player.weaponIndex + direction * step + player.weapons.length) % player.weapons.length;
+      if (!isWeaponSealed(player.weapons[nextIndex])) return setWeaponIndex(nextIndex);
+    }
+    return false;
   }
 
   function startReload(weapon) {
@@ -889,12 +978,12 @@
     game.elapsed = 0;
     game.kills = 0;
     game.weaponsFound = 1;
-    game.completed.monster = false;
-    game.completed.chest = false;
-    game.completed.geometry = false;
-    game.completed.linear = false;
-    game.completed.randomB = false;
-    game.completed.randomC = false;
+    Object.keys(game.completed).forEach((key) => {
+      if (!completedRoomKeys.includes(key)) delete game.completed[key];
+    });
+    completedRoomKeys.forEach((key) => {
+      game.completed[key] = false;
+    });
     game.randomRooms.chest = null;
     game.randomRooms.randomB = null;
     game.randomRooms.randomC = null;
@@ -939,6 +1028,7 @@
     document.body.classList.toggle("combat-active", name === "combat");
     if (hud.root) hud.root.hidden = name !== "combat";
     if (hud.hints) hud.hints.hidden = name !== "combat";
+    if (name === "menu") refreshFunFacts();
   }
 
   function enterMap(message) {
@@ -975,7 +1065,7 @@
     syncDoor("randomB", ui.randomRoomB);
     syncDoor("randomC", ui.randomRoomC);
 
-    const upgraded = Object.values(game.completed).some(Boolean);
+    const upgraded = completedRoomKeys.some((key) => game.completed[key]);
     ui.bossRoom.classList.toggle("completed", upgraded);
     ui.mapLog.textContent = game.message;
     updateMapPlayerUI();
@@ -1031,27 +1121,33 @@
     };
     if (forcedShape === "line") return createLineObstacle(center);
     if (forcedShape === "curve") return createCurveObstacle(center);
+    if (forcedShape === "brokenLine") return createBrokenLineObstacle(center);
+    if (forcedShape === "corner") return createCornerObstacle(center);
     if (forcedShape === "blob") return createBlobObstacle(center);
     if (forcedShape === "rect") return createRectObstacle(center, roomType);
     const roll = Math.random();
-    if (roll < 0.34) return createLineObstacle(center);
-    if (roll < 0.64) return createCurveObstacle(center);
-    if (roll < 0.84) return createBlobObstacle(center);
+    if (roll < 0.3) return createLineObstacle(center);
+    if (roll < 0.55) return createCurveObstacle(center);
+    if (roll < 0.75) return createBrokenLineObstacle(center);
+    if (roll < 0.9) return createCornerObstacle(center);
+    if (roll < 0.98) return createBlobObstacle(center);
     return createRectObstacle(center, roomType);
   }
 
   function createRectObstacle(center, roomType) {
-    const wide = Math.random() > 0.42;
+    const horizontal = Math.random() > 0.35;
+    const longSide = (48 + Math.random() * 32) * obstacleLengthScale;
+    const shortSide = randomObstacleThickness(7.2, 9.8);
     const obstacle = {
       shape: "rect",
       x: center.x,
       y: center.y,
-      w: wide ? 38 + Math.random() * 24 : 16 + Math.random() * 12,
-      h: wide ? 14 + Math.random() * 10 : 34 + Math.random() * 20,
+      w: horizontal ? longSide : shortSide,
+      h: horizontal ? shortSide : longSide,
     };
     if (roomType === "boss") {
-      obstacle.w *= 0.9;
-      obstacle.h *= 0.9;
+      obstacle.w *= horizontal ? 0.96 : 0.9;
+      obstacle.h *= horizontal ? 0.9 : 0.96;
     }
     obstacle.x -= obstacle.w / 2;
     obstacle.y -= obstacle.h / 2;
@@ -1059,10 +1155,10 @@
   }
 
   function createLineObstacle(center) {
-    const length = 46 + Math.random() * 28;
+    const length = (50 + Math.random() * 36) * obstacleLengthScale;
     const angle = Math.random() * Math.PI * 2;
     const half = length / 2;
-    const thickness = 9 + Math.random() * 5;
+    const thickness = randomObstacleThickness(7.4, 10.2);
     const points = [
       { x: center.x - Math.cos(angle) * half, y: center.y - Math.sin(angle) * half },
       { x: center.x + Math.cos(angle) * half, y: center.y + Math.sin(angle) * half },
@@ -1071,9 +1167,9 @@
   }
 
   function createCurveObstacle(center) {
-    const length = 54 + Math.random() * 28;
+    const length = (56 + Math.random() * 34) * obstacleLengthScale;
     const angle = Math.random() * Math.PI * 2;
-    const bend = (Math.random() > 0.5 ? 1 : -1) * (14 + Math.random() * 16);
+    const bend = (Math.random() > 0.5 ? 1 : -1) * (18 + Math.random() * 20) * obstacleThinnessScale;
     const dx = Math.cos(angle);
     const dy = Math.sin(angle);
     const px = -dy;
@@ -1090,13 +1186,53 @@
         y: mt * mt * start.y + 2 * mt * t * control.y + t * t * end.y,
       });
     }
-    return obstacleFromPoints("curve", points, 8 + Math.random() * 5);
+    return obstacleFromPoints("curve", points, randomObstacleThickness(7, 9.8));
+  }
+
+  function createBrokenLineObstacle(center) {
+    const length = (60 + Math.random() * 34) * obstacleLengthScale;
+    const gap = 18 + Math.random() * 16;
+    const angle = Math.random() * Math.PI * 2;
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    const px = -dy;
+    const py = dx;
+    const half = length / 2;
+    const gapHalf = Math.min(gap / 2, length * 0.2);
+    const offset = (Math.random() - 0.5) * 9;
+    const segments = [
+      [
+        { x: center.x - dx * half, y: center.y - dy * half },
+        { x: center.x - dx * gapHalf, y: center.y - dy * gapHalf },
+      ],
+      [
+        { x: center.x + dx * gapHalf + px * offset, y: center.y + dy * gapHalf + py * offset },
+        { x: center.x + dx * half + px * offset, y: center.y + dy * half + py * offset },
+      ],
+    ];
+    return obstacleFromSegments("brokenLine", segments, randomObstacleThickness(7.2, 9.8));
+  }
+
+  function createCornerObstacle(center) {
+    const arm = (34 + Math.random() * 24) * obstacleLengthScale;
+    const angle = Math.random() * Math.PI * 2;
+    const turn = (Math.random() > 0.5 ? 1 : -1) * (Math.PI * (0.38 + Math.random() * 0.18));
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    const ex = Math.cos(angle + turn);
+    const ey = Math.sin(angle + turn);
+    const points = [
+      { x: center.x - dx * arm, y: center.y - dy * arm },
+      { x: center.x, y: center.y },
+      { x: center.x + ex * arm, y: center.y + ey * arm },
+    ];
+    return obstacleFromPoints("corner", points, randomObstacleThickness(7, 9.6));
   }
 
   function createBlobObstacle(center) {
     const count = 5 + Math.floor(Math.random() * 3);
-    const rx = 15 + Math.random() * 10;
-    const ry = 12 + Math.random() * 9;
+    const rx = 14 + Math.random() * 8;
+    const ry = 11 + Math.random() * 7;
     const points = [];
     for (let i = 0; i < count; i += 1) {
       const angle = (Math.PI * 2 * i) / count + Math.random() * 0.22;
@@ -1109,12 +1245,27 @@
     return obstacleFromPoints("blob", points, 2);
   }
 
+  function randomObstacleThickness(min, max) {
+    return clamp((min + Math.random() * (max - min)) * obstacleThinnessScale, obstacleMinThickness, obstacleMaxThickness);
+  }
+
   function obstacleFromPoints(shape, points, thickness = 8) {
     const padding = shape === "blob" ? 2 : thickness / 2;
     const bounds = pointsBounds(points, padding);
     return {
       shape,
       points,
+      thickness,
+      ...bounds,
+    };
+  }
+
+  function obstacleFromSegments(shape, segments, thickness = 8) {
+    const points = segments.flat();
+    const bounds = pointsBounds(points, thickness / 2);
+    return {
+      shape,
+      segments,
       thickness,
       ...bounds,
     };
@@ -1131,11 +1282,11 @@
   }
 
   function generateRoomObstacles(roomType) {
-    const count = roomType === "boss" ? 4 : 2 + Math.floor(Math.random() * 3);
+    const count = roomType === "boss" ? 5 : 3 + Math.floor(Math.random() * 2);
     const obstacles = [];
 
     for (let i = 0; i < count; i += 1) {
-      const forcedShape = i === 0 ? ["line", "curve", "blob"][Math.floor(Math.random() * 3)] : null;
+      const forcedShape = i === 0 ? ["brokenLine", "corner"][Math.floor(Math.random() * 2)] : null;
       const obstacle = createRoomObstacle(roomType, obstacles, null, forcedShape);
       if (obstacle) obstacles.push(obstacle);
     }
@@ -1309,9 +1460,16 @@
   function selectChallengeEnemyDefs(room, count) {
     const primary = room.enemy;
     const selected = [primary];
-    const sameKind = randomMonsterPool.filter((enemy) => enemy.kind === primary.kind && enemy.id !== primary.id);
-    const fallback = randomMonsterPool.filter((enemy) => enemy.id !== primary.id && enemy.kind !== primary.kind);
-    const pool = [...sameKind, ...fallback];
+    const knowledgeRoomKinds = {
+      monster: "calculus",
+      geometry: "geometry",
+      linear: "linear",
+    };
+    const lockedKind = knowledgeRoomKinds[room.completedKey];
+    const pool = randomMonsterPool.filter((enemy) => {
+      if (enemy.id === primary.id) return false;
+      return lockedKind ? enemy.kind === lockedKind : true;
+    });
 
     while (selected.length < count) {
       const unused = pool.filter((enemy) => !selected.some((picked) => picked.id === enemy.id));
@@ -1346,6 +1504,7 @@
       shortName: enemyDef.shortName,
       kind: enemyDef.kind,
       pattern: enemyDef.pattern,
+      mechanics: [...(enemyDef.mechanics || [])],
       color: enemyDef.color,
       x: position.x,
       y: position.y,
@@ -1361,6 +1520,8 @@
       fireEvery: enemyDef.fireEvery * fireScale,
       facingAngle: Math.PI / 2,
       backHitFlash: 0,
+      shieldFlash: 0,
+      healFlash: 0,
       defeated: false,
     };
   }
@@ -1398,15 +1559,6 @@
     showClear("宝箱房", "宝箱打开了", `你获得了增益：${rewardBuff}。`);
   }
 
-  function openSupplyRoom(roomKey) {
-    if (game.completed[roomKey]) return;
-    game.completed[roomKey] = true;
-    const player = game.player;
-    const reward = buffRewardIds[Math.floor(Math.random() * buffRewardIds.length)];
-    grantBuff(player, reward);
-    showClear("补给房", "补给到手", `你获得了「${reward}」。这间随机教室已完成。`);
-  }
-
   function startRandomRoom(roomKey) {
     if (game.completed[roomKey]) return;
     const revealed = game.randomRooms[roomKey];
@@ -1418,12 +1570,8 @@
       openChestRoom(roomKey);
       return;
     }
-    if (revealed?.type === "supply") {
-      openSupplyRoom(roomKey);
-      return;
-    }
     const roll = Math.random();
-    if (roll < 0.5) {
+    if (roll < randomRoomMonsterChance) {
       const enemy = pickRandomMonsterEnemy();
       const title = randomRoomTitle(roomKey);
       startMonsterRoom(roomKey, {
@@ -1441,17 +1589,12 @@
       }
       return;
     }
-    if (roll < 0.8) {
-      game.randomRooms[roomKey] = { type: "chest" };
-      openChestRoom(roomKey);
-      return;
-    }
-    game.randomRooms[roomKey] = { type: "supply" };
-    openSupplyRoom(roomKey);
+    game.randomRooms[roomKey] = { type: "chest" };
+    openChestRoom(roomKey);
   }
 
   function completedBossPrepCount() {
-    return Object.values(game.completed).filter(Boolean).length;
+    return completedRoomKeys.filter((key) => game.completed[key]).length;
   }
 
   function randomBossPrepCount() {
@@ -1499,7 +1642,7 @@
     game.particles = [];
     game.enemies = [];
     game.obstacles = [];
-    const direct = !Object.values(game.completed).some(Boolean);
+    const direct = !completedRoomKeys.some((key) => game.completed[key]);
     awakenDirectBossSword(game.player, direct);
     const prepCount = completedBossPrepCount();
     const coreHp = bossInitialCoreHp(direct);
@@ -1528,6 +1671,15 @@
       comboCount: 0,
       laserCount: 0,
       shotPatternCounts: {},
+      weaponDamage: {},
+      weaponDamageNames: {},
+      ruleCycle: 0,
+      ruleTimer: 0,
+      ruleName: "",
+      ruleCount: 0,
+      vulnerableTimer: 0,
+      vulnerableCoreId: "",
+      vulnerableCount: 0,
       weakTimer: 0,
       weakCooldown: direct ? 5.4 : Math.max(4.8, 7.2 - prepCount * 0.24),
       weakDuration: direct ? 2.8 : Math.min(4.5, 3.4 + prepCount * 0.12),
@@ -1552,6 +1704,10 @@
         firedCount: 0,
         interruptedCount: 0,
         lastInterrupted: 0,
+        targetCoreIds: [],
+        focusId: "",
+        focusIndex: 0,
+        overloadHits: 0,
       },
       intro: {
         elapsed: 0,
@@ -1646,6 +1802,7 @@
 
   function normalizeLeaderboardEntry(entry) {
     if (!entry || typeof entry !== "object") return null;
+    if (entry.scoreVersion !== leaderboardScoreVersion) return null;
     const score = Number(entry.score);
     if (!Number.isFinite(score) || score <= 0) return null;
     const seconds = Math.max(1, Math.round(Number(entry.seconds || entry.time || 0)));
@@ -1653,10 +1810,18 @@
     const completedRooms = Array.isArray(entry.completedRooms)
       ? entry.completedRooms.filter(Boolean).slice(0, 6)
       : [];
+    const cleanList = (value, limit = 12) => Array.isArray(value)
+      ? value.map((item) => String(item || "").replace(/[\u0000-\u001f\u007f<>]/g, "").trim()).filter(Boolean).slice(0, limit)
+      : [];
     const weaponsFound = Math.max(1, Math.round(Number(entry.weaponsFound || 1)));
     const swordOnly = typeof entry.swordOnly === "boolean"
       ? entry.swordOnly
       : weaponsFound <= 1 && completedRooms.length === 0;
+    const weaponIds = cleanList(entry.weaponIds, 12);
+    if (swordOnly && !weaponIds.length) weaponIds.push("sword");
+    const routeType = ["direct", "prepared", "full"].includes(entry.routeType)
+      ? entry.routeType
+      : clearRouteType(completedRooms.length);
     return {
       id: String(entry.id || `${playedAt}-${score}`),
       name: sanitizeLeaderboardName(entry.name),
@@ -1667,8 +1832,21 @@
       hp: Math.max(0, Math.round(Number(entry.hp || 0))),
       maxHp: Math.max(1, Math.round(Number(entry.maxHp || 1))),
       completedRooms,
+      completedRoomKeys: cleanList(entry.completedRoomKeys, 6),
+      completedRoomTypes: cleanList(entry.completedRoomTypes, 6),
+      routeType,
+      weaponIds,
+      weaponNames: cleanList(entry.weaponNames, 12),
+      buffs: cleanList(entry.buffs, 16),
+      finalWeaponId: cleanList([entry.finalWeaponId], 1)[0] || "",
+      finalWeaponName: cleanList([entry.finalWeaponName], 1)[0] || "",
+      bossTopDamageWeaponId: cleanList([entry.bossTopDamageWeaponId], 1)[0] || cleanList([entry.finalWeaponId], 1)[0] || "",
+      bossTopDamageWeaponName: cleanList([entry.bossTopDamageWeaponName], 1)[0] || cleanList([entry.finalWeaponName], 1)[0] || "",
+      bossTopDamageWeaponDamage: Math.max(0, Math.round(Number(entry.bossTopDamageWeaponDamage || 0) * 10) / 10),
       swordOnly,
       playedAt,
+      scoreVersion: leaderboardScoreVersion,
+      timeMode: "combat",
     };
   }
 
@@ -1739,6 +1917,172 @@
     return topTen;
   }
 
+  function defaultFunStats() {
+    return {
+      version: leaderboardScoreVersion,
+      totalRuns: 0,
+      bossClears: 0,
+      failedRuns: 0,
+      directBossClears: 0,
+      preparedClears: 0,
+      fullPrepClears: 0,
+      fastestSeconds: 0,
+      longestSeconds: 0,
+      totalSeconds: 0,
+      totalRunSeconds: 0,
+      swordOnlyClears: 0,
+      bestScore: 0,
+      bestRemainingHp: 0,
+      bestRemainingHpMax: 0,
+      worstRemainingHp: 0,
+      worstRemainingHpMax: 0,
+      firepowerOverloadClears: 0,
+      mostRooms: 0,
+      totalKills: 0,
+      maxKills: 0,
+      maxWeaponsFound: 0,
+      totalRoomsCompleted: 0,
+      totalWeaponsFound: 0,
+      lastPlayedAt: "",
+      routeCounts: { direct: 0, prepared: 0, full: 0 },
+      weaponUseCounts: {},
+      finalWeaponCounts: {},
+      bossTopDamageWeaponCounts: {},
+      buffUseCounts: {},
+      roomClearCounts: {},
+      deathRoomCounts: {},
+      deathStageCounts: {},
+      entryIds: [],
+    };
+  }
+
+  function normalizeFunStats(value) {
+    if (!value || typeof value !== "object") return defaultFunStats();
+    const stats = defaultFunStats();
+    const intValue = (key) => {
+      const valueNumber = Math.round(Number(value[key] || 0));
+      return Number.isFinite(valueNumber) ? Math.max(0, valueNumber) : 0;
+    };
+    const countMap = (key) => {
+      if (!value[key] || typeof value[key] !== "object") return {};
+      return Object.fromEntries(
+        Object.entries(value[key])
+          .map(([entryKey, entryValue]) => {
+            const count = Math.max(0, Math.round(Number(entryValue || 0)));
+            return [String(entryKey), Number.isFinite(count) ? count : 0];
+          })
+          .filter(([, count]) => count > 0)
+      );
+    };
+    const totalRuns = intValue("totalRuns");
+    stats.bossClears = intValue("bossClears");
+    stats.failedRuns = intValue("failedRuns");
+    stats.totalRuns = Math.max(totalRuns, stats.bossClears + stats.failedRuns);
+    stats.directBossClears = intValue("directBossClears");
+    stats.preparedClears = intValue("preparedClears");
+    stats.fullPrepClears = intValue("fullPrepClears");
+    stats.fastestSeconds = intValue("fastestSeconds");
+    stats.longestSeconds = intValue("longestSeconds");
+    stats.totalSeconds = intValue("totalSeconds");
+    stats.totalRunSeconds = Math.max(intValue("totalRunSeconds"), stats.totalSeconds);
+    stats.swordOnlyClears = intValue("swordOnlyClears");
+    stats.bestScore = intValue("bestScore");
+    stats.bestRemainingHp = intValue("bestRemainingHp");
+    stats.bestRemainingHpMax = intValue("bestRemainingHpMax");
+    stats.worstRemainingHp = intValue("worstRemainingHp");
+    stats.worstRemainingHpMax = intValue("worstRemainingHpMax");
+    stats.firepowerOverloadClears = intValue("firepowerOverloadClears");
+    stats.mostRooms = intValue("mostRooms");
+    stats.totalKills = intValue("totalKills");
+    stats.maxKills = intValue("maxKills");
+    stats.maxWeaponsFound = intValue("maxWeaponsFound");
+    stats.totalRoomsCompleted = intValue("totalRoomsCompleted");
+    stats.totalWeaponsFound = intValue("totalWeaponsFound");
+    stats.lastPlayedAt = typeof value.lastPlayedAt === "string" ? value.lastPlayedAt : "";
+    stats.routeCounts = {
+      direct: stats.directBossClears,
+      prepared: stats.preparedClears,
+      full: stats.fullPrepClears,
+      ...countMap("routeCounts"),
+    };
+    stats.weaponUseCounts = countMap("weaponUseCounts");
+    stats.finalWeaponCounts = countMap("finalWeaponCounts");
+    stats.bossTopDamageWeaponCounts = countMap("bossTopDamageWeaponCounts");
+    if (!Object.keys(stats.bossTopDamageWeaponCounts).length) {
+      stats.bossTopDamageWeaponCounts = { ...stats.finalWeaponCounts };
+    }
+    stats.buffUseCounts = countMap("buffUseCounts");
+    stats.roomClearCounts = countMap("roomClearCounts");
+    stats.deathRoomCounts = countMap("deathRoomCounts");
+    stats.deathStageCounts = countMap("deathStageCounts");
+    stats.entryIds = Array.isArray(value.entryIds) ? value.entryIds.map(String).slice(-1000) : [];
+    return stats;
+  }
+
+  function readFunStats() {
+    return normalizeFunStats(sharedFunStats);
+  }
+
+  function writeFunStats(stats) {
+    const normalized = normalizeFunStats(stats);
+    sharedFunStats = normalized;
+    return normalized;
+  }
+
+  function updateFunFacts(stats = readFunStats()) {
+    const normalized = normalizeFunStats(stats);
+    if (!ui.modal.hidden && ui.modal.dataset.kind === "funFacts") {
+      ui.modalBody.innerHTML = funFactsMarkup(normalized);
+    }
+    return normalized;
+  }
+
+  async function loadServerStats() {
+    if (!window.fetch) return readFunStats();
+    try {
+      const response = await fetch("/api/stats", { cache: "no-store" });
+      if (!response.ok) return readFunStats();
+      const data = await response.json();
+      if (data?.stats) return writeFunStats(data.stats);
+    } catch {
+      return readFunStats();
+    }
+    return readFunStats();
+  }
+
+  function refreshFunFacts(force = false) {
+    const localStats = updateFunFacts();
+    if (!window.fetch) return localStats;
+    const now = Date.now();
+    if (force || now - lastFunStatsFetch > 4000) {
+      lastFunStatsFetch = now;
+      loadServerStats().then(updateFunFacts);
+    }
+    return localStats;
+  }
+
+  function recordFunStats(entry) {
+    if (!entry || typeof entry !== "object") return readFunStats();
+    syncStatsToServer(entry);
+    return readFunStats();
+  }
+
+  function syncStatsToServer(entry) {
+    if (!window.fetch) return;
+    fetch("/api/stats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+    })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (data?.stats) updateFunFacts(writeFunStats(data.stats));
+      })
+      .catch(() => {
+        // Shared fun facts are server-owned; failed uploads are retried by normal leaderboard sync later.
+      });
+  }
+
   async function loadServerLeaderboard() {
     if (!window.fetch) return readLeaderboard();
     try {
@@ -1762,29 +2106,86 @@
       randomB: "随机 B",
       randomC: "随机 C",
     };
-    return Object.entries(game.completed)
-      .filter(([key, done]) => done && names[key])
-      .map(([key]) => names[key]);
+    return completedRoomKeys
+      .filter((key) => game.completed[key] && names[key])
+      .map((key) => names[key]);
+  }
+
+  function completedRoomKeyNames() {
+    return completedRoomKeys.filter((key) => game.completed[key]);
+  }
+
+  function completedRoomTypeNames() {
+    return completedRoomKeyNames().map((key) => completedRoomType(key));
+  }
+
+  function clearRouteType(roomCount) {
+    if (roomCount <= 0) return "direct";
+    if (roomCount >= completedRoomKeys.length) return "full";
+    return "prepared";
+  }
+
+  function completedRoomType(key) {
+    if (["monster", "geometry", "linear"].includes(key)) return "combat";
+    const revealedType = game.randomRooms[key]?.type;
+    if (revealedType === "monster") return "combat";
+    return "treasure";
+  }
+
+  function completedRoomBreakdown() {
+    const counts = {
+      total: 0,
+      combat: 0,
+      treasure: 0,
+    };
+    completedRoomKeys.forEach((key) => {
+      if (!game.completed[key]) return;
+      counts.total += 1;
+      const type = completedRoomType(key);
+      counts[type] += 1;
+    });
+    return counts;
+  }
+
+  function completedRoomScore() {
+    const breakdown = completedRoomBreakdown();
+    const combatScore = breakdown.combat * 105;
+    const treasureScore = breakdown.treasure * 28;
+    return {
+      ...breakdown,
+      combatScore,
+      treasureScore,
+      score: combatScore + treasureScore,
+    };
   }
 
   function isSwordOnlyRun() {
     return !game.usedNonSwordWeapon && game.weaponsFound <= 1;
   }
 
+  function calculateSpeedScore(seconds) {
+    const safeSeconds = Math.max(1, Number(seconds) || 1);
+    const baseScore = Math.max(0, 2200 - safeSeconds * 5.8);
+    const earlyWindow = clamp((120 - safeSeconds) / 120, 0, 1);
+    const earlyBonus = 1000 * Math.pow(earlyWindow, 1.5);
+    return Math.max(0, Math.round(baseScore + earlyBonus));
+  }
+
   function calculateClearScore(seconds, player) {
-    const roomCount = completedRoomNames().length;
+    const roomScoreDetails = completedRoomScore();
+    const roomCount = roomScoreDetails.total;
     const hpRatio = clamp((player?.hp || 0) / Math.max(1, player?.maxHp || 1), 0, 1);
     const swordOnly = isSwordOnlyRun();
     const bossClear = 650;
-    const roomScore = roomCount * 95;
-    const killScore = Math.min(game.kills, 18) * 24;
-    const weaponScore = Math.max(0, game.weaponsFound - 1) * 18;
-    const hpScore = Math.round(hpRatio * 170);
-    const speedScore = Math.max(0, Math.round(1980 - seconds * 5));
-    const overtimePenalty = Math.max(0, Math.round((seconds - 360) * 5));
+    const roomScore = roomScoreDetails.score;
+    const killScore = Math.min(game.kills, 18) * 26;
+    const weaponScore = Math.max(0, game.weaponsFound - 1) * 16;
+    const hpScore = Math.round(hpRatio * 300);
+    const speedScore = calculateSpeedScore(seconds);
+    const overtimePenalty = Math.max(0, Math.round((seconds - 300) * 5.5));
     const swordRouteBonus = swordOnly ? 520 : 0;
     const swordSpeedBonus = swordOnly ? Math.max(0, Math.round(560 - seconds * 1.4)) : 0;
-    const swordDirectBonus = swordOnly && roomCount === 0 ? 180 : 0;
+    const swordDirectBonus = swordOnly && roomCount === 0 ? 240 : 0;
     const swordBonus = swordRouteBonus + swordSpeedBonus + swordDirectBonus;
     const score = Math.max(1, Math.round(
       bossClear + roomScore + killScore + weaponScore + hpScore + speedScore + swordBonus - overtimePenalty
@@ -1792,6 +2193,8 @@
     return {
       score,
       roomCount,
+      combatRoomCount: roomScoreDetails.combat,
+      treasureRoomCount: roomScoreDetails.treasure,
       bossClear,
       roomScore,
       killScore,
@@ -1804,20 +2207,75 @@
     };
   }
 
-  function makeLeaderboardEntry(score, seconds, scoreDetails = null) {
-    const player = game.player;
+  function roomLabelForStats(key) {
+    const labels = {
+      monster: "微积分",
+      chest: "随机 A",
+      geometry: "欧氏几何",
+      linear: "线性代数",
+      randomB: "随机 B",
+      randomC: "随机 C",
+      boss: "Boss 房",
+      unknown: "未知位置",
+    };
+    return labels[key] || game.roomTitle || key || "未知位置";
+  }
+
+  function currentFailureRoomKey() {
+    if (game.activeRoom === "boss") return "boss";
+    if (game.activeRoom === "monster") return game.activeRoomKey || "monster";
+    return game.activeRoomKey || "unknown";
+  }
+
+  function currentFailureStage() {
+    if (game.activeRoom === "boss" && game.boss) {
+      const defeated = Math.max(0, game.boss.defeatedCount || 0);
+      if (game.boss.ultimate?.state === "charging") return "Boss：终式蓄力";
+      if (defeated >= 2) return "Boss：末核狂暴";
+      if (defeated === 1) return "Boss：压力上升";
+      return "Boss：三核展开";
+    }
+    if (game.activeRoom === "monster") {
+      return `普通房：${Math.max(1, game.challengeCount || 1)} 人挑战`;
+    }
+    return "探索中断";
+  }
+
+  function makeRunStatsEntry(win, score, seconds, scoreDetails = null) {
+    const player = game.player || createPlayer();
+    const completedRooms = completedRoomNames();
+    const weaponIds = player.weapons.map((weapon) => weapon.id);
+    const deathRoomKey = win ? "" : currentFailureRoomKey();
+    const bossTopDamageWeapon = win ? topBossDamageWeapon() : { id: "", name: "", damage: 0 };
     return {
       id: `${Date.now()}-${Math.round(score)}`,
+      result: win ? "win" : "loss",
       name: defaultLeaderboardName,
-      score,
+      score: Math.max(0, Math.round(score)),
       seconds,
       kills: game.kills,
       weaponsFound: game.weaponsFound,
       hp: Math.max(0, Math.ceil(player.hp)),
       maxHp: player.maxHp,
-      completedRooms: completedRoomNames(),
+      completedRooms,
+      completedRoomKeys: completedRoomKeyNames(),
+      completedRoomTypes: completedRoomTypeNames(),
+      routeType: clearRouteType(completedRooms.length),
+      weaponIds,
+      weaponNames: player.weapons.map((weapon) => displayWeaponName(weapon)),
+      buffs: [...(player.buffs || [])],
+      finalWeaponId: player.weapon?.id || weaponIds[weaponIds.length - 1] || "",
+      finalWeaponName: player.weapon ? displayWeaponName(player.weapon) : "",
+      bossTopDamageWeaponId: bossTopDamageWeapon.id || player.weapon?.id || weaponIds[weaponIds.length - 1] || "",
+      bossTopDamageWeaponName: bossTopDamageWeapon.name || (player.weapon ? displayWeaponName(player.weapon) : ""),
+      bossTopDamageWeaponDamage: bossTopDamageWeapon.damage || 0,
       swordOnly: scoreDetails?.swordOnly ?? isSwordOnlyRun(),
+      deathRoomKey,
+      deathRoomName: deathRoomKey ? roomLabelForStats(deathRoomKey) : "",
+      deathStage: win ? "" : currentFailureStage(),
       playedAt: new Date().toISOString(),
+      scoreVersion: leaderboardScoreVersion,
+      timeMode: "combat",
     };
   }
 
@@ -1918,10 +2376,52 @@
     refreshOpenLeaderboardModal();
   }
 
-  function finishGame(win) {
+  function resultStatMarkup(rows) {
+    return rows
+      .map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`)
+      .join("");
+  }
+
+  function swordClearStyle(scoreDetails, seconds) {
+    if (!scoreDetails) return "圣剑通关";
+    if (scoreDetails.roomCount === 0) return seconds <= 90 ? "直入终局" : "孤身赴考";
+    if (scoreDetails.roomCount >= 6) return "六房独行";
+    return "单刃破题";
+  }
+
+  function swordOnlyResultMarkup(scoreDetails, score, seconds, player) {
+    const hp = `${Math.max(0, Math.ceil(player.hp))} / ${player.maxHp}`;
+    const route = scoreDetails.roomCount === 0 ? "直通 Boss" : `${scoreDetails.roomCount} / 6`;
+    const speedText = `+${scoreDetails.speedScore}${scoreDetails.overtimePenalty ? ` / 超时 -${scoreDetails.overtimePenalty}` : ""}`;
+    return `
+      <div class="sword-ending-card">
+        <div class="sword-mark" aria-hidden="true">∫</div>
+        <div>
+          <span>圣剑榜资格确认</span>
+          <strong>${swordClearStyle(scoreDetails, seconds)}</strong>
+          <p>你没有让第二件武器进入背包，也没有借用其他兵器完成最后一击。三核心被同一柄圣剑拆解，期末考场留下了一条很干净的通关记录。</p>
+        </div>
+      </div>
+      <div class="sword-result-stats">
+        ${resultStatMarkup([
+          ["完成路线", route],
+          ["击败小怪", `${game.kills}`],
+          ["剩余生命", hp],
+          ["战斗用时", `${seconds} 秒`],
+          ["速度修正", speedText],
+          ["圣剑奖励", `+${scoreDetails.swordBonus}`],
+          ["圣剑榜", "已收录"],
+          ["最终评分", `${score}`],
+        ])}
+      </div>
+      <p class="sword-ending-line">一柄剑，一张卷子，三枚核心。你把所有变量都留给了操作本身。</p>
+    `;
+  }
+
+  function finishGame(win, options = {}) {
     mode = "result";
     const player = game.player;
-    const seconds = Math.max(1, Math.round(game.elapsed / 1000));
+    const seconds = Math.max(1, Math.round(Number(options.seconds ?? game.elapsed / 1000)));
     const scoreDetails = win ? calculateClearScore(seconds, player) : null;
     const score = win
       ? scoreDetails.score
@@ -1929,29 +2429,47 @@
     const speedText = scoreDetails
       ? `+${scoreDetails.speedScore}${scoreDetails.overtimePenalty ? ` / 超时 -${scoreDetails.overtimePenalty}` : ""}`
       : "-";
-    ui.resultEyebrow.textContent = win ? "绩点保住了" : "期末结算";
-    ui.resultTitle.textContent = win ? "恭喜通过期末考试！" : "很遗憾，你挂科了。";
-    ui.resultStats.innerHTML = [
-      ["击败小怪", `${game.kills}`],
-      ["完成房间", `${scoreDetails?.roomCount ?? completedRoomNames().length} / 6`],
-      ["剩余生命", `${Math.max(0, Math.ceil(player.hp))} / ${player.maxHp}`],
-      ["通关时间", `${seconds} 秒`],
-      ["速度修正", speedText],
-      ["圣剑通关", scoreDetails?.swordOnly ? "是" : "否"],
-      ["圣剑奖励", scoreDetails?.swordOnly ? `+${scoreDetails.swordBonus}` : "-"],
-      ["最终评分", `${score}`],
-      ["绩点状态", win ? "保住了" : "重修预警"],
-    ]
-      .map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`)
-      .join("");
+    const swordOnlyWin = Boolean(win && scoreDetails?.swordOnly);
+    screens.result.classList.toggle("sword-ending", swordOnlyWin);
+    ui.resultStats.className = swordOnlyWin ? "result-stats sword-result-wrap" : "result-stats";
+    ui.resultTitle.hidden = swordOnlyWin;
+    ui.resultEyebrow.textContent = swordOnlyWin ? "圣剑独行" : win ? "绩点保住了" : "期末结算";
+    ui.resultTitle.textContent = swordOnlyWin ? "一柄圣剑，斩过三位一体" : win ? "恭喜通过期末考试！" : "很遗憾，你挂科了。";
+    ui.resultStats.innerHTML = swordOnlyWin
+      ? swordOnlyResultMarkup(scoreDetails, score, seconds, player)
+      : resultStatMarkup([
+        ["击败小怪", `${game.kills}`],
+        ["完成房间", `${scoreDetails?.roomCount ?? completedRoomNames().length} / 6`],
+        ["剩余生命", `${Math.max(0, Math.ceil(player.hp))} / ${player.maxHp}`],
+        ["战斗用时", `${seconds} 秒`],
+        ["速度修正", speedText],
+        ["圣剑通关", scoreDetails?.swordOnly ? "是" : "否"],
+        ["圣剑奖励", scoreDetails?.swordOnly ? `+${scoreDetails.swordBonus}` : "-"],
+        ["最终评分", `${score}`],
+        ["绩点状态", win ? "保住了" : "重修预警"],
+    ]);
     hideLeaderboardNameForm();
-    if (win) {
-      const entry = makeLeaderboardEntry(score, seconds, scoreDetails);
-      const updated = saveLeaderboardEntry(entry);
-      const ranks = leaderboardRanksForEntry(entry, updated);
-      if (ranks.length) showLeaderboardNameForm(entry, ranks);
+    const statsEntry = makeRunStatsEntry(Boolean(win), score, seconds, scoreDetails);
+    if (win && options.saveLeaderboard !== false) {
+      recordFunStats(statsEntry);
+      const updated = saveLeaderboardEntry(statsEntry);
+      const ranks = leaderboardRanksForEntry(statsEntry, updated);
+      if (ranks.length) showLeaderboardNameForm(statsEntry, ranks);
+    } else if (!win && options.saveStats !== false) {
+      recordFunStats(statsEntry);
     }
     showScreen("result");
+  }
+
+  function shouldCountBattleTime() {
+    if (mode !== "combat" || !ui.modal.hidden || isBossIntroActive()) return false;
+    if (game.activeRoom === "monster") {
+      return game.enemies.some((enemy) => !enemy.defeated);
+    }
+    if (game.activeRoom === "boss") {
+      return Boolean(game.boss?.cores.some((core) => core.hp > 0));
+    }
+    return false;
   }
 
   function update(dt) {
@@ -1965,16 +2483,19 @@
       return;
     }
 
-    game.elapsed = performance.now() - game.startedAt;
+    const bossIntroActive = isBossIntroActive();
+    if (shouldCountBattleTime()) {
+      game.elapsed += dt * 1000;
+    }
     const player = game.player;
     player.attackTimer = Math.max(0, player.attackTimer - dt);
+    player.weaponSealTimer = Math.max(0, (player.weaponSealTimer || 0) - dt);
     player.dashCooldown = Math.max(0, (player.dashCooldown || 0) - dt);
     player.invuln = Math.max(0, player.invuln - dt);
     player.mistakeBoostTimer = Math.max(0, (player.mistakeBoostTimer || 0) - dt);
     updateWeaponReloads(dt);
     updatePassiveShield(dt);
 
-    const bossIntroActive = isBossIntroActive();
     if (!bossIntroActive) {
       updatePlayer(dt);
       if (attackHeld || mouse.down) {
@@ -2053,6 +2574,11 @@
 
     const angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
     const weapon = player.weapon;
+    if (isWeaponSealed(weapon)) {
+      const fallback = firstAvailableWeaponIndex(player);
+      if (fallback >= 0) setWeaponIndex(fallback);
+      return;
+    }
     if (weapon.id !== "sword") {
       game.usedNonSwordWeapon = true;
     }
@@ -2070,6 +2596,8 @@
       (hasBuff(player, "学霸笔记") ? 1.1 : 1) *
       (hasBuff(player, "公式大全") ? 1.1 : 1) *
       (player.mistakeBoostTimer > 0 ? 1.25 : 1);
+    const sourceWeaponId = weapon.id;
+    const sourceWeaponName = displayWeaponName(weapon);
 
     if (!weapon.ranged) {
       if (weapon.special === "crossSlash") {
@@ -2086,6 +2614,8 @@
             damage: weapon.damage * damageMultiplier,
             color: weapon.color || colors.cyan,
             kind: attackKind,
+            weaponId: sourceWeaponId,
+            weaponName: sourceWeaponName,
             hitIds: new Set(),
             originX: player.x,
             originY: player.y,
@@ -2110,6 +2640,8 @@
           damage: weapon.damage * damageMultiplier,
           color: weapon.color || colors.cyan,
           kind: attackKind,
+          weaponId: sourceWeaponId,
+          weaponName: sourceWeaponName,
           hitIds: new Set(),
           originX: player.x,
           originY: player.y,
@@ -2128,6 +2660,8 @@
         damage: weapon.damage * damageMultiplier,
         color: weapon.color || colors.mint,
         kind: attackKind,
+        weaponId: sourceWeaponId,
+        weaponName: sourceWeaponName,
         hitIds: new Set(),
         originX: player.x,
         originY: player.y,
@@ -2149,6 +2683,8 @@
         vy: Math.sin(shotAngle) * speed,
         damage: weapon.damage * damageMultiplier,
         kind: attackKind,
+        weaponId: sourceWeaponId,
+        weaponName: sourceWeaponName,
         color: weapon.color || colors.mint,
         angle: shotAngle,
         pierce: weapon.pierce || 1,
@@ -2173,30 +2709,377 @@
     }
   }
 
+  function hasEnemyMechanic(enemy, name) {
+    return Boolean(enemy?.mechanics?.includes(name));
+  }
+
+  function enemyHpRatio(enemy) {
+    return clamp((enemy?.hp || 0) / Math.max(1, enemy?.maxHp || 1), 0, 1);
+  }
+
+  function monsterMidX() {
+    return (arena.left + arena.right) / 2;
+  }
+
+  function monsterMidY() {
+    return (arena.top + arena.bottom) / 2;
+  }
+
+  function enemyDistanceToPlayer(enemy) {
+    return game.player ? distance(enemy, game.player) : 220;
+  }
+
+  function enemyDamageMultiplier(enemy) {
+    let multiplier = 1;
+    const ratio = enemyHpRatio(enemy);
+    if (hasEnemyMechanic(enemy, "gaussEnrage")) {
+      multiplier *= 1 + clamp((0.55 - ratio) / 0.55, 0, 1) * 0.35;
+    }
+    if (hasEnemyMechanic(enemy, "gaussZone") && enemy.x < monsterMidX()) {
+      multiplier *= 1.24;
+    }
+    if (hasEnemyMechanic(enemy, "distanceLaw")) {
+      const close = clamp((180 - enemyDistanceToPlayer(enemy)) / 120, 0, 1);
+      multiplier *= 1 + close * 0.2;
+    }
+    return multiplier;
+  }
+
+  function enemyFireRateMultiplier(enemy) {
+    let multiplier = 1;
+    if (hasEnemyMechanic(enemy, "gaussZone") && enemy.x >= monsterMidX()) {
+      multiplier *= 1.22;
+    }
+    if (hasEnemyMechanic(enemy, "distanceLaw")) {
+      const close = clamp((190 - enemyDistanceToPlayer(enemy)) / 130, 0, 1);
+      multiplier *= 1 + close * 0.25;
+    }
+    if (hasEnemyMechanic(enemy, "gaussEnrage")) {
+      multiplier *= 1 + clamp((0.5 - enemyHpRatio(enemy)) / 0.5, 0, 1) * 0.18;
+    }
+    return multiplier;
+  }
+
+  function enemyShotSpeedMultiplier(enemy) {
+    let multiplier = 1;
+    if (hasEnemyMechanic(enemy, "gaussZone") && enemy.x >= monsterMidX()) {
+      multiplier *= 1.18;
+    }
+    if (hasEnemyMechanic(enemy, "distanceLaw")) {
+      const close = clamp((170 - enemyDistanceToPlayer(enemy)) / 120, 0, 1);
+      multiplier *= 1 + close * 0.12;
+    }
+    return multiplier;
+  }
+
+  function enemyReceivedDamageMultiplier(enemy) {
+    let multiplier = 1;
+    if (hasEnemyMechanic(enemy, "distanceLaw")) {
+      const far = clamp((enemyDistanceToPlayer(enemy) - 170) / 170, 0, 1);
+      const close = clamp((130 - enemyDistanceToPlayer(enemy)) / 90, 0, 1);
+      multiplier *= (1 - far * 0.28) * (1 + close * 0.08);
+    }
+    return multiplier;
+  }
+
+  function enemyById(id) {
+    if (!id) return null;
+    return game.enemies.find((enemy) => enemy.id === id && !enemy.defeated) || null;
+  }
+
+  function fireEnemyShot(enemy, x, y, angle, speed, damage, color, options = {}) {
+    spawnEnemyShot(
+      x,
+      y,
+      angle,
+      speed * enemyShotSpeedMultiplier(enemy),
+      damage * enemyDamageMultiplier(enemy),
+      color,
+      {
+        ...options,
+        ownerId: enemy.id,
+      }
+    );
+  }
+
+  function enemyQuadrantIndex(x, y) {
+    const right = x >= monsterMidX();
+    const bottom = y >= monsterMidY();
+    return (bottom ? 2 : 0) + (right ? 1 : 0);
+  }
+
+  function enemyQuadrantCenter(index) {
+    const left = index % 2 === 0;
+    const top = index < 2;
+    const x0 = left ? arena.left : monsterMidX();
+    const x1 = left ? monsterMidX() : arena.right;
+    const y0 = top ? arena.top : monsterMidY();
+    const y1 = top ? monsterMidY() : arena.bottom;
+    return {
+      x: (x0 + x1) / 2 + (Math.random() - 0.5) * 70,
+      y: (y0 + y1) / 2 + (Math.random() - 0.5) * 48,
+    };
+  }
+
+  function updateQuadrantBlink(enemy, dt) {
+    if (!hasEnemyMechanic(enemy, "quadrantBlink")) return;
+    if (enemy.quadrantWarnTimer > 0) {
+      enemy.quadrantWarnTimer -= dt;
+      if (enemy.quadrantWarnTimer <= 0) {
+        enemy.baseX = clamp(enemy.quadrantTargetX, arena.left + 48, arena.right - 48);
+        enemy.baseY = clamp(enemy.quadrantTargetY, arena.top + 48, arena.bottom - 48);
+        enemy.x = enemy.baseX;
+        enemy.y = enemy.baseY;
+        enemy.moveT = 0;
+        const nextQuadrant = enemyQuadrantIndex(enemy.x, enemy.y);
+        enemy.healedQuadrants = enemy.healedQuadrants || [];
+        if (!enemy.healedQuadrants.includes(nextQuadrant) && enemy.healedQuadrants.length < 3) {
+          enemy.healedQuadrants.push(nextQuadrant);
+          enemy.hp = Math.min(enemy.maxHp, enemy.hp + enemy.maxHp * 0.06);
+          enemy.healFlash = 0.55;
+        }
+        burst(enemy.x, enemy.y, enemy.color || colors.cyan, 18);
+        enemy.quadrantTimer = 3.7 + Math.random() * 1.0;
+      }
+      return;
+    }
+    if (enemy.quadrantTimer == null) enemy.quadrantTimer = 2.2 + Math.random() * 0.8;
+    enemy.quadrantTimer -= dt;
+    if (enemy.quadrantTimer <= 0) {
+      const current = enemyQuadrantIndex(enemy.x, enemy.y);
+      const next = (current + 1 + Math.floor(Math.random() * 3)) % 4;
+      const target = enemyQuadrantCenter(next);
+      enemy.quadrantTargetX = target.x;
+      enemy.quadrantTargetY = target.y;
+      enemy.quadrantWarnTimer = 0.58;
+      enemy.quadrantWarnMax = 0.58;
+      enemy.quadrantTimer = 99;
+    }
+  }
+
+  function updateBehindBlink(enemy, dt) {
+    if (!hasEnemyMechanic(enemy, "behindBlink")) return;
+    if (enemy.behindHoldTimer > 0) {
+      enemy.behindHoldTimer -= dt;
+      if (enemy.behindHoldTimer <= 0) {
+        enemy.baseX = enemy.returnBaseX ?? enemy.baseX;
+        enemy.baseY = enemy.returnBaseY ?? enemy.baseY;
+        enemy.x = enemy.baseX;
+        enemy.y = enemy.baseY;
+        enemy.moveT = 0;
+        burst(enemy.x, enemy.y, enemy.color || colors.paper, 12);
+      }
+      return;
+    }
+    if (enemy.behindWarnTimer > 0) {
+      enemy.behindWarnTimer -= dt;
+      const player = game.player;
+      if (player) {
+        const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+        enemy.behindTargetX = clamp(player.x - Math.cos(angle) * 86, arena.left + 42, arena.right - 42);
+        enemy.behindTargetY = clamp(player.y - Math.sin(angle) * 86, arena.top + 42, arena.bottom - 42);
+      }
+      if (enemy.behindWarnTimer <= 0) {
+        enemy.returnBaseX = enemy.baseX;
+        enemy.returnBaseY = enemy.baseY;
+        enemy.baseX = enemy.behindTargetX;
+        enemy.baseY = enemy.behindTargetY;
+        enemy.x = enemy.baseX;
+        enemy.y = enemy.baseY;
+        enemy.moveT = 0;
+        enemy.behindHoldTimer = 1.08;
+        burst(enemy.x, enemy.y, enemy.color || colors.paper, 16);
+      }
+      return;
+    }
+    if (enemy.behindTimer == null) enemy.behindTimer = 4.2 + Math.random() * 1.0;
+    enemy.behindTimer -= dt;
+    if (enemy.behindTimer <= 0) {
+      enemy.behindWarnTimer = 0.48;
+      enemy.behindWarnMax = 0.48;
+      enemy.behindTimer = 5.2 + Math.random() * 1.1;
+    }
+  }
+
+  function updateDashScatter(enemy, dt) {
+    if (!hasEnemyMechanic(enemy, "dashScatter")) return;
+    if (enemy.dashWarnTimer > 0) {
+      enemy.dashWarnTimer -= dt;
+      const player = game.player;
+      if (player) {
+        const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+        enemy.dashTargetX = clamp(player.x + Math.cos(angle) * 74, arena.left + 36, arena.right - 36);
+        enemy.dashTargetY = clamp(player.y + Math.sin(angle) * 74, arena.top + 36, arena.bottom - 36);
+      }
+      if (enemy.dashWarnTimer <= 0) {
+        enemy.dashFromX = enemy.x;
+        enemy.dashFromY = enemy.y;
+        enemy.dashActiveTimer = 0.34;
+        enemy.dashActiveMax = 0.34;
+        enemy.dashTrailTimer = 0;
+        enemy.dashHitPlayer = false;
+      }
+      return;
+    }
+    if ((enemy.dashActiveTimer || 0) > 0) return;
+    if (enemy.dashTimer == null) enemy.dashTimer = 3.1 + Math.random() * 0.9;
+    enemy.dashTimer -= dt;
+    if (enemy.dashTimer <= 0) {
+      const player = game.player;
+      const angle = player ? Math.atan2(player.y - enemy.y, player.x - enemy.x) : enemy.facingAngle || 0;
+      enemy.dashTargetX = clamp((player?.x || enemy.x) + Math.cos(angle) * 74, arena.left + 36, arena.right - 36);
+      enemy.dashTargetY = clamp((player?.y || enemy.y) + Math.sin(angle) * 74, arena.top + 36, arena.bottom - 36);
+      enemy.dashWarnTimer = 0.58;
+      enemy.dashWarnMax = 0.58;
+      enemy.dashTimer = 4.7 + Math.random() * 1.0;
+    }
+  }
+
+  function updateEnemyMechanics(enemy, dt) {
+    enemy.backHitFlash = Math.max(0, (enemy.backHitFlash || 0) - dt);
+    enemy.shieldFlash = Math.max(0, (enemy.shieldFlash || 0) - dt);
+    enemy.healFlash = Math.max(0, (enemy.healFlash || 0) - dt);
+    enemy.playerHitShieldTimer = Math.max(0, (enemy.playerHitShieldTimer || 0) - dt);
+    enemy.playerHitShieldCooldown = Math.max(0, (enemy.playerHitShieldCooldown || 0) - dt);
+    if ((enemy.playerHitShieldTimer || 0) <= 0) {
+      enemy.playerHitShieldCharges = 0;
+    }
+    updateQuadrantBlink(enemy, dt);
+    updateBehindBlink(enemy, dt);
+    updateDashScatter(enemy, dt);
+  }
+
+  function spawnDashTrail(enemy) {
+    const angle = Math.atan2(enemy.dashTargetY - enemy.dashFromY, enemy.dashTargetX - enemy.dashFromX);
+    [-1, 1].forEach((direction) => {
+      fireEnemyShot(enemy, enemy.x, enemy.y, angle + direction * Math.PI / 2, 118, 7, enemy.color, {
+        r: 5,
+        life: 2.2,
+        weaponSeal: true,
+      });
+    });
+  }
+
+  function updateEnemyPosition(enemy, dt) {
+    if ((enemy.dashActiveTimer || 0) > 0 && enemy.dashFromX != null && enemy.dashTargetX != null) {
+      enemy.dashActiveTimer = Math.max(0, enemy.dashActiveTimer - dt);
+      const progress = 1 - enemy.dashActiveTimer / Math.max(0.001, enemy.dashActiveMax || 0.34);
+      const eased = 1 - Math.pow(1 - clamp(progress, 0, 1), 2);
+      enemy.x = enemy.dashFromX + (enemy.dashTargetX - enemy.dashFromX) * eased;
+      enemy.y = enemy.dashFromY + (enemy.dashTargetY - enemy.dashFromY) * eased;
+      enemy.dashTrailTimer = (enemy.dashTrailTimer || 0) - dt;
+      if (enemy.dashTrailTimer <= 0) {
+        enemy.dashTrailTimer = 0.075;
+        spawnDashTrail(enemy);
+      }
+      const player = game.player;
+      if (player && !enemy.dashHitPlayer && player.invuln <= 0 && distance(player, enemy) <= player.r + enemy.r + 3) {
+        applyPlayerDamage(scaledIncomingDamage(15 * enemyDamageMultiplier(enemy)), enemy.color || colors.cyan);
+        player.invuln = Math.max(player.invuln, 0.75);
+        enemy.dashHitPlayer = true;
+        sealPlayerNonGeometryWeapons(weaponSealDuration);
+      }
+      if (enemy.dashActiveTimer <= 0) {
+        enemy.baseX = enemy.x;
+        enemy.baseY = enemy.y;
+        enemy.moveT = 0;
+      }
+      return;
+    }
+    enemy.x = enemy.baseX + Math.sin(enemy.moveT * enemy.moveSpeed) * enemy.moveAmp;
+    enemy.y = enemy.baseY + Math.cos(enemy.moveT * enemy.moveSpeed * 0.7) * 18;
+  }
+
+  function grantEnemyHitShield(enemy) {
+    if (!enemy || !hasEnemyMechanic(enemy, "gaussShieldOnHit")) return;
+    if ((enemy.playerHitShieldCooldown || 0) > 0) return;
+    enemy.playerHitShieldCharges = 1;
+    enemy.playerHitShieldTimer = monsterShieldDuration;
+    enemy.playerHitShieldCooldown = monsterShieldCooldown;
+    enemy.shieldFlash = 0.55;
+    burst(enemy.x, enemy.y, colors.paper, 14);
+  }
+
+  function onEnemyAttackHitPlayer(source) {
+    const enemy = enemyById(source?.ownerId);
+    if (!enemy) return;
+    grantEnemyHitShield(enemy);
+    if (source.weaponSeal) {
+      sealPlayerNonGeometryWeapons(weaponSealDuration);
+    }
+  }
+
+  function consumeEnemyShield(enemy) {
+    if ((enemy.playerHitShieldCharges || 0) <= 0 || (enemy.playerHitShieldTimer || 0) <= 0) return false;
+    enemy.playerHitShieldCharges -= 1;
+    enemy.playerHitShieldTimer = 0;
+    enemy.shieldFlash = 0.55;
+    burst(enemy.x, enemy.y, colors.paper, 16);
+    return true;
+  }
+
+  function spawnSplitEnemies(enemy) {
+    if (!hasEnemyMechanic(enemy, "splitOnDeath") || enemy.splitChild) return false;
+    const childHp = Math.max(18, Math.round(enemy.maxHp * 0.25));
+    [-1, 1].forEach((side, index) => {
+      const child = {
+        ...enemy,
+        id: `${enemy.id}-split-${index}`,
+        x: clamp(enemy.x + side * 36, arena.left + 30, arena.right - 30),
+        y: clamp(enemy.y + 18, arena.top + 30, arena.bottom - 30),
+        baseX: clamp(enemy.x + side * 36, arena.left + 30, arena.right - 30),
+        baseY: clamp(enemy.y + 18, arena.top + 30, arena.bottom - 30),
+        r: Math.max(16, enemy.r * 0.76),
+        hp: childHp,
+        maxHp: childHp,
+        moveT: side * 1.2,
+        moveAmp: Math.max(28, enemy.moveAmp * 0.55),
+        moveSpeed: enemy.moveSpeed * 1.08,
+        fireEvery: enemy.fireEvery * 1.22,
+        fireTimer: 0.36 + index * 0.18,
+        mechanics: (enemy.mechanics || []).filter((mechanic) => mechanic !== "splitOnDeath"),
+        splitChild: true,
+        playerHitShieldCharges: 0,
+        playerHitShieldTimer: 0,
+        playerHitShieldCooldown: 0,
+        shieldFlash: 0,
+        healFlash: 0,
+        defeated: false,
+      };
+      game.enemies.push(child);
+    });
+    burst(enemy.x, enemy.y, enemy.color || colors.chalk, 24);
+    return true;
+  }
+
+  function defeatEnemy(enemy) {
+    const didSplit = spawnSplitEnemies(enemy);
+    enemy.defeated = true;
+    game.kills += 1;
+    game.defeatedInRoom += 1;
+    burst(enemy.x, enemy.y, didSplit ? colors.paper : enemy.color, didSplit ? 32 : 28);
+  }
+
   function updateMonsterRoom(dt) {
     if (!game.enemies.length) return;
 
     game.enemies.forEach((enemy) => {
       if (enemy.defeated) return;
       enemy.moveT += dt;
+      updateEnemyMechanics(enemy, dt);
       const previousX = enemy.x;
       const previousY = enemy.y;
-      enemy.x = enemy.baseX + Math.sin(enemy.moveT * enemy.moveSpeed) * enemy.moveAmp;
-      enemy.y = enemy.baseY + Math.cos(enemy.moveT * enemy.moveSpeed * 0.7) * 18;
+      updateEnemyPosition(enemy, dt);
       updateEnemyFacing(enemy, previousX, previousY);
-      enemy.backHitFlash = Math.max(0, (enemy.backHitFlash || 0) - dt);
       enemy.fireTimer -= dt;
       if (enemy.fireTimer <= 0) {
-        enemy.fireTimer = enemy.fireEvery;
+        enemy.fireTimer = enemy.fireEvery / enemyFireRateMultiplier(enemy);
         fireEnemyPattern(enemy);
       }
 
       applyPlayerDamageToCircle(enemy, "enemy");
       if (enemy.hp <= 0) {
-        enemy.defeated = true;
-        game.kills += 1;
-        game.defeatedInRoom += 1;
-        burst(enemy.x, enemy.y, enemy.color, 28);
+        defeatEnemy(enemy);
       }
     });
 
@@ -2273,18 +3156,103 @@
 
   function fireEnemyPattern(enemy) {
     const baseAngle = Math.atan2(game.player.y - enemy.y, game.player.x - enemy.x);
+    const fire = (x, y, angle, speed, damage, color = enemy.color, options = {}) => {
+      fireEnemyShot(enemy, x, y, angle, speed, damage, color, options);
+    };
+    if (enemy.pattern === "axisLaser") {
+      spawnEnemyLaser({
+        orientation: "vertical",
+        x: clamp(game.player.x, arena.left + 24, arena.right - 24),
+        warningTime: 0.52,
+        activeTime: 0.28,
+        width: 15,
+        damage: 12 * enemyDamageMultiplier(enemy),
+        color: enemy.color,
+        sourceX: enemy.x,
+        sourceY: enemy.y,
+        ownerId: enemy.id,
+      });
+      spawnEnemyLaser({
+        orientation: "horizontal",
+        y: clamp(game.player.y, arena.top + 24, arena.bottom - 24),
+        warningTime: 0.52,
+        activeTime: 0.28,
+        width: 15,
+        damage: 12 * enemyDamageMultiplier(enemy),
+        color: enemy.color,
+        sourceX: enemy.x,
+        sourceY: enemy.y,
+        ownerId: enemy.id,
+      });
+      return;
+    }
+    if (enemy.pattern === "tripleLaser") {
+      const vertical = Math.sin(enemy.moveT * 1.7) > 0;
+      spawnEnemyLaser({
+        orientation: "vertical",
+        x: clamp(game.player.x, arena.left + 24, arena.right - 24),
+        warningTime: 0.5,
+        activeTime: 0.26,
+        width: 14,
+        damage: 11 * enemyDamageMultiplier(enemy),
+        color: enemy.color,
+        sourceX: enemy.x,
+        sourceY: enemy.y,
+        ownerId: enemy.id,
+      });
+      spawnEnemyLaser({
+        orientation: "horizontal",
+        y: clamp(game.player.y, arena.top + 24, arena.bottom - 24),
+        warningTime: 0.5,
+        activeTime: 0.26,
+        width: 14,
+        damage: 11 * enemyDamageMultiplier(enemy),
+        color: enemy.color,
+        sourceX: enemy.x,
+        sourceY: enemy.y,
+        ownerId: enemy.id,
+      });
+      spawnEnemyLaser({
+        orientation: vertical ? "vertical" : "horizontal",
+        x: vertical ? clamp(game.player.x + (Math.random() < 0.5 ? -64 : 64), arena.left + 24, arena.right - 24) : 0,
+        y: vertical ? 0 : clamp(game.player.y + (Math.random() < 0.5 ? -54 : 54), arena.top + 24, arena.bottom - 24),
+        warningTime: 0.56,
+        activeTime: 0.24,
+        width: 12,
+        damage: 9 * enemyDamageMultiplier(enemy),
+        color: enemy.color,
+        sourceX: enemy.x,
+        sourceY: enemy.y,
+        ownerId: enemy.id,
+      });
+      return;
+    }
+    if (enemy.pattern === "pierceWave") {
+      for (let i = -1; i <= 1; i += 1) {
+        fire(enemy.x, enemy.y, baseAngle + i * 0.22, 132 + Math.abs(i) * 12, 9, enemy.color, {
+          pattern: "curve",
+          curveAmp: 42 + Math.abs(i) * 8,
+          curveFreq: 4.3,
+          curvePhase: enemy.moveT + i * 1.1,
+          ignoresObstacles: true,
+          r: 6,
+          life: 4.2,
+        });
+      }
+      return;
+    }
     if (enemy.pattern === "cross") {
       [0, Math.PI / 2, Math.PI, Math.PI * 1.5].forEach((angle) => {
-        spawnEnemyShot(enemy.x, enemy.y, angle, 185, 10, enemy.color);
+        fire(enemy.x, enemy.y, angle, 185, 10);
       });
-      spawnEnemyShot(enemy.x, enemy.y, baseAngle, 210, 10, enemy.color);
+      fire(enemy.x, enemy.y, baseAngle, 210, 10);
       return;
     }
     if (enemy.pattern === "wall") {
       const sideX = -Math.sin(baseAngle);
       const sideY = Math.cos(baseAngle);
       for (let i = -2; i <= 2; i += 1) {
-        spawnEnemyShot(enemy.x + sideX * i * 24, enemy.y + sideY * i * 24, baseAngle, 150 + Math.abs(i) * 12, 10, enemy.color);
+        fire(enemy.x + sideX * i * 24, enemy.y + sideY * i * 24, baseAngle, 150 + Math.abs(i) * 12, 10);
       }
       return;
     }
@@ -2297,7 +3265,7 @@
         for (let col = -1; col <= 1; col += 1) {
           const startX = enemy.x - forwardX * row * 22 + sideX * col * 24;
           const startY = enemy.y - forwardY * row * 22 + sideY * col * 24;
-          spawnEnemyShot(startX, startY, baseAngle, 145 + row * 18, 10, enemy.color, {
+          fire(startX, startY, baseAngle, 145 + row * 18, 10, enemy.color, {
             pattern: "matrix",
             shape: "square",
             r: 7,
@@ -2309,38 +3277,38 @@
     }
     if (enemy.pattern === "circle") {
       for (let i = 0; i < 10; i += 1) {
-        spawnEnemyShot(enemy.x, enemy.y, (Math.PI * 2 * i) / 10 + enemy.moveT * 0.2, 145, 10, enemy.color);
+        fire(enemy.x, enemy.y, (Math.PI * 2 * i) / 10 + enemy.moveT * 0.2, 145, 10);
       }
       return;
     }
     if (enemy.pattern === "triangle") {
       for (let i = 0; i < 3; i += 1) {
-        spawnEnemyShot(enemy.x, enemy.y, baseAngle + (i - 1) * 0.34, 165, 10, enemy.color, {
+        fire(enemy.x, enemy.y, baseAngle + (i - 1) * 0.34, 165, 10, enemy.color, {
           shape: "square",
           r: 7,
           pulse: i * 0.18,
         });
       }
       for (let i = 0; i < 3; i += 1) {
-        spawnEnemyShot(enemy.x, enemy.y, (Math.PI * 2 * i) / 3 + enemy.moveT * 0.18, 125, 8, enemy.color);
+        fire(enemy.x, enemy.y, (Math.PI * 2 * i) / 3 + enemy.moveT * 0.18, 125, 8);
       }
       return;
     }
     if (enemy.pattern === "split") {
       for (let i = -2; i <= 2; i += 1) {
-        spawnEnemyShot(enemy.x, enemy.y, baseAngle + i * 0.18, 160 + Math.abs(i) * 14, 10, enemy.color);
+        fire(enemy.x, enemy.y, baseAngle + i * 0.18, 160 + Math.abs(i) * 14, 10);
       }
       return;
     }
     if (enemy.pattern === "aimed") {
-      spawnEnemyShot(enemy.x, enemy.y, baseAngle, 235, 12, enemy.color, { r: 7, label: "!" });
+      fire(enemy.x, enemy.y, baseAngle, 235, 12, enemy.color, { r: 7, label: "!" });
       for (let i = -1; i <= 1; i += 2) {
-        spawnEnemyShot(enemy.x, enemy.y, baseAngle + i * 0.16, 185, 9, enemy.color);
+        fire(enemy.x, enemy.y, baseAngle + i * 0.16, 185, 9);
       }
       return;
     }
     for (let i = -1; i <= 1; i += 1) {
-      spawnEnemyShot(enemy.x, enemy.y, baseAngle + i * 0.22, 170, 10, enemy.color);
+      fire(enemy.x, enemy.y, baseAngle + i * 0.22, 170, 10);
     }
   }
 
@@ -2357,7 +3325,11 @@
     boss.cores.forEach((core) => {
       core.hitFlash = Math.max(0, (core.hitFlash || 0) - dt);
       core.guardFlash = Math.max(0, (core.guardFlash || 0) - dt);
+      core.tellFlash = Math.max(0, (core.tellFlash || 0) - dt);
+      core.overloadFlash = Math.max(0, (core.overloadFlash || 0) - dt);
+      core.vulnerableFlash = Math.max(0, (core.vulnerableFlash || 0) - dt);
     });
+    updateBossWindows(boss, dt);
     if (!aliveCores.length) {
       finishGame(true);
       return;
@@ -2412,6 +3384,16 @@
     boss.moveT = (boss.moveT || 0) + dt;
     const offset = Math.sin(boss.moveT * boss.moveSpeed) * boss.moveAmp;
     boss.x = clamp(boss.moveBaseX + offset, arena.left + 180, arena.right - 180);
+  }
+
+  function updateBossWindows(boss, dt) {
+    boss.ruleTimer = Math.max(0, (boss.ruleTimer || 0) - dt);
+    if (boss.vulnerableTimer > 0) {
+      boss.vulnerableTimer = Math.max(0, boss.vulnerableTimer - dt);
+      if (boss.vulnerableTimer === 0) {
+        boss.vulnerableCoreId = "";
+      }
+    }
   }
 
   function bossCoreById(id) {
@@ -2476,6 +3458,7 @@
         return;
       }
       ultimate.charge = Math.min(ultimate.chargeTime, ultimate.charge + dt);
+      updateBossUltimateFocus(boss, aliveCores);
       if (ultimate.charge >= ultimate.chargeTime) {
         finishBossUltimate(boss, aliveCores);
       }
@@ -2496,11 +3479,36 @@
     ultimate.charge = 0;
     ultimate.damageTaken = 0;
     ultimate.count += 1;
+    ultimate.targetCoreIds = aliveCores.map((core) => core.id);
+    ultimate.focusId = ultimate.targetCoreIds[0] || "";
+    ultimate.focusIndex = 0;
     boss.comboWarning = 0;
     boss.comboTimer = Math.max(boss.comboTimer, 1.8);
     aliveCores.forEach((core) => {
       core.fireTimer = Math.max(core.fireTimer, ultimate.chargeTime + 0.2);
     });
+  }
+
+  function updateBossUltimateFocus(boss, activeCores) {
+    const ultimate = boss.ultimate;
+    if (!ultimate) return;
+    const ids = activeCores.map((core) => core.id);
+    if (!ids.length) {
+      ultimate.focusId = "";
+      ultimate.targetCoreIds = [];
+      return;
+    }
+    if (!ultimate.targetCoreIds?.length || ultimate.targetCoreIds.some((id) => !ids.includes(id))) {
+      ultimate.targetCoreIds = ids;
+    }
+    const phase = clamp(ultimate.charge / Math.max(0.01, ultimate.chargeTime), 0, 0.999);
+    const index = Math.floor(phase * ultimate.targetCoreIds.length);
+    ultimate.focusIndex = index;
+    ultimate.focusId = ultimate.targetCoreIds[index] || ids[0];
+    const focusCore = bossCoreById(ultimate.focusId);
+    if (focusCore) {
+      focusCore.overloadFlash = Math.max(focusCore.overloadFlash || 0, 0.18);
+    }
   }
 
   function finishBossUltimate(boss, aliveCores) {
@@ -2510,10 +3518,13 @@
     ultimate.lastInterrupted = interrupted;
     ultimate.state = "idle";
     ultimate.charge = 0;
+    ultimate.focusId = "";
+    ultimate.targetCoreIds = [];
     ultimate.timer = ultimate.cooldown * bossPhaseMultiplier();
 
     if (power <= 0) {
       ultimate.interruptedCount += 1;
+      startBossVulnerability(boss, "ultimate-interrupt", 2.8);
       aliveCores.forEach((core) => {
         core.fireTimer = Math.max(core.fireTimer, 1.2);
         const pos = corePosition(core);
@@ -2524,6 +3535,7 @@
 
     ultimate.firedCount += 1;
     fireBossUltimate(aliveCores, power);
+    startBossVulnerability(boss, "ultimate-recover", 1.7);
   }
 
   function fireBossUltimate(aliveCores, power) {
@@ -2725,6 +3737,8 @@
         boss.rotating = false;
         boss.rotationSteps += 1;
         boss.rotateTimer = boss.rotateCooldown * bossPhaseMultiplier();
+        triggerBossRotationRule(boss);
+        startBossVulnerability(boss, "rotation", 1.45);
         bossActiveCores(boss).forEach((core) => {
           core.fireTimer = Math.min(core.fireTimer, 0.24);
         });
@@ -2740,6 +3754,45 @@
       boss.rotateFrom = boss.angle;
       boss.rotateTo = boss.angle + (Math.PI * 2) / 3;
     }
+  }
+
+  function startBossVulnerability(boss, reason = "recover", duration = 1.6) {
+    if (!boss || isBossIntroActive()) return;
+    const activeCores = bossActiveCores(boss);
+    if (!activeCores.length) return;
+    boss.vulnerableTimer = Math.max(boss.vulnerableTimer || 0, duration);
+    boss.vulnerableCoreId = "";
+    boss.vulnerableReason = reason;
+    boss.vulnerableCount = (boss.vulnerableCount || 0) + 1;
+    activeCores.forEach((core) => {
+      core.vulnerableFlash = Math.max(core.vulnerableFlash || 0, duration);
+    });
+  }
+
+  function triggerBossRotationRule(boss) {
+    if (!boss || isBossIntroActive() || isBossUltimateCharging(boss)) return;
+    const activeCores = bossActiveCores(boss);
+    if (!activeCores.length) return;
+    const core = activeCores[(boss.ruleCycle || 0) % activeCores.length];
+    boss.ruleCycle = (boss.ruleCycle || 0) + 1;
+    boss.ruleName = core.id;
+    boss.ruleTimer = 1.15;
+    boss.ruleCount = (boss.ruleCount || 0) + 1;
+    core.tellFlash = Math.max(core.tellFlash || 0, 0.9);
+    fireBossRule(core, activeCores);
+  }
+
+  function fireBossRule(core) {
+    const pos = corePosition(core);
+    if (core.id === "cauchy") {
+      fireCauchyDelayMines(pos, core);
+      return;
+    }
+    if (core.id === "descartes") {
+      fireDescartesAxisField(pos, core);
+      return;
+    }
+    fireGaussProbabilityWave(pos, core);
   }
 
   function updateBossCombo(boss, aliveCores, dt) {
@@ -2927,6 +3980,7 @@
     aliveCores.forEach((core) => {
       core.fireTimer = bossCoreInterval(core) * 1.05;
     });
+    startBossVulnerability(boss, "combo", boss.direct ? 1.35 : 1.75);
   }
 
   function fireTrinityCombo(aliveCores) {
@@ -3020,6 +4074,76 @@
     }
   }
 
+  function fireCauchyDelayMines(pos, core) {
+    const count = game.boss?.direct ? 4 : 3;
+    const baseAngle = Math.atan2(game.player.y - pos.y, game.player.x - pos.x);
+    for (let i = 0; i < count; i += 1) {
+      const angle = baseAngle + (Math.PI * 2 * i) / count + (i % 2 ? 0.28 : -0.16);
+      const radius = 46 + i * 22;
+      const x = clamp(game.player.x + Math.cos(angle) * radius, arena.left + 62, arena.right - 62);
+      const y = clamp(game.player.y + Math.sin(angle) * radius, arena.top + 54, arena.bottom - 48);
+      spawnEnemyShot(x, y, 0, 0, 0, core.color, {
+        pattern: "delayMine",
+        r: 12,
+        life: 1.25,
+        armTime: 0.76 + i * 0.08,
+        burstCount: 6,
+        burstSpeed: 126 + i * 8,
+        harmless: true,
+        ignoresObstacles: true,
+        pulse: i * 0.2,
+      });
+    }
+  }
+
+  function fireDescartesAxisField(pos, core) {
+    const snapX = clamp(game.player.x, arena.left + 76, arena.right - 76);
+    const snapY = clamp(game.player.y, arena.top + 50, arena.bottom - 38);
+    const offset = ((game.boss?.ruleCycle || 0) % 2 ? 1 : -1) * 72;
+    [
+      { orientation: "vertical", x: snapX, y: 0, width: 12 },
+      { orientation: "horizontal", x: 0, y: snapY, width: 12 },
+      {
+        orientation: Math.abs(game.player.x - game.boss.x) > Math.abs(game.player.y - game.boss.y) ? "vertical" : "horizontal",
+        x: clamp(snapX + offset, arena.left + 58, arena.right - 58),
+        y: clamp(snapY + offset * 0.62, arena.top + 44, arena.bottom - 40),
+        width: 9,
+      },
+    ].forEach((laser) => {
+      spawnEnemyLaser({
+        ...laser,
+        warningTime: 0.82,
+        activeTime: 0.26,
+        damage: 12,
+        color: core.color,
+        sourceX: pos.x,
+        sourceY: pos.y,
+      });
+    });
+  }
+
+  function fireGaussProbabilityWave(pos, core) {
+    const targetAngle = Math.atan2(game.player.y - pos.y, game.player.x - pos.x);
+    const edges = [
+      { x: arena.left + 30, y: arena.top + 76, angle: targetAngle + 0.18 },
+      { x: arena.right - 30, y: arena.top + 116, angle: targetAngle - 0.18 },
+      { x: arena.left + 96, y: arena.bottom - 32, angle: targetAngle - 0.36 },
+      { x: arena.right - 96, y: arena.bottom - 32, angle: targetAngle + 0.36 },
+    ];
+    for (let i = 0; i < 8; i += 1) {
+      const edge = edges[i % edges.length];
+      const jitter = (Math.random() - 0.5) * 0.34;
+      const aim = Math.atan2(game.player.y - edge.y, game.player.x - edge.x) + jitter;
+      spawnEnemyShot(edge.x, edge.y, aim, 112 + Math.random() * 44, 10, core.color, {
+        pattern: "matrix",
+        shape: "square",
+        r: 6,
+        pulse: i * 0.13,
+        life: 4.2,
+      });
+    }
+  }
+
   function fireCauchyCurve(pos, core) {
     const targetAngle = Math.atan2(game.player.y - pos.y, game.player.x - pos.x);
     for (let i = -2; i <= 2; i += 1) {
@@ -3100,6 +4224,16 @@
       shot.age = (shot.age || 0) + dt;
       shot.prevX = shot.x;
       shot.prevY = shot.y;
+      if (shot.pattern === "delayMine") {
+        if (!shot.burstDone && shot.age >= (shot.armTime || 0.75)) {
+          detonateDelayMine(shot);
+          shot.burstDone = true;
+          shot.life = 0;
+          return;
+        }
+        shot.life -= dt;
+        return;
+      }
       let curveOffset = 0;
       if (shot.pattern === "curve" || shot.pattern === "spiral") {
         curveOffset = Math.sin(shot.age * (shot.curveFreq || 4) + (shot.curvePhase || 0)) * (shot.curveAmp || 0);
@@ -3127,6 +4261,24 @@
     game.enemyShots = game.enemyShots.filter((shot) => shot.life > 0 && inBounds(shot.x, shot.y, 60));
   }
 
+  function detonateDelayMine(shot) {
+    const count = shot.burstCount || 6;
+    const base = (game.boss?.angle || 0) * 0.35 + (shot.pulse || 0);
+    burst(shot.x, shot.y, shot.color || colors.chalk, 12);
+    for (let i = 0; i < count; i += 1) {
+      const angle = base + (Math.PI * 2 * i) / count;
+      spawnEnemyShot(shot.x, shot.y, angle, shot.burstSpeed || 132, 9, shot.color || colors.chalk, {
+        pattern: i % 2 ? "curve" : "straight",
+        curveAmp: i % 2 ? 32 : 0,
+        curveFreq: 4.2,
+        curvePhase: i * 0.7,
+        side: i % 2 ? 1 : -1,
+        r: 4,
+        life: 3.2,
+      });
+    }
+  }
+
   function splitPlayerShot(shot) {
     const baseAngle = shot.angle ?? Math.atan2(shot.vy, shot.vx);
     const speed = shot.splitSpeed || Math.hypot(shot.vx, shot.vy) || 360;
@@ -3140,6 +4292,8 @@
         vy: Math.sin(angle) * speed,
         damage,
         kind: shot.kind,
+        weaponId: shot.weaponId,
+        weaponName: shot.weaponName,
         color: shot.color,
         angle,
         pierce: options.pierce || 1,
@@ -3185,6 +4339,7 @@
 
   function blockShotWithObstacles(shot) {
     if (shot.life <= 0) return;
+    if (shot.ignoresObstacles) return;
     const obstacle = game.obstacles.find((item) => !item.broken && circleObstacleCollision(shot, item, shot.r || 4));
     if (!obstacle) return;
     shot.life = 0;
@@ -3259,7 +4414,7 @@
         if (core === coreRef || core.hp <= 0 || shot.hitIds.has(core.id)) return;
         const pos = corePosition(core);
         if (distance(pos, target) > radius + 25) return;
-        damageBossCore(core, scaledBossDamage(splashDamage, shot.kind, core));
+        damageBossCore(core, scaledBossDamage(splashDamage, shot.kind, core), shot.weaponId, shot.weaponName);
         shot.hitIds.add(core.id);
         burst(pos.x, pos.y, core.color, 8);
       });
@@ -3275,20 +4430,24 @@
         if (!shot.hitIds) shot.hitIds = new Set();
         let damage = type === "boss" ? scaledBossDamage(shot.damage, shot.kind, coreRef) : shot.damage;
         let backHit = false;
+        let absorbed = false;
         if (type === "enemy") {
           const hit = monsterHitDamage(shot.damage, target, { x: shot.prevX ?? shot.x, y: shot.prevY ?? shot.y });
           damage = hit.amount;
           backHit = hit.backHit;
+          absorbed = hit.absorbed;
         }
         if (coreRef) {
-          damageBossCore(coreRef, damage);
+          damageBossCore(coreRef, damage, shot.weaponId, shot.weaponName);
           burst(target.x, target.y, coreRef.shield > 0 ? colors.paper : coreRef.color, shot.blastRadius ? 16 : 4);
         } else {
           target.hp -= damage;
           target.backHitFlash = backHit ? 0.28 : target.backHitFlash || 0;
-          burst(target.x, target.y, backHit ? colors.paper : target.color || colors.chalk, backHit ? 14 : shot.blastRadius ? 16 : 4);
+          burst(target.x, target.y, absorbed ? colors.paper : backHit ? colors.paper : target.color || colors.chalk, absorbed ? 12 : backHit ? 14 : shot.blastRadius ? 16 : 4);
         }
-        applyShotExplosion(shot, target, type, coreRef);
+        if (!absorbed) {
+          applyShotExplosion(shot, target, type, coreRef);
+        }
         shot.hitIds.add(targetId);
         shot.pierce = (shot.pierce || 1) - 1;
         if (shot.pierce <= 0) shot.hit = true;
@@ -3301,44 +4460,59 @@
       if (distance(slash, target) <= slash.r + target.r) {
         let damage = type === "boss" ? scaledBossDamage(slash.damage, slash.kind || "calculus", coreRef) : slash.damage;
         let backHit = false;
+        let absorbed = false;
         if (type === "enemy") {
           const hit = monsterHitDamage(slash.damage, target, { x: slash.originX ?? slash.x, y: slash.originY ?? slash.y });
           damage = hit.amount;
           backHit = hit.backHit;
+          absorbed = hit.absorbed;
         }
         if (coreRef) {
-          damageBossCore(coreRef, damage);
+          damageBossCore(coreRef, damage, slash.weaponId, slash.weaponName);
           burst(target.x, target.y, coreRef.shield > 0 ? colors.paper : coreRef.color, 5);
         } else {
           target.hp -= damage;
           target.backHitFlash = backHit ? 0.28 : target.backHitFlash || 0;
-          burst(target.x, target.y, backHit ? colors.paper : target.color || colors.chalk, backHit ? 14 : 5);
+          burst(target.x, target.y, absorbed ? colors.paper : backHit ? colors.paper : target.color || colors.chalk, absorbed ? 12 : backHit ? 14 : 5);
         }
         slash.hitIds.add(targetId);
       }
     });
   }
 
-  function damageBossCore(core, amount) {
+  function damageBossCore(core, amount, sourceWeaponId = "", sourceWeaponName = "") {
     const boss = game.boss;
     if (!isBossCoreFront(core, boss)) {
       core.guardFlash = 0.28;
-      return;
+      return 0;
     }
-    let remaining = amount;
+    let remaining = Math.max(0, Number(amount || 0));
     let absorbed = 0;
     if ((core.shield || 0) > 0) {
       absorbed = Math.min(core.shield, remaining);
       core.shield = Math.max(0, core.shield - absorbed);
       remaining -= absorbed;
     }
+    const hpDamage = remaining > 0 ? Math.min(Math.max(0, core.hp), remaining) : 0;
     if (remaining > 0) {
       core.hp -= remaining;
     }
+    recordBossWeaponDamage(sourceWeaponId, sourceWeaponName, absorbed + hpDamage);
     core.hitFlash = 0.18;
     if (boss?.ultimate?.state === "charging") {
-      boss.ultimate.damageTaken += remaining + absorbed * 0.55;
+      let contribution = remaining + absorbed * 0.55;
+      if (boss.ultimate.focusId) {
+        if (boss.ultimate.focusId === core.id) {
+          contribution *= 1.8;
+          boss.ultimate.overloadHits = (boss.ultimate.overloadHits || 0) + 1;
+          core.overloadFlash = Math.max(core.overloadFlash || 0, 0.42);
+        } else {
+          contribution *= 0.48;
+        }
+      }
+      boss.ultimate.damageTaken += contribution;
     }
+    return absorbed + hpDamage;
   }
 
   function scaledBossDamage(baseDamage, weaponKind, coreRef) {
@@ -3348,6 +4522,9 @@
     const boss = game.boss;
     if (boss?.weakTimer > 0 && boss.weakCoreId) {
       damage *= boss.weakCoreId === coreRef.id ? 1.4 : 0.88;
+    }
+    if (boss?.vulnerableTimer > 0 && (!boss.vulnerableCoreId || boss.vulnerableCoreId === coreRef.id)) {
+      damage *= 1.28;
     }
     if (coreRef.prepared) {
       damage *= 1.08;
@@ -3407,8 +4584,10 @@
     if (player.invuln > 0) return;
 
     for (const shot of game.enemyShots) {
+      if (shot.harmless) continue;
       if (distance(player, shot) <= player.r + shot.r) {
         shot.life = 0;
+        onEnemyAttackHitPlayer(shot);
         applyPlayerDamage(scaledIncomingDamage(shot.damage || baseStats.enemyBulletDamage || 10), shot.color || colors.danger);
         player.invuln = 0.65;
         break;
@@ -3425,6 +4604,7 @@
           : Math.abs(player.y - laser.y) <= player.r + halfWidth;
       if (hit) {
         laser.hit = true;
+        onEnemyAttackHitPlayer(laser);
         applyPlayerDamage(scaledIncomingDamage(laser.damage || 18), laser.color || colors.cyan);
         player.invuln = 0.78;
         break;
@@ -3461,6 +4641,13 @@
       shape: options.shape || "circle",
       pulse: options.pulse || 0,
       label: options.label || "",
+      ownerId: options.ownerId || "",
+      weaponSeal: Boolean(options.weaponSeal),
+      harmless: Boolean(options.harmless),
+      ignoresObstacles: Boolean(options.ignoresObstacles),
+      armTime: options.armTime || 0,
+      burstCount: options.burstCount || 0,
+      burstSpeed: options.burstSpeed || 0,
     });
   }
 
@@ -3479,6 +4666,8 @@
       color: options.color || colors.cyan,
       sourceX: options.sourceX ?? options.x ?? 0,
       sourceY: options.sourceY ?? options.y ?? 0,
+      ownerId: options.ownerId || "",
+      weaponSeal: Boolean(options.weaponSeal),
       age: 0,
       hit: false,
     });
@@ -3700,27 +4889,119 @@
     drawAimLine();
   }
 
-  function drawMonsterRoom() {
-    if (game.enemies.length > 1) {
-      game.enemies.forEach((enemy) => {
-        drawHealthBar(enemy.x - 38, enemy.y - 44, 76, 7, enemy.hp / enemy.maxHp, enemy.color);
-        ctx.fillStyle = "rgba(255,255,255,0.12)";
-        circle(enemy.x, enemy.y, enemy.r + 10);
-        ctx.fillStyle = enemy.color;
-        circle(enemy.x, enemy.y, enemy.r);
-        drawEnemyFacing(enemy);
-        ctx.fillStyle = "#101514";
-        ctx.font = "bold 18px Microsoft YaHei, sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText(enemy.shortName || "?", enemy.x, enemy.y + 6);
-      });
-      ctx.textAlign = "start";
-      return;
+  function drawMonsterMechanicFloor() {
+    if (!game.enemies.length) return;
+    const hasZone = game.enemies.some((enemy) => hasEnemyMechanic(enemy, "gaussZone"));
+    const hasQuadrants = game.enemies.some((enemy) => hasEnemyMechanic(enemy, "quadrantBlink"));
+    if (hasZone) {
+      ctx.save();
+      ctx.fillStyle = "rgba(231,111,97,0.055)";
+      ctx.fillRect(arena.left, arena.top, monsterMidX() - arena.left, arena.bottom - arena.top);
+      ctx.fillStyle = "rgba(240,195,93,0.055)";
+      ctx.fillRect(monsterMidX(), arena.top, arena.right - monsterMidX(), arena.bottom - arena.top);
+      ctx.strokeStyle = "rgba(244,240,230,0.12)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([8, 10]);
+      ctx.beginPath();
+      ctx.moveTo(monsterMidX(), arena.top + 10);
+      ctx.lineTo(monsterMidX(), arena.bottom - 10);
+      ctx.stroke();
+      ctx.restore();
     }
+    if (hasQuadrants) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(102,207,255,0.16)";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 9]);
+      ctx.beginPath();
+      ctx.moveTo(monsterMidX(), arena.top + 10);
+      ctx.lineTo(monsterMidX(), arena.bottom - 10);
+      ctx.moveTo(arena.left + 10, monsterMidY());
+      ctx.lineTo(arena.right - 10, monsterMidY());
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
 
-    const enemy = game.enemies[0];
-    if (!enemy) return;
+  function drawEnemyTelegraphs(enemy) {
+    if (enemy.quadrantWarnTimer > 0) {
+      const progress = 1 - clamp(enemy.quadrantWarnTimer / Math.max(0.01, enemy.quadrantWarnMax || 0.58), 0, 1);
+      ctx.save();
+      ctx.globalAlpha = 0.25 + progress * 0.35;
+      ctx.strokeStyle = enemy.color || colors.cyan;
+      ctx.lineWidth = 2 + progress * 3;
+      ctx.setLineDash([5, 6]);
+      ctx.beginPath();
+      ctx.arc(enemy.quadrantTargetX, enemy.quadrantTargetY, 24 + progress * 18, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (enemy.behindWarnTimer > 0) {
+      const progress = 1 - clamp(enemy.behindWarnTimer / Math.max(0.01, enemy.behindWarnMax || 0.48), 0, 1);
+      ctx.save();
+      ctx.globalAlpha = 0.24 + progress * 0.32;
+      ctx.strokeStyle = enemy.color || colors.paper;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 5]);
+      ctx.beginPath();
+      ctx.arc(enemy.behindTargetX || enemy.x, enemy.behindTargetY || enemy.y, 20 + progress * 14, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (enemy.dashWarnTimer > 0) {
+      const progress = 1 - clamp(enemy.dashWarnTimer / Math.max(0.01, enemy.dashWarnMax || 0.58), 0, 1);
+      ctx.save();
+      ctx.globalAlpha = 0.25 + progress * 0.35;
+      ctx.strokeStyle = enemy.color || colors.cyan;
+      ctx.lineWidth = 2 + progress * 2;
+      ctx.setLineDash([9, 7]);
+      ctx.beginPath();
+      ctx.moveTo(enemy.x, enemy.y);
+      ctx.lineTo(enemy.dashTargetX || enemy.x, enemy.dashTargetY || enemy.y);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
 
+  function drawMonsterEnemy(enemy) {
+    drawEnemyTelegraphs(enemy);
+    if (hasEnemyMechanic(enemy, "distanceLaw")) {
+      ctx.save();
+      ctx.globalAlpha = 0.18;
+      ctx.strokeStyle = enemy.color || colors.cyan;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 8]);
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, 170, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (hasEnemyMechanic(enemy, "gaussEnrage") && enemyHpRatio(enemy) < 0.55) {
+      const pulse = 1 + Math.sin((enemy.moveT || 0) * 8) * 0.08;
+      ctx.save();
+      ctx.globalAlpha = 0.18 + (1 - enemyHpRatio(enemy)) * 0.16;
+      ctx.fillStyle = colors.danger;
+      circle(enemy.x, enemy.y, (enemy.r + 18) * pulse);
+      ctx.restore();
+    }
+    if ((enemy.playerHitShieldTimer || 0) > 0 || (enemy.shieldFlash || 0) > 0) {
+      const shieldAlpha = Math.max(0.18, clamp((enemy.playerHitShieldTimer || enemy.shieldFlash || 0) / monsterShieldDuration, 0, 1) * 0.42);
+      ctx.save();
+      ctx.globalAlpha = shieldAlpha;
+      ctx.strokeStyle = colors.paper;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, enemy.r + 16 + Math.sin((enemy.moveT || 0) * 12) * 2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if ((enemy.healFlash || 0) > 0) {
+      ctx.save();
+      ctx.globalAlpha = clamp(enemy.healFlash / 0.55, 0, 1) * 0.32;
+      ctx.fillStyle = colors.mint;
+      circle(enemy.x, enemy.y, enemy.r + 22);
+      ctx.restore();
+    }
     drawHealthBar(enemy.x - 38, enemy.y - 44, 76, 7, enemy.hp / enemy.maxHp, enemy.color);
     ctx.fillStyle = "rgba(255,255,255,0.12)";
     circle(enemy.x, enemy.y, enemy.r + 10);
@@ -3731,6 +5012,11 @@
     ctx.font = "bold 18px Microsoft YaHei, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(enemy.shortName || "?", enemy.x, enemy.y + 6);
+  }
+
+  function drawMonsterRoom() {
+    drawMonsterMechanicFloor();
+    game.enemies.forEach(drawMonsterEnemy);
     ctx.textAlign = "start";
   }
 
@@ -3778,7 +5064,7 @@
   }
 
   function drawObstacleShape(obstacle, solid = true, markProgress = 0) {
-    if (obstacle.shape === "line" || obstacle.shape === "curve") {
+    if (obstacle.shape === "line" || obstacle.shape === "curve" || obstacle.shape === "corner") {
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       ctx.lineWidth = Math.max(5, obstacle.thickness || 9);
@@ -3786,6 +5072,26 @@
       obstacle.points.forEach((point, index) => {
         if (index === 0) ctx.moveTo(point.x, point.y);
         else ctx.lineTo(point.x, point.y);
+      });
+      ctx.stroke();
+      if (solid) {
+        ctx.strokeStyle = `rgba(244, 240, 230, ${0.07 + markProgress * 0.08})`;
+        ctx.lineWidth = Math.max(2, (obstacle.thickness || 9) * 0.34);
+        ctx.stroke();
+      }
+      return;
+    }
+
+    if (obstacle.shape === "brokenLine") {
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = Math.max(5, obstacle.thickness || 9);
+      ctx.beginPath();
+      (obstacle.segments || []).forEach((segment) => {
+        segment.forEach((point, index) => {
+          if (index === 0) ctx.moveTo(point.x, point.y);
+          else ctx.lineTo(point.x, point.y);
+        });
       });
       ctx.stroke();
       if (solid) {
@@ -3861,10 +5167,6 @@
     ctx.stroke();
     ctx.fillStyle = "rgba(244,240,230,0.06)";
     circle(0, 0, 30);
-    ctx.fillStyle = colors.paper;
-    ctx.font = "bold 13px Microsoft YaHei, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("期末", 0, 5);
     ctx.restore();
 
     ctx.beginPath();
@@ -3886,15 +5188,20 @@
       const invulnerable = alive && !front;
       const introAlpha = bossIntroCoreAlpha(index);
       const weak = front && boss.weakTimer > 0 && boss.weakCoreId === core.id;
+      const vulnerable = front && boss.vulnerableTimer > 0 && (!boss.vulnerableCoreId || boss.vulnerableCoreId === core.id);
+      const overload = ultimateCharging && boss.ultimate?.focusId === core.id;
+      const tell = front && alive && !ultimateCharging && !boss.rotating && (core.fireTimer || 0) > 0 && (core.fireTimer || 0) < 0.46;
       const flash = clamp((core.hitFlash || 0) / 0.18, 0, 1);
       const guardFlash = clamp((core.guardFlash || 0) / 0.28, 0, 1);
-      const pulse = 1 + Math.sin(performance.now() / (weak ? 100 : 180) + core.offset) * (weak ? 0.09 : 0.05);
+      const overloadFlash = clamp((core.overloadFlash || 0) / 0.42, 0, 1);
+      const vulnerableFlash = clamp((core.vulnerableFlash || 0) / 1.75, 0, 1);
+      const pulse = 1 + Math.sin(performance.now() / (weak || vulnerable || overload ? 92 : 180) + core.offset) * (weak || vulnerable || overload ? 0.09 : 0.05);
       ctx.save();
       ctx.globalAlpha = alive ? introAlpha * (invulnerable ? 0.52 : 1) : 0.24;
-      ctx.shadowColor = invulnerable ? colors.paper : weak ? colors.paper : core.enraged ? colors.danger : core.color;
-      ctx.shadowBlur = alive ? (invulnerable ? guardFlash * 18 : weak ? 30 : core.enraged ? 24 : 10) + flash * 16 : 0;
-      ctx.fillStyle = invulnerable ? "rgba(244,240,230,0.045)" : weak ? "rgba(244,240,230,0.16)" : core.enraged ? "rgba(231,111,97,0.18)" : "rgba(255,255,255,0.08)";
-      circle(pos.x, pos.y, (weak ? 43 : core.enraged ? 40 : 34) * pulse + flash * 3);
+      ctx.shadowColor = invulnerable ? colors.paper : overload ? colors.paper : vulnerable ? colors.warning : weak ? colors.paper : core.enraged ? colors.danger : core.color;
+      ctx.shadowBlur = alive ? (invulnerable ? guardFlash * 18 : overload ? 34 : vulnerable ? 28 : weak ? 30 : core.enraged ? 24 : 10) + flash * 16 : 0;
+      ctx.fillStyle = invulnerable ? "rgba(244,240,230,0.045)" : overload ? "rgba(244,240,230,0.2)" : vulnerable ? "rgba(240,195,93,0.14)" : weak ? "rgba(244,240,230,0.16)" : core.enraged ? "rgba(231,111,97,0.18)" : "rgba(255,255,255,0.08)";
+      circle(pos.x, pos.y, (overload ? 46 : weak || vulnerable ? 43 : core.enraged ? 40 : 34) * pulse + flash * 3);
       ctx.shadowBlur = 0;
       drawCoreGlyph(core, pos);
       ctx.fillStyle = invulnerable ? "rgba(244,240,230,0.45)" : core.color;
@@ -3924,6 +5231,29 @@
         ctx.arc(pos.x, pos.y, 39 + Math.sin(performance.now() / 70) * 3, 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
+      }
+      if (vulnerable) {
+        ctx.strokeStyle = `rgba(240,195,93,${0.48 + vulnerableFlash * 0.24})`;
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([10, 5]);
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 45 + Math.sin(performance.now() / 80) * 3, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      if (overload) {
+        ctx.strokeStyle = `rgba(244,240,230,${0.62 + overloadFlash * 0.28})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 48 + Math.sin(performance.now() / 55) * 4, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      if (tell) {
+        ctx.strokeStyle = `rgba(255,255,255,${0.22 + Math.sin(performance.now() / 45) * 0.08})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 31 + Math.max(0, 0.46 - core.fireTimer) * 30, 0, Math.PI * 2);
+        ctx.stroke();
       }
       if (core.enraged) {
         ctx.strokeStyle = colors.danger;
@@ -3963,6 +5293,13 @@
     ctx.lineWidth = 1.5;
     activeCores.forEach((core) => {
       const pos = corePosition(core);
+      if (ultimate?.focusId === core.id) {
+        ctx.strokeStyle = "rgba(244,240,230,0.72)";
+        ctx.lineWidth = 3;
+      } else {
+        ctx.strokeStyle = "rgba(244,240,230,0.3)";
+        ctx.lineWidth = 1.5;
+      }
       ctx.beginPath();
       ctx.moveTo(boss.x, boss.y);
       ctx.lineTo(pos.x, pos.y);
@@ -4038,7 +5375,22 @@
     game.enemyShots.forEach((shot) => {
       const pulse = 1 + Math.sin(((shot.age || 0) + (shot.pulse || 0)) * 12) * 0.08;
       ctx.fillStyle = shot.color || colors.danger;
-      if (shot.shape === "square") {
+      if (shot.pattern === "delayMine") {
+        const arm = clamp((shot.age || 0) / Math.max(0.01, shot.armTime || 0.75), 0, 1);
+        ctx.save();
+        ctx.globalAlpha = 0.35 + arm * 0.42;
+        ctx.strokeStyle = shot.color || colors.chalk;
+        ctx.lineWidth = 2 + arm * 2;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.arc(shot.x, shot.y, shot.r + 9 * arm + Math.sin((shot.age || 0) * 16) * 2, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 0.22 + arm * 0.26;
+        ctx.fillStyle = shot.color || colors.chalk;
+        circle(shot.x, shot.y, Math.max(3, shot.r * 0.42));
+        ctx.restore();
+      } else if (shot.shape === "square") {
         const size = shot.r * 2.25 * pulse;
         ctx.save();
         ctx.translate(shot.x, shot.y);
@@ -4231,7 +5583,8 @@
         : hasBuff(player, "草稿纸护盾")
           ? ` | 免伤${Math.ceil(player.blockTimer || draftShieldInterval)}s`
           : "";
-      hud.hp.textContent = `${Math.max(0, Math.ceil(player.hp))} / ${player.maxHp}${shieldText}${blockText}`;
+      const sealText = (player.weaponSealTimer || 0) > 0 ? ` | 非几何封锁${Math.ceil(player.weaponSealTimer)}s` : "";
+      hud.hp.textContent = `${Math.max(0, Math.ceil(player.hp))} / ${player.maxHp}${shieldText}${blockText}${sealText}`;
     }
     const weaponNames = player.weapons
       .map((weapon, index) => `${index + 1}.${displayWeaponName(weapon)} ${ammoLabel(weapon)}`)
@@ -4251,9 +5604,9 @@
 
   const buffDetails = {
     临时抱佛脚: {
-      type: "补给增益",
+      type: "宝箱增益",
       effect: "立即回复 30 点生命值。重复获得会再次触发回复。",
-      source: "补给房随机获得。",
+      source: "宝箱房或挑战三人时随机获得。",
     },
     学霸笔记: {
       type: "战斗增益",
@@ -4263,27 +5616,27 @@
     公式大全: {
       type: "战斗增益",
       effect: "造成伤害提高 10%。可与学霸笔记同时生效。",
-      source: "补给房随机获得。",
+      source: "宝箱房或挑战三人时随机获得。",
     },
     熬夜咖啡: {
       type: "战斗增益",
       effect: "移动速度提高 100%。",
-      source: "补给房随机获得。",
+      source: "宝箱房或挑战三人时随机获得。",
     },
     草稿纸护盾: {
       type: "生存增益",
       effect: "最多同时存在 1 层免伤。获得时立刻补满，之后每 10 秒补充 1 层；受到伤害时优先消耗，完全抵消该次伤害。",
-      source: "宝箱房或补给房随机获得。",
+      source: "宝箱房或挑战三人时随机获得。",
     },
     错题本: {
       type: "反击增益",
       effect: "被击中后 4 秒内造成伤害提高 25%。",
-      source: "补给房随机获得。",
+      source: "宝箱房或挑战三人时随机获得。",
     },
     绩点守护: {
       type: "生存增益",
       effect: "濒死时自动触发一次，回复至 45% 最大生命值并获得短暂无敌。",
-      source: "补给房随机获得。",
+      source: "宝箱房或挑战三人时随机获得。",
     },
     函数机枪: {
       type: "知识印记",
@@ -4371,7 +5724,7 @@
     const player = game.player;
     if (!player?.buffs?.length) {
       return `
-        <p class="buff-empty">当前暂无增益。进入知识点房间、宝箱房或补给房后，这里会显示已获得增益的效果说明。</p>
+        <p class="buff-empty">当前暂无增益。进入知识点房间或宝箱房后，这里会显示已获得增益的效果说明。</p>
       `;
     }
 
@@ -4624,6 +5977,196 @@
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   }
 
+  function funFactTime(seconds) {
+    return Number(seconds) > 0 ? formatLeaderboardTime(seconds) : "暂无";
+  }
+
+  function funFactCount(value, suffix = "次") {
+    const count = Math.max(0, Math.round(Number(value || 0)));
+    return count ? `${count}${suffix}` : "暂无";
+  }
+
+  function funFactPercent(value, total) {
+    const safeTotal = Math.max(0, Number(total || 0));
+    if (!safeTotal) return "暂无";
+    return `${Math.round((Math.max(0, Number(value || 0)) / safeTotal) * 100)}%`;
+  }
+
+  function funFactAverage(value, total, suffix = "") {
+    const safeTotal = Math.max(0, Number(total || 0));
+    if (!safeTotal) return "暂无";
+    const average = Math.round((Number(value || 0) / safeTotal) * 10) / 10;
+    return `${average}${suffix}`;
+  }
+
+  function topCountEntry(counts, labels = {}) {
+    const [key, count] = Object.entries(counts || {})
+      .filter(([, value]) => Number(value) > 0)
+      .sort((a, b) => Number(b[1]) - Number(a[1]) || String(a[0]).localeCompare(String(b[0]), "zh-CN"))[0] || [];
+    if (!key) return { label: "暂无", count: 0, text: "暂无" };
+    const label = labels[key] || weapons[key]?.name || key;
+    return { label, count, text: `${label} · ${count}次` };
+  }
+
+  function funFactSection(title, rows) {
+    return `
+      <section class="fun-fact-section">
+        <h3>${title}</h3>
+        <div class="fun-fact-grid">
+          ${rows.map(([label, value]) => `
+            <div class="fun-fact-card">
+              <span>${label}</span>
+              <strong>${value}</strong>
+            </div>
+          `).join("")}
+        </div>
+      </section>
+    `;
+  }
+
+  function funFactsPager(pageIndex, totalPages) {
+    return `
+      <div class="fun-facts-pager" aria-label="趣味知识分页">
+        <button type="button" data-fun-facts-page="${Math.max(0, pageIndex - 1)}" ${pageIndex <= 0 ? "disabled" : ""}>上一页</button>
+        <span>${pageIndex + 1} / ${totalPages}</span>
+        <button type="button" data-fun-facts-page="${Math.min(totalPages - 1, pageIndex + 1)}" ${pageIndex >= totalPages - 1 ? "disabled" : ""}>下一页</button>
+      </div>
+    `;
+  }
+
+  function funFactsMarkup(stats = readFunStats()) {
+    const normalized = normalizeFunStats(stats);
+    const averageSeconds = normalized.bossClears && normalized.totalSeconds
+      ? Math.round(normalized.totalSeconds / normalized.bossClears)
+      : 0;
+    const averageRunSeconds = normalized.totalRuns && normalized.totalRunSeconds
+      ? Math.round(normalized.totalRunSeconds / normalized.totalRuns)
+      : 0;
+    const routeLabels = {
+      direct: "直面 Boss",
+      prepared: "准备后挑战",
+      full: "六房全清",
+    };
+    const roomLabels = {
+      monster: "微积分",
+      chest: "随机 A",
+      geometry: "欧氏几何",
+      linear: "线性代数",
+      randomB: "随机 B",
+      randomC: "随机 C",
+      boss: "Boss 房",
+      unknown: "未知位置",
+    };
+    const topRoute = topCountEntry(normalized.routeCounts, routeLabels);
+    const topBossDamageWeapon = topCountEntry(normalized.bossTopDamageWeaponCounts);
+    const topDangerRoom = topCountEntry(normalized.deathRoomCounts, roomLabels);
+    const topDangerStage = topCountEntry(normalized.deathStageCounts);
+    const bestHp = normalized.bestRemainingHpMax
+      ? `${normalized.bestRemainingHp} / ${normalized.bestRemainingHpMax}`
+      : "暂无";
+    const worstHp = normalized.worstRemainingHpMax
+      ? `${normalized.worstRemainingHp} / ${normalized.worstRemainingHpMax}`
+      : "暂无";
+    const clearRate = normalized.totalRuns ? funFactPercent(normalized.bossClears, normalized.totalRuns) : "暂无";
+    const swordFinalClears = normalized.finalWeaponCounts.sword || 0;
+    const swordFaithIndex = normalized.bossClears
+      ? `${clamp(Math.round(
+        (normalized.swordOnlyClears / normalized.bossClears) * 70
+        + (swordFinalClears / normalized.bossClears) * 30
+      ), 0, 100)} / 100`
+      : "暂无";
+    const firepowerOverloadText = `${funFactCount(normalized.firepowerOverloadClears)} / ${funFactPercent(normalized.firepowerOverloadClears, normalized.bossClears)}`;
+    const pages = [
+      {
+        title: "探索档案",
+        sections: [
+          funFactSection("全局概览", [
+            ["探索总次数", funFactCount(normalized.totalRuns)],
+            ["通关率", clearRate],
+            ["通关次数", funFactCount(normalized.bossClears)],
+            ["失败次数", funFactCount(normalized.failedRuns)],
+          ]),
+          funFactSection("用时概览", [
+            ["最快通关", funFactTime(normalized.fastestSeconds)],
+            ["平均通关战斗用时", funFactTime(averageSeconds)],
+            ["平均单局战斗用时", funFactTime(averageRunSeconds)],
+            ["累计战斗用时", funFactTime(normalized.totalRunSeconds)],
+          ]),
+        ],
+      },
+      {
+        title: "翻车记录",
+        sections: [
+          funFactSection("危险位置", [
+            ["最危险房间", topDangerRoom.text],
+            ["该房间翻车次数", topDangerRoom.count ? `${topDangerRoom.count}次` : "暂无"],
+            ["最容易翻车阶段", topDangerStage.text],
+            ["失败占比", `${funFactCount(normalized.failedRuns)} / ${funFactPercent(normalized.failedRuns, normalized.totalRuns)}`],
+          ]),
+          funFactSection("路线风险", [
+            ["直面 Boss 通关", `${funFactCount(normalized.directBossClears)} / ${funFactPercent(normalized.directBossClears, normalized.bossClears)}`],
+            ["准备后通关", `${funFactCount(normalized.preparedClears)} / ${funFactPercent(normalized.preparedClears, normalized.bossClears)}`],
+            ["六房全清", `${funFactCount(normalized.fullPrepClears)} / ${funFactPercent(normalized.fullPrepClears, normalized.bossClears)}`],
+            ["最常见通关路线", topRoute.text],
+          ]),
+        ],
+      },
+      {
+        title: "战术偏好",
+        sections: [
+          funFactSection("通关习惯", [
+            ["终战输出最多武器", topBossDamageWeapon.text],
+            ["圣剑独行", `${funFactCount(normalized.swordOnlyClears)} / ${funFactPercent(normalized.swordOnlyClears, normalized.bossClears)}`],
+            ["平均完成房间", funFactAverage(normalized.totalRoomsCompleted, normalized.bossClears, "间")],
+            ["平均持有武器", funFactAverage(normalized.totalWeaponsFound, normalized.bossClears, "把")],
+          ]),
+          funFactSection("打法倾向", [
+            ["裸考勇士比例", `${funFactCount(normalized.directBossClears)} / ${funFactPercent(normalized.directBossClears, normalized.bossClears)}`],
+            ["最狼狈通关", worstHp],
+            ["圣剑信仰指数", swordFaithIndex],
+            ["火力过剩指数", firepowerOverloadText],
+          ]),
+        ],
+      },
+      {
+        title: "最高单项纪录",
+        sections: [
+          funFactSection("巅峰记录", [
+            ["最高积分", normalized.bestScore ? `${normalized.bestScore}` : "暂无"],
+            ["最快通关", funFactTime(normalized.fastestSeconds)],
+            ["最长战斗用时", funFactTime(normalized.longestSeconds)],
+            ["最高剩余生命", bestHp],
+          ]),
+          funFactSection("资源记录", [
+            ["最多完成房间", funFactCount(normalized.mostRooms, "间")],
+            ["最多持有武器", funFactCount(normalized.maxWeaponsFound, "把")],
+            ["累计完成房间", funFactCount(normalized.totalRoomsCompleted, "间")],
+            ["累计发现武器", funFactCount(normalized.totalWeaponsFound, "把")],
+          ]),
+        ],
+      },
+    ];
+    const pageIndex = clamp(funFactsPageIndex, 0, pages.length - 1);
+    funFactsPageIndex = pageIndex;
+    const page = pages[pageIndex];
+
+    return `
+      <div class="fun-facts-board">
+        <div class="fun-fact-summary">
+          <strong>${funFactCount(normalized.totalRuns)}</strong>
+          <span>全部玩家已结算探索 · 通关率 ${clearRate}</span>
+        </div>
+        <div class="fun-fact-page-head">
+          <span>全服作战档案</span>
+          <strong>${page.title}</strong>
+        </div>
+        ${page.sections.join("")}
+        ${funFactsPager(pageIndex, pages.length)}
+        <p class="leaderboard-note">趣味知识统计当前服务器已记录的全部玩家结算数据；排行榜仍只收录通关成绩，战斗用时只计算怪物房和 Boss 房。</p>
+      </div>
+    `;
+  }
+
   function leaderboardTableMarkup(title, kind, rows, emptyText) {
     return `
       <section class="leaderboard-board" data-board="${kind}">
@@ -4636,7 +6179,7 @@
                   <th>名次</th>
                   <th>姓名</th>
                   <th>积分</th>
-                  <th>用时</th>
+                  <th>战斗用时</th>
                   <th>房间</th>
                   <th>击败</th>
                   <th>路线</th>
@@ -4676,14 +6219,15 @@
     return `
       <div class="leaderboard-boards">
         ${leaderboardTableMarkup("积分最高", "score", boards.score, "暂无积分记录。")}
-        ${leaderboardTableMarkup("通关时长最短", "time", boards.time, "暂无竞速记录。")}
+        ${leaderboardTableMarkup("战斗用时最短", "time", boards.time, "暂无竞速记录。")}
         ${leaderboardTableMarkup("只使用圣剑通关", "sword", boards.sword, "暂无圣剑通关记录。")}
       </div>
-      <p class="leaderboard-note">积分现在更重视时间：速度越快加分越高，超过 7 分钟后会继续扣分；清完六个房间仍有路线奖励，但拖太久会被超时惩罚压低。</p>
+      <p class="leaderboard-note">排行榜用时只统计怪物房和 Boss 房的实际战斗时间；宝箱房和走廊不计时。积分会给战斗房更高路线分，宝箱房分值较低；前 120 秒的竞速收益更高，越接近极限成绩，每提前 1 秒加分越多，超过 5 分钟战斗用时后会持续扣分。</p>
     `;
   }
 
   function openModal(kind) {
+    if (kind === "funFacts") funFactsPageIndex = 0;
     const content = {
       guide: {
         title: "游戏说明",
@@ -4700,24 +6244,13 @@
           </ul>
         `,
       },
-      codex: {
-        title: "知识图鉴",
-        body: `
-          <p>基础版已实装微积分、欧氏几何、线性代数、随机房和 Boss 房。</p>
-          <ul>
-            <li>拉格朗日投影：微积分怪物，发射函数弹幕。</li>
-            <li>笛卡尔投影：欧氏几何怪物，发射坐标轴交叉弹幕。</li>
-            <li>高斯投影：线性代数怪物，发射矩阵式弹幕墙。</li>
-            <li>函数机枪：微积分武器，对柯西核心有克制伤害。</li>
-            <li>极坐标霰弹枪：欧氏几何武器，对笛卡尔核心有克制伤害。</li>
-            <li>矩阵 RPG：线性代数武器，对高斯核心有克制伤害。</li>
-            <li>三位一体：拥有柯西、笛卡尔、高斯三个核心。</li>
-          </ul>
-        `,
-      },
       weapons: {
         title: "武器数据",
         body: weaponStatsMarkup(),
+      },
+      funFacts: {
+        title: "趣味知识",
+        body: funFactsMarkup(),
       },
       inventory: {
         title: "背包",
@@ -4739,10 +6272,21 @@
       },
     }[kind];
     ui.modal.dataset.kind = kind;
-    ui.modalPanel.classList.toggle("modal-panel-wide", kind === "weapons" || kind === "inventory" || kind === "leaderboard");
+    ui.modalPanel.classList.toggle("modal-panel-wide", kind === "weapons" || kind === "inventory" || kind === "leaderboard" || kind === "funFacts");
+    ui.modalPanel.classList.toggle("modal-panel-no-title", kind === "funFacts");
+    if (kind === "funFacts") {
+      ui.modalPanel.setAttribute("aria-label", content.title);
+      ui.modalPanel.removeAttribute("aria-labelledby");
+    } else {
+      ui.modalPanel.removeAttribute("aria-label");
+      ui.modalPanel.setAttribute("aria-labelledby", "modalTitle");
+    }
     ui.modalTitle.textContent = content.title;
     ui.modalBody.innerHTML = content.body;
     ui.modal.hidden = false;
+    if (kind === "funFacts") {
+      refreshFunFacts(true);
+    }
     if (kind === "leaderboard") {
       loadServerLeaderboard().then((entries) => {
         if (!ui.modal.hidden && ui.modal.dataset.kind === "leaderboard") {
@@ -4810,10 +6354,18 @@
   }
 
   function monsterHitDamage(baseDamage, enemy, source) {
+    if (consumeEnemyShield(enemy)) {
+      return {
+        amount: 0,
+        backHit: false,
+        absorbed: true,
+      };
+    }
     const backHit = isEnemyBackHit(enemy, source);
     return {
-      amount: baseDamage * (backHit ? backHitMultiplier : 1),
+      amount: baseDamage * enemyReceivedDamageMultiplier(enemy) * (backHit ? backHitMultiplier : 1),
       backHit,
+      absorbed: false,
     };
   }
 
@@ -4839,9 +6391,17 @@
       return dist <= radius ? { nearestX, nearestY, distance: dist, collisionRadius: radius } : null;
     }
 
-    if (obstacle.shape === "line" || obstacle.shape === "curve") {
+    if (obstacle.shape === "line" || obstacle.shape === "curve" || obstacle.shape === "corner") {
       const hitRadius = radius + (obstacle.thickness || 8) / 2;
       const nearest = nearestPointOnPolyline(circleRef, obstacle.points || []);
+      return nearest && nearest.distance <= hitRadius
+        ? { nearestX: nearest.x, nearestY: nearest.y, distance: nearest.distance, collisionRadius: hitRadius }
+        : null;
+    }
+
+    if (obstacle.shape === "brokenLine") {
+      const hitRadius = radius + (obstacle.thickness || 8) / 2;
+      const nearest = nearestPointOnSegments(circleRef, obstacle.segments || []);
       return nearest && nearest.distance <= hitRadius
         ? { nearestX: nearest.x, nearestY: nearest.y, distance: nearest.distance, collisionRadius: hitRadius }
         : null;
@@ -4864,6 +6424,13 @@
   }
 
   function obstacleCenter(obstacle) {
+    if (obstacle.segments?.length) {
+      const points = obstacle.segments.flat();
+      return {
+        x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
+        y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
+      };
+    }
     if (obstacle.points?.length) {
       return {
         x: obstacle.points.reduce((sum, point) => sum + point.x, 0) / obstacle.points.length,
@@ -4874,13 +6441,22 @@
   }
 
   function obstacleVisualArea(obstacle) {
-    if (obstacle.shape === "line" || obstacle.shape === "curve") {
+    if (obstacle.shape === "line" || obstacle.shape === "curve" || obstacle.shape === "corner") {
       const points = obstacle.points || [];
       let length = 0;
       for (let i = 0; i < points.length - 1; i += 1) {
         length += Math.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y);
       }
       return length * (obstacle.thickness || 8);
+    }
+    if (obstacle.shape === "brokenLine") {
+      return (obstacle.segments || []).reduce((total, segment) => {
+        let length = 0;
+        for (let i = 0; i < segment.length - 1; i += 1) {
+          length += Math.hypot(segment[i + 1].x - segment[i].x, segment[i + 1].y - segment[i].y);
+        }
+        return total + length * (obstacle.thickness || 8);
+      }, 0);
     }
     if (obstacle.shape === "blob") {
       const points = obstacle.points || [];
@@ -4901,6 +6477,15 @@
       const candidate = nearestPointOnSegment(point.x, point.y, points[i].x, points[i].y, points[i + 1].x, points[i + 1].y);
       if (!best || candidate.distance < best.distance) best = candidate;
     }
+    return best;
+  }
+
+  function nearestPointOnSegments(point, segments) {
+    let best = null;
+    (segments || []).forEach((segment) => {
+      const candidate = nearestPointOnPolyline(point, segment || []);
+      if (candidate && (!best || candidate.distance < best.distance)) best = candidate;
+    });
     return best;
   }
 
@@ -4961,13 +6546,21 @@
   ui.start.addEventListener("click", resetGame);
   hud.inventory?.addEventListener("click", () => openModal("inventory"));
   ui.guide.addEventListener("click", () => openModal("guide"));
-  ui.codex.addEventListener("click", () => openModal("codex"));
   ui.weaponStats.addEventListener("click", () => openModal("weapons"));
+  ui.funFacts?.addEventListener("click", () => openModal("funFacts"));
   ui.leaderboard?.addEventListener("click", () => openModal("leaderboard"));
   ui.settings.addEventListener("click", () => openModal("settings"));
   ui.modalClose.addEventListener("click", closeModal);
   ui.modal.addEventListener("click", (event) => {
     if (event.target === ui.modal) closeModal();
+  });
+  ui.modalBody.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-fun-facts-page]");
+    if (!button || ui.modal.dataset.kind !== "funFacts") return;
+    const nextPage = Number(button.dataset.funFactsPage);
+    if (!Number.isFinite(nextPage)) return;
+    funFactsPageIndex = Math.max(0, Math.round(nextPage));
+    ui.modalBody.innerHTML = funFactsMarkup();
   });
   [ui.monsterRoom, ui.chestRoom, ui.geometryRoom, ui.linearRoom, ui.randomRoomB, ui.randomRoomC, ui.bossRoom].forEach((door) => {
     door.tabIndex = -1;
@@ -5100,10 +6693,15 @@
     beginMonsterChallenge,
     completeActiveRoom() {
       if (game.activeRoom === "monster" && game.enemies.length) {
-        game.enemies.forEach((enemy) => {
-          enemy.hp = 0;
-        });
-        updateMonsterRoom(0);
+        let guard = 0;
+        while (game.enemies.length && guard < 8) {
+          game.enemies.forEach((enemy) => {
+            enemy.mechanics = (enemy.mechanics || []).filter((mechanic) => mechanic !== "splitOnDeath");
+            enemy.hp = 0;
+          });
+          updateMonsterRoom(0);
+          guard += 1;
+        }
       }
       return this.state();
     },
@@ -5152,11 +6750,11 @@
       return this.state();
     },
     addLeaderboardEntry(entry) {
-      saveLeaderboardEntry(entry);
+      saveLeaderboardEntry({ ...entry, scoreVersion: leaderboardScoreVersion, timeMode: "combat" });
       return this.state();
     },
     prepareLeaderboardNameForVerify(entry) {
-      const normalized = normalizeLeaderboardEntry(entry);
+      const normalized = normalizeLeaderboardEntry({ ...entry, scoreVersion: leaderboardScoreVersion, timeMode: "combat" });
       if (!normalized) return this.state();
       const updated = saveLeaderboardEntry(normalized);
       const ranks = leaderboardRanksForEntry(normalized, updated);
@@ -5166,6 +6764,29 @@
     submitLeaderboardNameForVerify(name) {
       if (ui.leaderboardNameInput) ui.leaderboardNameInput.value = name;
       submitLeaderboardName();
+      return this.state();
+    },
+    finishGameForVerify(win = true, options = {}) {
+      finishGame(Boolean(win), options);
+      return this.state();
+    },
+    showSwordEndingForVerify(options = {}) {
+      resetGame();
+      const completedKeys = new Set(options.completedKeys || []);
+      completedRoomKeys.forEach((key) => {
+        game.completed[key] = completedKeys.has(key);
+      });
+      game.kills = Math.max(0, Math.round(Number(options.kills ?? game.kills)));
+      game.weaponsFound = 1;
+      game.usedNonSwordWeapon = false;
+      game.elapsed = Math.max(1, Number(options.seconds || 1)) * 1000;
+      if (game.player) {
+        game.player.hp = clamp(Number(options.hp ?? game.player.hp), 1, game.player.maxHp);
+      }
+      finishGame(true, {
+        seconds: Math.max(1, Math.round(Number(options.seconds || 1))),
+        saveLeaderboard: false,
+      });
       return this.state();
     },
     setPlayerHp(value) {
@@ -5183,11 +6804,11 @@
       }
       return this.state();
     },
-    damageBossCoreForVerify(id, amount) {
+    damageBossCoreForVerify(id, amount, weaponId = "sword") {
       const core = game.boss?.cores.find((item) => item.id === id);
       if (!core) return null;
       const before = Math.max(0, core.hp);
-      damageBossCore(core, Number(amount) || 0);
+      damageBossCore(core, Number(amount) || 0, weaponId, weapons[weaponId]?.name || weaponId);
       return {
         id,
         front: isBossCoreFront(core),
@@ -5211,12 +6832,18 @@
         weaponsFound: game.weaponsFound,
         usedNonSwordWeapon: game.usedNonSwordWeapon,
         completed: { ...game.completed },
+        randomRooms: { ...game.randomRooms },
         hp: game.player?.hp,
         maxHp: game.player?.maxHp,
       };
       const completedKeys = new Set(options.completedKeys || []);
-      Object.keys(game.completed).forEach((key) => {
+      completedRoomKeys.forEach((key) => {
         game.completed[key] = completedKeys.has(key);
+      });
+      const randomRoomTypes = options.randomRoomTypes || {};
+      Object.keys(game.randomRooms).forEach((key) => {
+        const type = randomRoomTypes[key];
+        game.randomRooms[key] = type ? { type } : null;
       });
       game.kills = Math.max(0, Math.round(Number(options.kills ?? game.kills)));
       game.weaponsFound = Math.max(1, Math.round(Number(options.weaponsFound ?? game.weaponsFound)));
@@ -5229,6 +6856,7 @@
       game.weaponsFound = previous.weaponsFound;
       game.usedNonSwordWeapon = previous.usedNonSwordWeapon;
       game.completed = previous.completed;
+      game.randomRooms = previous.randomRooms;
       if (game.player) {
         game.player.hp = previous.hp;
         game.player.maxHp = previous.maxHp;
@@ -5238,21 +6866,32 @@
     forceBossMechanic(kind) {
       const boss = game.boss;
       if (!boss) return this.state();
-      if (kind === "weak") boss.weakCooldown = 0;
+      if (kind === "weak") {
+        const target = bossActiveCores(boss)[0] || boss.cores.find((core) => core.hp > 0);
+        if (target) {
+          boss.weakCoreId = target.id;
+          boss.weakTimer = boss.weakDuration || 2.5;
+          boss.weakCooldown = boss.direct ? 5.4 : Math.max(4.8, 7.2 - completedBossPrepCount() * 0.24);
+        }
+      }
       if (kind === "ultimate" && boss.ultimate) boss.ultimate.timer = 0;
       if (kind === "obstacle") boss.obstacleTimer = 0;
       if (kind === "combo") boss.comboTimer = 0;
+      if (kind === "rule") triggerBossRotationRule(boss);
+      if (kind === "vulnerable") startBossVulnerability(boss, "verify", 2.2);
       return this.state();
     },
     state: () => ({
       mode,
       activeRoom: game.activeRoom,
       activeRoomKey: game.activeRoomKey,
+      battleSeconds: Math.round(game.elapsed / 1000),
       hp: game.player?.hp,
       shield: game.player?.shield || 0,
       blockCharges: game.player?.blockCharges || 0,
       blockTimer: game.player?.blockTimer || 0,
       mistakeBoostTimer: game.player?.mistakeBoostTimer || 0,
+      weaponSealTimer: game.player?.weaponSealTimer || 0,
       gpaGuardUsed: Boolean(game.player?.gpaGuardUsed),
       weapon: game.player?.weapon ? displayWeaponName(game.player.weapon) : "",
       currentWeaponId: game.player?.weapon?.id || "",
@@ -5273,6 +6912,7 @@
       weaponIds: game.player?.weapons.map((weapon) => weapon.id) || [],
       buffs: game.player?.buffs ? [...game.player.buffs] : [],
       leaderboard: readLeaderboard(),
+      funStats: readFunStats(),
       leaderboardBoards: Object.fromEntries(Object.entries(leaderboardRankings()).map(([kind, rows]) => [kind, rows.length])),
       pendingWeaponChoice: Boolean(game.pendingWeaponChoice),
       pendingWeaponId: game.pendingWeaponChoice?.weaponId || "",
@@ -5289,6 +6929,18 @@
       challengeCount: game.challengeCount,
       defeatedInRoom: game.defeatedInRoom,
       enemyCount: game.enemies.length,
+      enemyMechanics: game.enemies.map((enemy) => ({
+        id: enemy.id,
+        kind: enemy.kind,
+        pattern: enemy.pattern,
+        mechanics: [...(enemy.mechanics || [])],
+        hp: Math.max(0, Math.ceil(enemy.hp)),
+        shieldTimer: enemy.playerHitShieldTimer || 0,
+        quadrantWarn: enemy.quadrantWarnTimer || 0,
+        behindWarn: enemy.behindWarnTimer || 0,
+        dashWarn: enemy.dashWarnTimer || 0,
+        dashActive: enemy.dashActiveTimer || 0,
+      })),
       obstacleCount: game.obstacles.length,
       obstacleRects: game.obstacles.map((obstacle) => ({
         shape: obstacle.shape || "rect",
@@ -5296,6 +6948,7 @@
         y: Math.round(obstacle.y),
         w: Math.round(obstacle.w),
         h: Math.round(obstacle.h),
+        thickness: Math.round(obstacle.thickness || Math.min(obstacle.w, obstacle.h)),
         area: Math.round(obstacleVisualArea(obstacle)),
         broken: Boolean(obstacle.broken),
         marked: Boolean(obstacle.marked),
@@ -5307,10 +6960,17 @@
       bossMoveOffset: game.boss ? game.boss.x - game.boss.moveBaseX : 0,
       bossMoveT: game.boss?.moveT || 0,
       bossRotationSteps: game.boss?.rotationSteps || 0,
+      bossRuleName: game.boss?.ruleName || "",
+      bossRuleCount: game.boss?.ruleCount || 0,
+      bossRuleTimer: game.boss?.ruleTimer || 0,
+      bossVulnerableTimer: game.boss?.vulnerableTimer || 0,
+      bossVulnerableCount: game.boss?.vulnerableCount || 0,
       bossComboCount: game.boss?.comboCount || 0,
       bossComboType: game.boss?.comboType || "",
       bossLaserCount: game.boss?.laserCount || 0,
       bossShotPatternCounts: game.boss?.shotPatternCounts ? { ...game.boss.shotPatternCounts } : {},
+      bossWeaponDamage: game.boss?.weaponDamage ? { ...game.boss.weaponDamage } : {},
+      bossTopDamageWeapon: topBossDamageWeapon(),
       bossDefeatedCount: game.boss?.defeatedCount || 0,
       bossCoreHp: game.boss?.cores.map((core) => Math.max(0, Math.ceil(core.hp))) || [],
       bossCoreShield: game.boss?.cores.map((core) => Math.max(0, Math.ceil(core.shield || 0))) || [],
@@ -5327,10 +6987,15 @@
       bossUltimateFiredCount: game.boss?.ultimate?.firedCount || 0,
       bossUltimateInterruptedCount: game.boss?.ultimate?.interruptedCount || 0,
       bossUltimateDamageTaken: game.boss?.ultimate?.damageTaken || 0,
+      bossUltimateFocusId: game.boss?.ultimate?.focusId || "",
+      bossUltimateOverloadHits: game.boss?.ultimate?.overloadHits || 0,
       bossDirect: Boolean(game.boss?.direct),
       bossIntroActive: isBossIntroActive(),
       bossIntroElapsed: game.boss?.intro?.elapsed || 0,
       enemyShotPatterns: game.enemyShots.map((shot) => shot.pattern || "straight"),
+      enemyPiercingShotCount: game.enemyShots.filter((shot) => shot.ignoresObstacles).length,
+      enemyWeaponSealShotCount: game.enemyShots.filter((shot) => shot.weaponSeal).length,
+      bossDelayMineCount: game.enemyShots.filter((shot) => shot.pattern === "delayMine").length,
       enemyLaserCount: game.enemyLasers.length,
       activeLaserCount: game.enemyLasers.filter(isLaserActive).length,
     }),
