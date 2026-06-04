@@ -4,6 +4,7 @@
 
   const screens = {
     menu: document.getElementById("mainMenu"),
+    version: document.getElementById("versionSelectScreen"),
     map: document.getElementById("mapScreen"),
     clear: document.getElementById("roomClearScreen"),
     challenge: document.getElementById("challengeScreen"),
@@ -23,8 +24,11 @@
   const ui = {
     shell: document.querySelector(".game-shell") || canvas.parentElement,
     start: document.getElementById("startBtn"),
-    guide: document.getElementById("guideBtn"),
+    versionAlpha: document.getElementById("versionAlphaBtn"),
+    versionBeta: document.getElementById("versionBetaBtn"),
+    versionBack: document.getElementById("versionBackBtn"),
     weaponStats: document.getElementById("weaponStatsBtn"),
+    enemyCodex: document.getElementById("enemyCodexBtn"),
     funFacts: document.getElementById("funFactsBtn"),
     leaderboard: document.getElementById("leaderboardBtn"),
     settings: document.getElementById("settingsBtn"),
@@ -44,8 +48,11 @@
     clearText: document.getElementById("clearText"),
     weaponChoice: document.getElementById("weaponChoice"),
     weaponChoiceName: document.getElementById("weaponChoiceName"),
+    weaponChoiceBuffText: document.getElementById("weaponChoiceBuffText"),
     acceptWeapon: document.getElementById("acceptWeaponBtn"),
     skipWeapon: document.getElementById("skipWeaponBtn"),
+    secondBuffReward: document.getElementById("secondBuffRewardBtn"),
+    confirmReward: document.getElementById("confirmRewardBtn"),
     backToMap: document.getElementById("backToMapBtn"),
     challengeEyebrow: document.getElementById("challengeEyebrow"),
     challengeTitle: document.getElementById("challengeTitle"),
@@ -85,69 +92,132 @@
   const config = window.GAME_CONFIG || {};
   const baseStats = config.baseStats || {};
 
-  const colors = {
-    paper: "#f4f0e6",
-    chalk: "#8fd19e",
-    mint: "#b8f0c4",
-    danger: "#e76f61",
-    warning: "#f0c35d",
-    cyan: "#82c8d8",
-    muted: "#bbc4bd",
-    ink: "#151718",
-    line: "rgba(255,255,255,0.16)",
-  };
-
+  const coreConfig = window.ExamGameCore || {};
+  const colors = coreConfig.colors || {};
+  const {
+    leaderboardScoreVersion,
+    leaderboardStorageKey,
+    leaderboardLimit,
+    defaultLeaderboardName,
+    randomRoomMonsterChance,
+    randomRoomChestChance,
+    completedRoomKeys,
+    characterSizeScale,
+    playerDamageScale,
+    bossDamageScale,
+    bossSizeScale,
+    bossCoreOrbitRadius,
+    bossCoreHitRadius,
+    bossDomainCycleSeconds,
+    bossInitialObstacleCount,
+    cauchyDotDuration,
+    cauchyDotDps,
+    cauchyDomainWallCount,
+    cauchyHighlightEvery,
+    cauchyExplosionBulletCount,
+    cauchyFullPowerWallCount,
+    cauchyFullPowerCycle,
+    bossProjectionHp,
+    gaussZoneBaseCount,
+    gaussZoneResetCount,
+    gaussZoneMaxCount,
+    gaussZoneDuration,
+    gaussZoneFireEvery,
+    gaussZoneDebuffDuration,
+    bossCoreInvisibleDuration,
+    bossCoreRevealDuration,
+    gaussFullPowerStealthEvery,
+    gaussFullPowerStealthDuration,
+    descartesFullPowerSpawnEvery,
+    backHitMultiplier,
+    backHitHalfAngle,
+    swordSlashReach,
+    swordSlashRadius,
+    directBossSwordDamage,
+    directBossSwordReach,
+    directBossSwordRadius,
+    obstacleAreaMultiplier,
+    obstacleThinnessScale,
+    obstacleLengthScale,
+    obstacleMinThickness,
+    obstacleMaxThickness,
+    monsterShieldDuration,
+    weaponSealDuration,
+    enemySlowDuration,
+    enemySlowMultiplier,
+    jordanDomainRadius,
+    jordanDomainTickEvery,
+    gaussDeathBeamClearDelay,
+  } = coreConfig.gameplayConstants || {};
+  const {
+    angleDelta,
+    circleObstacleCollision,
+    circleObstacleHit,
+    clamp,
+    distance,
+    distancePointToSegment,
+    expandRect,
+    obstacleCenter,
+    obstacleVisualArea,
+    rectsOverlap,
+    smoothAngle,
+  } = window.ExamGameUtils || {};
+  if (!Object.keys(colors).length || !clamp || !distance) {
+    throw new Error("Game modules did not load correctly. Check script order in templates/index.html.");
+  }
   const keys = new Set();
   const mouse = { x: W / 2, y: H / 2, down: false };
   let mode = "menu";
   let lastTime = performance.now();
   let attackHeld = false;
-  const leaderboardScoreVersion = "combat-time-v1";
-  const leaderboardStorageKey = "examGameLeaderboardCombatTimeV1";
-  const leaderboardLimit = 10;
-  const defaultLeaderboardName = "考生";
-  const draftShieldInterval = 10;
-  const randomRoomMonsterChance = 1 / 3;
-  const randomRoomChestChance = 2 / 3;
-  const completedRoomKeys = ["monster", "chest", "geometry", "linear", "randomB", "randomC"];
-  const playerDamageScale = 0.9;
-  const bossDamageScale = 0.85;
-  const bossDomainCycleSeconds = 20;
-  const cauchyDotDuration = 3;
-  const cauchyDotDps = 2.2;
-  const cauchyDomainWallCount = 5;
-  const gaussZoneBaseCount = 3;
-  const gaussZoneDuration = 5.6;
-  const gaussZoneFireEvery = 0.78;
-  const descartesProjectionIdleSeconds = 10;
-  const backHitMultiplier = 1.45;
-  const backHitHalfAngle = Math.PI * 0.38;
-  const swordSlashReach = 38;
-  const swordSlashRadius = 48;
-  const directBossSwordDamage = 20;
-  const directBossSwordReach = 42;
-  const directBossSwordRadius = 56;
-  const obstacleAreaMultiplier = 1.3;
-  const obstacleThinnessScale = 0.92;
-  const obstacleLengthScale = obstacleAreaMultiplier / obstacleThinnessScale;
-  const obstacleMinThickness = 6;
-  const obstacleMaxThickness = 9.5;
-  const monsterShieldDuration = 1.05;
-  const weaponSealDuration = 4.0;
-  const enemySlowDuration = 2.6;
-  const enemySlowMultiplier = 0.82;
-  const jordanDomainRadius = 168;
-  const jordanDomainTickEvery = 0.55;
-  const gaussDeathBeamClearDelay = 0.9;
   let lastFunStatsFetch = 0;
   let sharedFunStats = null;
   let funFactsPageIndex = 0;
+  let weaponInfoPageIndex = 0;
+  const chickenHotpotDelayMs = 20000;
+  const lagrangeChildHpMultiplier = 0.4;
+  const lagrangeChildShotSpeedMultiplier = 1.5;
+  const lhopitalInvincibleDuration = 5;
+  const lhopitalRestDuration = 3;
+  const lhopitalEnragedRestDuration = 2;
+  const taylorRestDuration = 4;
+  const archimedesDashWarning = 1.7;
+  const archimedesPlayerLockWarning = 1;
+  const archimedesWallDashLimit = 2;
+  const betaRandomRoomCost = 2;
+  const betaShopItemHpCost = 30;
+  const jordanSlashWarnDuration = 0.7;
+  const jordanSlashRadiusScale = 2 / 3;
+  const jordanSlashDamage = 14;
 
   function weaponDamageScale(weapon) {
     return weapon?.id === "sword" ? 1 : playerDamageScale;
   }
 
+  function playerAttackCooldownMultiplier(player = game.player) {
+    const formulaMultiplier = hasBuff(player, "公式大全") ? 1 / 1.2 : 1;
+    return bossDomainAttackCooldownMultiplier() * formulaMultiplier;
+  }
+
+  function playerDamageBuffMultiplier(player = game.player) {
+    return (
+      (hasBuff(player, "学霸笔记") ? 1.2 : 1) *
+      (player?.mistakeBoostTimer > 0 ? 1.25 : 1) *
+      (hasBuff(player, "鸡煲") && game.elapsed >= chickenHotpotDelayMs ? 2 : 1)
+    );
+  }
+
+  function incomingDamageMultiplier(player = game.player) {
+    return hasBuff(player, "错题本") ? 0.75 : 1;
+  }
+
+  function weaponReloadTime(weapon, player = game.player) {
+    const baseReloadTime = Number(weapon?.reloadTime || 0);
+    return hasBuff(player, "草稿纸") ? baseReloadTime * 0.5 : baseReloadTime;
+  }
+
   const game = {
+    versionChannel: "alpha",
     startedAt: 0,
     elapsed: 0,
     kills: 0,
@@ -196,6 +266,17 @@
     pendingLeaderboardEntry: null,
     usedNonSwordWeapon: false,
     recentRewardFamilies: [],
+    developerMode: false,
+    developerModeUsed: false,
+    developerCustomMessage: "",
+    credits: 0,
+    betaBossShop: {
+      entered: false,
+      stock: [],
+      refreshCost: 1,
+      message: "",
+      sequence: 0,
+    },
   };
 
   function recordBossWeaponDamage(weaponId, weaponName, amount) {
@@ -221,177 +302,21 @@
     };
   }
 
-  const weapons = {
-    sword: {
-      id: "sword",
-      name: "圣剑 ∫",
-      kind: "sword",
-      damage: Number(baseStats.swordDamage || 15),
-      cooldown: Number(baseStats.swordCooldown || 0.5),
-      ranged: false,
-      infiniteAmmo: true,
-    },
-    functionGun: {
-      id: "functionGun",
-      name: "函数机枪",
-      kind: "calculus",
-      damage: 6,
-      cooldown: 0.16,
-      ranged: true,
-      color: colors.mint,
-      magazine: 32,
-      reloadTime: 1.55,
-    },
-    integralSniper: {
-      id: "integralSniper",
-      name: "积分狙击枪",
-      kind: "calculus",
-      damage: 34,
-      cooldown: 1.05,
-      ranged: true,
-      speed: 720,
-      projectileRadius: 5,
-      color: colors.paper,
-      magazine: 4,
-      reloadTime: 2.15,
-      pierce: 4,
-    },
-    taylorCannon: {
-      id: "taylorCannon",
-      name: "泰勒扩散炮",
-      kind: "calculus",
-      damage: 8.1,
-      cooldown: 0.68,
-      ranged: true,
-      speed: 360,
-      projectileRadius: 7,
-      color: colors.chalk,
-      magazine: 7,
-      reloadTime: 2,
-      splitAfter: 0.42,
-      splitCount: 5,
-      splitSpread: 0.95,
-      splitDamage: 0.34,
-      splitSpeed: 330,
-    },
-    coordinateBlade: {
-      id: "coordinateBlade",
-      name: "坐标系大宝剑",
-      kind: "geometry",
-      damage: 9.2,
-      cooldown: 0.62,
-      ranged: false,
-      infiniteAmmo: true,
-      special: "crossSlash",
-      slashReach: 32,
-      slashRadius: 52,
-      color: colors.cyan,
-    },
-    polarShotgun: {
-      id: "polarShotgun",
-      name: "极坐标霰弹枪",
-      kind: "geometry",
-      damage: 3.8,
-      cooldown: 0.54,
-      ranged: true,
-      pellets: 6,
-      spread: 0.72,
-      speed: 470,
-      projectileRadius: 4,
-      color: colors.cyan,
-      magazine: 6,
-      reloadTime: 2.1,
-    },
-    geometryShield: {
-      id: "geometryShield",
-      name: "几何护盾",
-      kind: "geometry",
-      damage: 9.4,
-      cooldown: 1.0,
-      ranged: false,
-      infiniteAmmo: true,
-      special: "shieldPulse",
-      color: colors.cyan,
-      shieldValue: 10,
-      shieldValuePerLevel: 5,
-      shieldValueMaxBonus: 2,
-      shieldEvery: 12,
-      pulseRadius: 68,
-      shotClearRadius: 84,
-    },
-    matrixRpg: {
-      id: "matrixRpg",
-      name: "矩阵 RPG",
-      kind: "linear",
-      damage: 24,
-      cooldown: 0.92,
-      ranged: true,
-      speed: 330,
-      projectileRadius: 9,
-      color: colors.warning,
-      magazine: 4,
-      reloadTime: 2.4,
-      blastRadius: 48,
-    },
-    luStaff: {
-      id: "luStaff",
-      name: "LU 分解法杖",
-      kind: "linear",
-      damage: 8.6,
-      cooldown: 0.64,
-      ranged: true,
-      speed: 390,
-      projectileRadius: 5,
-      color: colors.warning,
-      magazine: 9,
-      reloadTime: 2,
-      splitAfter: 0.34,
-      splitPattern: "lu",
-      splitDamage: 0.34,
-      splitSpeed: 360,
-    },
-    determinantLaser: {
-      id: "determinantLaser",
-      name: "行列式激光",
-      kind: "linear",
-      damage: 2.7,
-      cooldown: 0.1,
-      ranged: true,
-      speed: 920,
-      projectileRadius: 3,
-      color: colors.danger,
-      magazine: 50,
-      reloadTime: 2.05,
-      pierce: 2,
-      beamLength: 56,
-      shape: "beam",
-    },
-  };
-
-  const chestWeaponIds = [
-    "functionGun",
-    "integralSniper",
-    "taylorCannon",
-    "coordinateBlade",
-    "polarShotgun",
-    "geometryShield",
-    "matrixRpg",
-    "luStaff",
-    "determinantLaser",
-  ];
-
-  const buffRewardIds = [
-    "临时抱佛脚",
-    "熬夜咖啡",
-    "公式大全",
-    "草稿纸护盾",
-    "错题本",
-    "绩点守护",
-    "学霸笔记",
-  ];
+  const dataConfig = window.ExamGameData || {};
+  const weapons = dataConfig.createWeapons?.({ baseStats, colors }) || {};
+  const chestWeaponIds = [...(dataConfig.chestWeaponIds || [])];
+  const buffRewardIds = [...(dataConfig.buffRewardIds || [])];
+  const buffDetails = dataConfig.buffDetails || {};
+  const monsterRooms = dataConfig.createMonsterRooms?.({ baseStats, colors }) || {};
+  const randomMonsterPool = dataConfig.createRandomMonsterPool?.({ colors }) || [];
+  if (!Object.keys(weapons).length || !chestWeaponIds.length || !buffRewardIds.length || !Object.keys(monsterRooms).length || !randomMonsterPool.length) {
+    throw new Error("Game data modules did not load correctly. Check script order in templates/index.html.");
+  }
 
   function cloneWeapon(id) {
-    const weapon = { ...weapons[id] };
+    const weaponTemplate = weapons[id];
+    if (!weaponTemplate) return null;
+    const weapon = { ...weaponTemplate };
     weapon.level = 1;
     weapon.baseDamage = weapon.damage;
     weapon.baseCooldown = weapon.cooldown;
@@ -505,20 +430,196 @@
     return buffRewardIds[Math.floor(Math.random() * buffRewardIds.length)];
   }
 
+  function isBetaVersion() {
+    return game.versionChannel === "beta";
+  }
+
+  function isKnowledgeCreditRoomKey(roomKey) {
+    return ["monster", "geometry", "linear"].includes(roomKey);
+  }
+
+  function isBetaRandomRoomKey(roomKey) {
+    return ["chest", "randomB", "randomC"].includes(roomKey);
+  }
+
+  function sampleUnique(items, count) {
+    const pool = [...items];
+    const picked = [];
+    while (pool.length && picked.length < count) {
+      const index = Math.floor(Math.random() * pool.length);
+      picked.push(pool.splice(index, 1)[0]);
+    }
+    return picked;
+  }
+
+  function resetBetaBossShop() {
+    game.betaBossShop = {
+      entered: false,
+      stock: [],
+      refreshCost: 1,
+      message: "",
+      sequence: 0,
+    };
+  }
+
+  function createBetaBossShopStock() {
+    const shop = game.betaBossShop;
+    shop.sequence = (shop.sequence || 0) + 1;
+    const weaponItems = sampleUnique(chestWeaponIds, 2).map((id, index) => ({
+      key: `weapon-${shop.sequence}-${index}-${id}`,
+      type: "weapon",
+      id,
+      purchased: false,
+    }));
+    const buffItems = sampleUnique(buffRewardIds, 2).map((id, index) => ({
+      key: `buff-${shop.sequence}-${index}-${id}`,
+      type: "buff",
+      id,
+      purchased: false,
+    }));
+    return [...weaponItems, ...buffItems];
+  }
+
+  function ensureBetaBossShopStock(force = false) {
+    if (!game.betaBossShop) resetBetaBossShop();
+    if (force || !Array.isArray(game.betaBossShop.stock) || !game.betaBossShop.stock.length) {
+      game.betaBossShop.stock = createBetaBossShopStock();
+    }
+    game.betaBossShop.refreshCost = Math.max(1, Math.round(Number(game.betaBossShop.refreshCost || 1)));
+    return game.betaBossShop;
+  }
+
+  function betaShopItemName(item) {
+    if (!item) return "";
+    return item.type === "weapon" ? weaponChoiceName(item.id) : item.id;
+  }
+
+  function rerenderBetaShopModal() {
+    updateMap();
+    updateHud();
+    if (!ui.modal.hidden && ui.modal.dataset.kind === "betaShop") {
+      ui.modalBody.innerHTML = betaBossShopMarkup();
+    }
+  }
+
+  function awardBetaKnowledgeCredits(roomKey, count) {
+    if (!isBetaVersion() || !isKnowledgeCreditRoomKey(roomKey)) return 0;
+    const gained = clamp(Math.round(Number(count) || 0), 0, 3);
+    game.credits = Math.max(0, Math.round(Number(game.credits || 0))) + gained;
+    return gained;
+  }
+
+  function chargeBetaRandomRoom(roomKey) {
+    if (!isBetaVersion() || !isBetaRandomRoomKey(roomKey) || game.randomRooms[roomKey]) return true;
+    if ((game.credits || 0) < betaRandomRoomCost) {
+      game.message = `β 测试服：开启右侧随机教室需要 ${betaRandomRoomCost} 学分，当前 ${game.credits || 0} 学分。`;
+      updateMap();
+      return false;
+    }
+    game.credits -= betaRandomRoomCost;
+    game.message = `β 测试服：已消耗 ${betaRandomRoomCost} 学分开启随机教室，剩余 ${game.credits} 学分。`;
+    updateMap();
+    return true;
+  }
+
+  function openBetaBossShop() {
+    if (!isBetaVersion()) return false;
+    const shop = ensureBetaBossShopStock();
+    if (!shop.entered) {
+      const recovered = restoreMissingHpOnRoomEnter(game.player);
+      shop.entered = true;
+      shop.refreshCost = 1;
+      shop.stock = createBetaBossShopStock();
+      shop.message = recovered > 0
+        ? `进入 Boss 前商店，已先回复 ${Math.ceil(recovered)} 点生命；之后开始 Boss 战不会再次回血。`
+        : "进入 Boss 前商店；之后开始 Boss 战不会再次回血。";
+    }
+    game.message = `β 测试服：Boss 前商店已开启，当前 ${game.credits || 0} 学分。`;
+    updateMap();
+    openModal("betaShop");
+    return true;
+  }
+
+  function buyBetaShopItem(index) {
+    const shop = ensureBetaBossShopStock();
+    const item = shop.stock[Number(index)];
+    if (!item || item.purchased) return false;
+    if (!game.player || game.player.hp <= betaShopItemHpCost) {
+      shop.message = `生命不足：每项需要 ${betaShopItemHpCost} 生命，至少要保留 1 点生命。`;
+      rerenderBetaShopModal();
+      return false;
+    }
+
+    game.player.hp = Math.max(1, game.player.hp - betaShopItemHpCost);
+    if (item.type === "weapon") {
+      const added = addWeapon(game.player, item.id, true);
+      if (added) rememberRewardFamily(item.id);
+    } else if (item.type === "buff") {
+      grantBuff(game.player, item.id);
+    }
+    item.purchased = true;
+    shop.message = `已用 ${betaShopItemHpCost} 生命兑换 ${betaShopItemName(item)}。`;
+    rerenderBetaShopModal();
+    return true;
+  }
+
+  function refreshBetaBossShop() {
+    const shop = ensureBetaBossShopStock();
+    const cost = Math.max(1, Math.round(Number(shop.refreshCost || 1)));
+    if ((game.credits || 0) < cost) {
+      shop.message = `学分不足：本次刷新需要 ${cost} 学分，当前 ${game.credits || 0} 学分。`;
+      rerenderBetaShopModal();
+      return false;
+    }
+    game.credits -= cost;
+    shop.refreshCost = cost + 1;
+    shop.stock = createBetaBossShopStock();
+    shop.message = `已消耗 ${cost} 学分刷新商店；下次刷新需要 ${shop.refreshCost} 学分。`;
+    rerenderBetaShopModal();
+    return true;
+  }
+
+  function startBossFromBetaShop() {
+    const skipRestore = Boolean(game.betaBossShop?.entered);
+    closeModal();
+    return startBossRoom({ bypassShop: true, skipRestore });
+  }
+
+  function randomMonsterRoomChoices() {
+    return ["monster", "geometry", "linear"]
+      .map((key) => monsterRooms[key])
+      .filter(Boolean);
+  }
+
   function randomMonsterFamilyGroups() {
-    return randomMonsterPool.reduce((groups, enemy) => {
-      const family = canonicalWeaponFamily(enemy.rewardWeapon);
+    return randomMonsterRoomChoices().reduce((groups, room) => {
+      const family = canonicalWeaponFamily(room.rewardWeapon || room.enemy?.rewardWeapon);
       if (!groups.has(family)) groups.set(family, []);
-      groups.get(family).push(enemy);
+      groups.get(family).push(room);
       return groups;
     }, new Map());
   }
 
-  function pickRandomMonsterEnemy() {
+  function pickRandomMonsterRoomTemplate() {
     const groups = randomMonsterFamilyGroups();
     const family = weightedPick(Array.from(groups.keys()), recentFamilyWeight);
-    const enemies = groups.get(family) || randomMonsterPool;
-    return enemies[Math.floor(Math.random() * enemies.length)];
+    const rooms = groups.get(family) || randomMonsterRoomChoices();
+    return rooms[Math.floor(Math.random() * rooms.length)];
+  }
+
+  function developerCustomEnemyDefs() {
+    const byName = new Map();
+    Object.values(monsterRooms).forEach((room) => {
+      if (room?.enemy?.name && !byName.has(room.enemy.name)) byName.set(room.enemy.name, room.enemy);
+    });
+    randomMonsterPool.forEach((enemy) => {
+      if (enemy?.name && !byName.has(enemy.name)) byName.set(enemy.name, enemy);
+    });
+    return Array.from(byName.values());
+  }
+
+  function isDeveloperCustomRoom() {
+    return game.activeRoomKey === "__developerCustom";
   }
 
   function dropModelForVerify() {
@@ -539,231 +640,12 @@
     };
   }
 
-  const monsterRooms = {
-    monster: {
-      completedKey: "monster",
-      title: "微积分怪物房",
-      label: "微积分怪物房：拉格朗日投影",
-      rewardWeapon: "functionGun",
-      rewardBuff: "函数机枪",
-      clearTitle: "拉格朗日投影被击败",
-      clearText: "你获得了正常版函数机枪。现在再去挑战 Boss 会轻松很多。",
-      enemy: {
-        id: "lagrange",
-        name: "拉格朗日投影",
-        shortName: "L",
-        kind: "calculus",
-        pattern: "burstTen",
-        mechanics: ["splitOnDeath"],
-        color: colors.chalk,
-        hp: Number(baseStats.enemyHp || 60),
-        radius: 24,
-        moveAmp: 70,
-        moveSpeed: 2,
-        fireEvery: 0.72,
-      },
-    },
-    geometry: {
-      completedKey: "geometry",
-      title: "欧氏几何怪物房",
-      label: "欧氏几何教室：笛卡尔投影",
-      rewardWeapon: "polarShotgun",
-      rewardBuff: "极坐标霰弹枪",
-      clearTitle: "笛卡尔投影被击败",
-      clearText: "你获得了极坐标霰弹枪。它会扇形散射，对近距离目标很凶。",
-      enemy: {
-        id: "descartesShade",
-        name: "笛卡尔投影",
-        shortName: "D",
-        kind: "geometry",
-        pattern: "axisLaser",
-        mechanics: ["quadrantBlink"],
-        color: colors.cyan,
-        hp: 90,
-        radius: 24,
-        moveAmp: 92,
-        moveSpeed: 1.55,
-        fireEvery: 0.95,
-      },
-    },
-    linear: {
-      completedKey: "linear",
-      title: "线性代数怪物房",
-      label: "线性代数教室：高斯投影",
-      rewardWeapon: "matrixRpg",
-      rewardBuff: "矩阵 RPG",
-      clearTitle: "高斯投影被击败",
-      clearText: "你获得了矩阵 RPG。单发慢，但伤害高，适合打 Boss 核心。",
-      enemy: {
-        id: "gaussShade",
-        name: "高斯投影",
-        shortName: "G",
-        kind: "linear",
-        pattern: "wall",
-        mechanics: ["gaussHalfField"],
-        color: colors.warning,
-        hp: 110,
-        radius: 25,
-        moveAmp: 58,
-        moveSpeed: 1.15,
-        fireEvery: 1.08,
-      },
-    },
-  };
-
-  const randomMonsterPool = [
-    {
-      id: "lagrangeRandomShade",
-      name: "拉格朗日投影",
-      shortName: "L",
-      kind: "calculus",
-      pattern: "burstTen",
-      mechanics: ["splitOnDeath"],
-      color: colors.chalk,
-      rewardWeapon: "functionGun",
-      rewardBuff: "函数机枪",
-      hp: 76,
-      radius: 24,
-      moveAmp: 78,
-      moveSpeed: 1.9,
-      fireEvery: 0.82,
-    },
-    {
-      id: "lhopitalShade",
-      name: "洛必达投影",
-      shortName: "H",
-      kind: "calculus",
-      pattern: "edgeLaser",
-      mechanics: ["missShield"],
-      color: colors.paper,
-      rewardWeapon: "integralSniper",
-      rewardBuff: "洛必达法则",
-      hp: 88,
-      radius: 23,
-      moveAmp: 62,
-      moveSpeed: 1.5,
-      fireEvery: 1.12,
-    },
-    {
-      id: "taylorShade",
-      name: "泰勒投影",
-      shortName: "T",
-      kind: "calculus",
-      pattern: "none",
-      mechanics: ["taylorTripleDash"],
-      color: colors.chalk,
-      rewardWeapon: "functionGun",
-      rewardBuff: "泰勒展开",
-      hp: 82,
-      radius: 23,
-      moveAmp: 86,
-      moveSpeed: 1.8,
-      fireEvery: 0.9,
-    },
-    {
-      id: "archimedesShade",
-      name: "阿基米德投影",
-      shortName: "A",
-      kind: "geometry",
-      pattern: "circle",
-      mechanics: ["distanceLaw"],
-      color: colors.cyan,
-      rewardWeapon: "coordinateBlade",
-      rewardBuff: "圆面积",
-      hp: 88,
-      radius: 24,
-      moveAmp: 72,
-      moveSpeed: 1.4,
-      fireEvery: 1.0,
-    },
-    {
-      id: "descartesRandomShade",
-      name: "笛卡尔投影",
-      shortName: "D",
-      kind: "geometry",
-      pattern: "tripleLaser",
-      mechanics: ["distanceLaw"],
-      color: colors.cyan,
-      rewardWeapon: "polarShotgun",
-      rewardBuff: "极坐标霰弹枪",
-      hp: 94,
-      radius: 24,
-      moveAmp: 84,
-      moveSpeed: 1.45,
-      fireEvery: 1.0,
-    },
-    {
-      id: "euclidShade",
-      name: "欧几里得投影",
-      shortName: "E",
-      kind: "geometry",
-      pattern: "triangle",
-      mechanics: ["dashScatter"],
-      color: colors.cyan,
-      rewardWeapon: "geometryShield",
-      rewardBuff: "几何直觉",
-      hp: 90,
-      radius: 24,
-      moveAmp: 68,
-      moveSpeed: 1.45,
-      fireEvery: 1.05,
-    },
-    {
-      id: "jacobiShade",
-      name: "雅可比投影",
-      shortName: "J",
-      kind: "linear",
-      pattern: "jacobiVolley",
-      mechanics: ["jacobiBackBlink"],
-      color: colors.warning,
-      rewardWeapon: "matrixRpg",
-      rewardBuff: "雅可比矩阵",
-      hp: 100,
-      radius: 24,
-      moveAmp: 68,
-      moveSpeed: 1.25,
-      fireEvery: 1.02,
-    },
-    {
-      id: "jordanShade",
-      name: "若尔当投影",
-      shortName: "J",
-      kind: "linear",
-      pattern: "jordanReactive",
-      mechanics: ["jordanDomain"],
-      color: colors.warning,
-      rewardWeapon: "luStaff",
-      rewardBuff: "约旦标准型",
-      hp: 132,
-      radius: 24,
-      moveAmp: 74,
-      moveSpeed: 1.35,
-      fireEvery: 0.98,
-    },
-    {
-      id: "gaussRandomShade",
-      name: "高斯投影",
-      shortName: "G",
-      kind: "linear",
-      pattern: "wall",
-      mechanics: ["gaussHalfField"],
-      color: colors.warning,
-      rewardWeapon: "determinantLaser",
-      rewardBuff: "高斯消元",
-      hp: 105,
-      radius: 25,
-      moveAmp: 58,
-      moveSpeed: 1.2,
-      fireEvery: 1.05,
-    },
-  ];
-
   function createPlayer() {
     const startingWeapon = cloneWeapon("sword");
     return {
       x: W * 0.5,
       y: H * 0.72,
-      r: 15,
+      r: 15 * characterSizeScale,
       hp: Number(baseStats.hp || 100),
       maxHp: Number(baseStats.hp || 100),
       speed: Number(baseStats.speed || 3.5),
@@ -779,6 +661,7 @@
       gpaGuardUsed: false,
       attackTimer: 0,
       weaponSealTimer: 0,
+      weaponSealSourceId: "",
       enemySlowTimer: 0,
       enemySlowMultiplier: 1,
       cauchyDotTimer: 0,
@@ -790,25 +673,29 @@
 
   function grantBuff(player, name) {
     if (!player || !name) return;
+    if (!buffRewardIds.includes(name)) return;
     player.buffs.push(name);
     if (name === "临时抱佛脚") {
-      player.hp = Math.min(player.maxHp, player.hp + 30);
-    }
-    if (name === "草稿纸护盾") {
-      player.blockCharges = Math.min(maxDraftShieldCharges(player), (player.blockCharges || 0) + 1);
-      player.blockTimer = draftShieldInterval;
+      const bonusHp = Math.max(1, Math.round(player.maxHp * 0.25));
+      player.maxHp += bonusHp;
+      player.hp = Math.min(player.maxHp, player.hp + bonusHp);
     }
     if (name === "绩点守护") {
       player.gpaGuardUsed = false;
     }
   }
 
-  function hasBuff(player, name) {
-    return Boolean(player?.buffs?.includes(name));
+  function restoreMissingHpOnRoomEnter(player = game.player) {
+    if (!player) return 0;
+    const missingHp = Math.max(0, (player.maxHp || 0) - (player.hp || 0));
+    if (missingHp <= 0) return 0;
+    const recovered = missingHp * 0.5;
+    player.hp = Math.min(player.maxHp, player.hp + recovered);
+    return recovered;
   }
 
-  function maxDraftShieldCharges(player) {
-    return hasBuff(player, "草稿纸护盾") ? 1 : 0;
+  function hasBuff(player, name) {
+    return Boolean(player?.buffs?.includes(name));
   }
 
   function addWeapon(player, weaponId, equip = true) {
@@ -838,6 +725,72 @@
     return true;
   }
 
+  function removeWeapon(player, weaponId) {
+    if (!player?.weapons?.length) return false;
+    const index = player.weapons.findIndex((weapon) => weapon.id === weaponId);
+    if (index < 0) return false;
+    const weapon = player.weapons[index];
+    if ((weapon.level || 1) > 1) {
+      weapon.level = Math.max(1, (weapon.level || 1) - 1);
+      applyWeaponLevelStats(weapon);
+      if (!weapon.infiniteAmmo) {
+        weapon.ammo = Math.min(weapon.magazine, Math.max(0, weapon.ammo ?? weapon.magazine));
+        if (weapon.reloading) weapon.reloadTimer = Math.min(weapon.reloadTimer || weapon.reloadTime, weapon.reloadTime);
+      }
+      game.weaponsFound = player.weapons.length;
+      return true;
+    }
+    if (player.weapons.length <= 1) return false;
+    let nextIndex = player.weaponIndex || 0;
+    if (index < nextIndex) nextIndex -= 1;
+    if (index === nextIndex) nextIndex = Math.min(index, player.weapons.length - 2);
+    player.weapons.splice(index, 1);
+    player.weaponIndex = clamp(nextIndex, 0, player.weapons.length - 1);
+    player.weapon = player.weapons[player.weaponIndex];
+    player.attackTimer = 0;
+    game.weaponsFound = player.weapons.length;
+    armPassiveShieldTimer(player);
+    return true;
+  }
+
+  function removeBuff(player, name) {
+    if (!player?.buffs?.length || !name) return false;
+    const index = player.buffs.lastIndexOf(name);
+    if (index < 0) return false;
+    player.buffs.splice(index, 1);
+    if (!hasBuff(player, "绩点守护")) player.gpaGuardUsed = false;
+    return true;
+  }
+
+  function ensureDeveloperPlayer() {
+    if (!game.player) resetGame();
+    return game.player;
+  }
+
+  function setDeveloperMode(active, openPanel = true) {
+    const player = ensureDeveloperPlayer();
+    if (!player) return false;
+    game.developerMode = Boolean(active);
+    if (game.developerMode) {
+      game.developerModeUsed = true;
+      player.hp = Math.max(1, player.hp || Math.ceil(player.maxHp * 0.5));
+      player.invuln = Math.max(player.invuln || 0, 0.25);
+    }
+    updateHud();
+    if (openPanel) {
+      if (game.developerMode) {
+        openModal("developer");
+      } else if (!ui.modal.hidden && ui.modal.dataset.kind === "developer") {
+        closeModal();
+      }
+    }
+    return game.developerMode;
+  }
+
+  function toggleDeveloperMode() {
+    return setDeveloperMode(true, true);
+  }
+
   function weaponRewardText(defaultText) {
     const reward = game.lastWeaponReward;
     if (!reward) return defaultText;
@@ -851,42 +804,202 @@
     return displayWeaponName(weapons[weaponId]) || weaponId || "未知武器";
   }
 
+  function rewardChoiceBuffIds(choice) {
+    if (!choice) return [];
+    const ids = Array.isArray(choice.buffIds)
+      ? choice.buffIds
+      : choice.altBuff
+        ? [choice.altBuff]
+        : [];
+    return ids.filter(Boolean);
+  }
+
+  function buffBriefText(name) {
+    const detail = buffDetails[name];
+    const raw = String(detail?.short || detail?.effect || "获得一项战斗增益。").trim();
+    const first = raw.split(/[。；;]/)[0] || raw;
+    return first.length > 36 ? `${first.slice(0, 36)}…` : first;
+  }
+
+  function buffChoiceText(buffIds) {
+    if (!buffIds.length) return "";
+    return buffIds
+      .map((name) => `${name}：${buffBriefText(name)}`)
+      .join(" / ");
+  }
+
+  function grantRewardBuffs(buffIds) {
+    buffIds.forEach((name) => grantBuff(game.player, name));
+  }
+
+  function rewardSelection(choice) {
+    if (!choice) return { weapon: false, buffIndexes: [], buffIndex: null };
+    const buffIds = rewardChoiceBuffIds(choice);
+    if (typeof choice.selectedWeapon !== "boolean") choice.selectedWeapon = false;
+    const indexes = Array.isArray(choice.selectedBuffIndexes)
+      ? choice.selectedBuffIndexes
+      : Number.isInteger(choice.selectedBuffIndex)
+        ? [choice.selectedBuffIndex]
+        : [];
+    let normalizedIndexes = [...new Set(indexes)]
+      .filter((index) => Number.isInteger(index) && Boolean(buffIds[index]))
+      .sort((a, b) => a - b);
+    if (!choice.allowWeaponWithBuff && normalizedIndexes.length > 1) {
+      normalizedIndexes = normalizedIndexes.slice(0, 1);
+    }
+    choice.selectedBuffIndexes = normalizedIndexes;
+    choice.selectedBuffIndex = normalizedIndexes.length ? normalizedIndexes[0] : null;
+    if (!choice.weaponId) choice.selectedWeapon = false;
+    return {
+      weapon: Boolean(choice.selectedWeapon),
+      buffIndexes: normalizedIndexes,
+      buffIndex: choice.selectedBuffIndex,
+    };
+  }
+
+  function selectedRewardBuffIds(choice) {
+    const selection = rewardSelection(choice);
+    const buffIds = rewardChoiceBuffIds(choice);
+    return selection.buffIndexes.map((index) => buffIds[index]).filter(Boolean);
+  }
+
+  function toggleRewardWeaponSelection() {
+    const choice = game.pendingWeaponChoice;
+    if (!choice?.weaponId) return false;
+    const selection = rewardSelection(choice);
+    choice.selectedWeapon = !selection.weapon;
+    if (choice.selectedWeapon && !choice.allowWeaponWithBuff) {
+      choice.selectedBuffIndexes = [];
+      choice.selectedBuffIndex = null;
+    }
+    updateWeaponChoiceUi();
+    return true;
+  }
+
+  function toggleRewardBuffSelection(index) {
+    const choice = game.pendingWeaponChoice;
+    const buffIds = rewardChoiceBuffIds(choice);
+    if (!choice || !buffIds[index]) return false;
+    const selection = rewardSelection(choice);
+    const selected = selection.buffIndexes.includes(index);
+    choice.selectedBuffIndexes = selected
+      ? selection.buffIndexes.filter((item) => item !== index)
+      : choice.allowWeaponWithBuff
+        ? [...selection.buffIndexes, index]
+        : [index];
+    if (choice.selectedBuffIndexes.length && choice.selectedWeapon && !choice.allowWeaponWithBuff) {
+      choice.selectedWeapon = false;
+    }
+    updateWeaponChoiceUi();
+    return true;
+  }
+
   function updateWeaponChoiceUi() {
     const choice = game.pendingWeaponChoice;
+    const buffIds = rewardChoiceBuffIds(choice);
+    const hasWeapon = Boolean(choice?.weaponId);
+    const hasBuff = buffIds.length > 0;
+    const selection = rewardSelection(choice);
+    const hasSelection = Boolean(selection.weapon || selection.buffIndexes.length);
     if (ui.weaponChoice) ui.weaponChoice.hidden = !choice;
     if (ui.weaponChoiceName) {
       ui.weaponChoiceName.textContent = choice
-        ? choice.title || `发现武器：${weaponChoiceName(choice.weaponId)}`
+        ? choice.title || (hasWeapon ? `发现武器：${weaponChoiceName(choice.weaponId)}` : "发现增益")
         : "";
     }
-    if (ui.acceptWeapon) ui.acceptWeapon.textContent = choice?.acceptLabel || "加入背包";
-    if (ui.skipWeapon) ui.skipWeapon.textContent = choice?.skipLabel || "不加入";
-    if (ui.acceptWeapon) ui.acceptWeapon.disabled = !choice;
-    if (ui.skipWeapon) ui.skipWeapon.disabled = !choice;
-    if (ui.backToMap) ui.backToMap.disabled = Boolean(choice);
+    if (ui.weaponChoiceBuffText) {
+      ui.weaponChoiceBuffText.hidden = !hasBuff;
+      ui.weaponChoiceBuffText.textContent = hasBuff ? buffChoiceText(buffIds) : "";
+    }
+    if (ui.acceptWeapon) {
+      ui.acceptWeapon.hidden = !hasWeapon;
+      ui.acceptWeapon.textContent = selection.weapon
+        ? `已选：${choice?.weaponShortLabel || "武器"}`
+        : choice?.acceptLabel || choice?.weaponShortLabel || "武器";
+      ui.acceptWeapon.disabled = !choice || !hasWeapon;
+      ui.acceptWeapon.classList.toggle("selected", selection.weapon);
+    }
+    if (ui.skipWeapon) {
+      ui.skipWeapon.hidden = !hasBuff;
+      const label = buffIds.length > 1 ? `增益A：${buffIds[0]}` : choice?.buffLabel || choice?.skipLabel || `增益：${buffIds[0]}`;
+      ui.skipWeapon.textContent = selection.buffIndexes.includes(0) ? `已选：${label}` : label;
+      ui.skipWeapon.disabled = !choice || !hasBuff;
+      ui.skipWeapon.classList.toggle("selected", selection.buffIndexes.includes(0));
+    }
+    if (ui.secondBuffReward) {
+      ui.secondBuffReward.hidden = buffIds.length < 2;
+      const label = buffIds.length > 1 ? `增益B：${buffIds[1]}` : "增益B";
+      ui.secondBuffReward.textContent = selection.buffIndexes.includes(1) ? `已选：${label}` : label;
+      ui.secondBuffReward.disabled = !choice || buffIds.length < 2;
+      ui.secondBuffReward.classList.toggle("selected", selection.buffIndexes.includes(1));
+    }
+    if (ui.confirmReward) {
+      ui.confirmReward.hidden = !choice;
+      ui.confirmReward.textContent = choice?.confirmLabel || "确认领取";
+      ui.confirmReward.disabled = !choice || !hasSelection;
+      ui.confirmReward.classList.toggle("primary-action", hasSelection);
+    }
+    if (ui.backToMap) {
+      ui.backToMap.disabled = false;
+      ui.backToMap.textContent = "确认离开";
+    }
+  }
+
+  function resolveRewardChoice(action, buffIndex = null) {
+    const choice = game.pendingWeaponChoice;
+    if (!choice) return false;
+    const buffIds = rewardChoiceBuffIds(choice);
+    const selection = rewardSelection(choice);
+    const grantWeapon = action === "selection"
+      ? Boolean(selection.weapon && choice.weaponId)
+      : action === "weapon" && Boolean(choice.weaponId);
+    const selectedBuffIds = action === "selection"
+      ? selectedRewardBuffIds(choice)
+      : action === "buff" && Number.isInteger(buffIndex)
+      ? [buffIds[buffIndex]].filter(Boolean)
+      : [];
+    const weaponName = choice.weaponId ? weaponChoiceName(choice.weaponId) : "";
+    const selectedBuffNames = selectedBuffIds.join("、");
+    game.pendingWeaponChoice = null;
+    if (grantWeapon) {
+      const added = addWeapon(game.player, choice.weaponId, true);
+      if (added) rememberRewardFamily(choice.weaponId);
+      const joinedName = displayWeaponName(game.lastWeaponReward?.weapon || weapons[choice.weaponId]);
+      const weaponRewardOverridesText = game.lastWeaponReward?.type === "upgrade";
+      if (selectedBuffIds.length) {
+        grantRewardBuffs(selectedBuffIds);
+      }
+      const defaultText = selectedBuffIds.length
+        ? `已领取：${joinedName}，${selectedBuffNames}。`
+        : choice.acceptText || `已加入背包：${joinedName}。`;
+      const suffix = selectedBuffIds.length && weaponRewardOverridesText
+        ? ` 增益已获得：${selectedBuffNames}。`
+        : choice.rewardSuffix || "";
+      ui.clearText.textContent = `${weaponRewardText(defaultText)}${suffix}`;
+    } else if (action === "buff" && selectedBuffIds.length) {
+      game.lastWeaponReward = null;
+      grantRewardBuffs(selectedBuffIds);
+      const defaultBuffText = `已选择增益：${selectedBuffNames}。${weaponName ? `没有加入${weaponName}，本局仍保留圣剑榜资格。` : ""}`;
+      ui.clearText.textContent = Number.isInteger(buffIndex)
+        ? defaultBuffText
+        : choice.buffText || choice.skipText || defaultBuffText;
+    } else if (action === "selection" && selectedBuffIds.length) {
+      game.lastWeaponReward = null;
+      grantRewardBuffs(selectedBuffIds);
+      ui.clearText.textContent = `已领取增益：${selectedBuffNames}。${weaponName ? `没有加入${weaponName}，本局仍保留圣剑榜资格。` : ""}`;
+    } else {
+      game.lastWeaponReward = null;
+      ui.clearText.textContent = choice.declineText || `本次奖励没有领取。${weaponName ? `没有加入${weaponName}，本局仍保留圣剑榜资格。` : ""}`;
+    }
+    updateWeaponChoiceUi();
+    updateHud();
+    return true;
   }
 
   function resolveWeaponChoice(accept) {
     const choice = game.pendingWeaponChoice;
     if (!choice) return false;
-    const weaponName = weaponChoiceName(choice.weaponId);
-    game.pendingWeaponChoice = null;
-    if (accept) {
-      const added = addWeapon(game.player, choice.weaponId, true);
-      if (added) rememberRewardFamily(choice.weaponId);
-      const joinedName = displayWeaponName(game.lastWeaponReward?.weapon || weapons[choice.weaponId]);
-      const defaultText = choice.acceptText || `已加入背包：${joinedName}。`;
-      ui.clearText.textContent = `${weaponRewardText(defaultText)}${choice.rewardSuffix || ""}`;
-    } else {
-      game.lastWeaponReward = null;
-      if (choice.altBuff) {
-        grantBuff(game.player, choice.altBuff);
-      }
-      ui.clearText.textContent = choice.skipText || `没有加入${weaponName}，本局仍保留圣剑榜资格。${choice.rewardSuffix || ""}`;
-    }
-    updateWeaponChoiceUi();
-    updateHud();
-    return true;
+    return resolveRewardChoice(accept ? "weapon" : rewardChoiceBuffIds(choice).length ? "buff" : "none", 0);
   }
 
   function isWeaponSealed(weapon) {
@@ -904,10 +1017,15 @@
     return player.weapons.findIndex((weapon) => !isWeaponSealed(weapon));
   }
 
-  function sealPlayerNonGeometryWeapons(duration = weaponSealDuration) {
+  function sealPlayerNonGeometryWeapons(duration = weaponSealDuration, sourceId = "") {
     const player = game.player;
     if (!player) return;
-    player.weaponSealTimer = Math.max(player.weaponSealTimer || 0, duration);
+    if (sourceId) {
+      player.weaponSealSourceId = sourceId;
+      player.weaponSealTimer = Math.max(player.weaponSealTimer || 0, 999);
+    } else {
+      player.weaponSealTimer = Math.max(player.weaponSealTimer || 0, duration);
+    }
     if (isWeaponSealed(player.weapon)) {
       const fallback = firstAvailableWeaponIndex(player);
       if (fallback >= 0) {
@@ -917,6 +1035,14 @@
       }
     }
     burst(player.x, player.y, colors.cyan, 14);
+    updateHud();
+  }
+
+  function clearWeaponSealFromSource(sourceId) {
+    const player = game.player;
+    if (!player || !sourceId || player.weaponSealSourceId !== sourceId) return;
+    player.weaponSealSourceId = "";
+    player.weaponSealTimer = 0;
     updateHud();
   }
 
@@ -946,7 +1072,7 @@
       return false;
     }
     weapon.reloading = true;
-    weapon.reloadTimer = weapon.reloadTime;
+    weapon.reloadTimer = weaponReloadTime(weapon);
     return true;
   }
 
@@ -978,19 +1104,6 @@
   function updatePassiveShield(dt) {
     const player = game.player;
     if (!player) return;
-    if (hasBuff(player, "草稿纸护盾")) {
-      const maxCharges = maxDraftShieldCharges(player);
-      if ((player.blockCharges || 0) >= maxCharges) {
-        player.blockTimer = draftShieldInterval;
-      } else {
-        player.blockTimer = Math.max(0, (player.blockTimer || draftShieldInterval) - dt);
-        if (player.blockTimer <= 0) {
-          player.blockCharges = Math.min(maxCharges, (player.blockCharges || 0) + 1);
-          player.blockTimer = draftShieldInterval;
-          burst(player.x, player.y, colors.paper, 14);
-        }
-      }
-    }
     const shieldWeapon = player.weapons.find((weapon) => weapon.special === "shieldPulse");
     if (!shieldWeapon) return;
     player.shieldTimer = Math.max(0, (player.shieldTimer || 0) - dt);
@@ -1006,8 +1119,20 @@
     return `${weapon.ammo}/${weapon.magazine}`;
   }
 
+  function openVersionSelect() {
+    mode = "version";
+    showScreen("version");
+  }
+
+  function startVersion(channel = "alpha") {
+    game.versionChannel = channel === "beta" ? "beta" : "alpha";
+    resetGame();
+  }
+
   function resetGame() {
+    const versionChannel = game.versionChannel || "alpha";
     mode = "map";
+    game.versionChannel = versionChannel;
     game.startedAt = performance.now();
     game.elapsed = 0;
     game.kills = 0;
@@ -1049,8 +1174,13 @@
     game.pendingLeaderboardEntry = null;
     game.usedNonSwordWeapon = false;
     game.recentRewardFamilies = [];
+    game.developerMode = false;
+    game.developerModeUsed = false;
+    game.developerCustomMessage = "";
+    game.credits = 0;
+    resetBetaBossShop();
     hideLeaderboardNameForm();
-    game.message = "当前状态：刚进入复习走廊。";
+    game.message = versionChannel === "beta" ? "当前状态：β 测试服走廊。" : "当前状态：刚进入复习走廊。";
     updateMap();
     showScreen("map");
     updateHud();
@@ -1103,7 +1233,9 @@
 
     const upgraded = completedRoomKeys.some((key) => game.completed[key]);
     ui.bossRoom.classList.toggle("completed", upgraded);
-    ui.mapLog.textContent = game.message;
+    ui.mapLog.textContent = isBetaVersion()
+      ? `${game.message} | 学分：${game.credits || 0}`
+      : game.message;
     updateMapPlayerUI();
   }
 
@@ -1126,10 +1258,10 @@
     ];
 
     if (roomType === "boss" && game.boss) {
-      safeCircles.push({ x: game.boss.x, y: game.boss.y, r: 128 });
+      safeCircles.push({ x: game.boss.x, y: game.boss.y, r: 128 * bossSizeScale });
       game.boss.cores.forEach((core) => {
         const pos = corePosition(core);
-        safeCircles.push({ x: pos.x, y: pos.y, r: 64 });
+        safeCircles.push({ x: pos.x, y: pos.y, r: 64 * bossSizeScale });
       });
     }
 
@@ -1428,7 +1560,17 @@
     ui.mapPrompt.hidden = false;
     ui.mapPrompt.style.left = `${door.x}%`;
     ui.mapPrompt.style.top = `${Math.max(12, door.y - 6)}%`;
-    ui.mapPrompt.textContent = door.completed ? "已完成" : `按 E 进入 ${door.label}`;
+    if (door.completed) {
+      ui.mapPrompt.textContent = "已完成";
+    } else if (isBetaVersion() && isBetaRandomRoomKey(door.key) && !game.randomRooms[door.key]) {
+      ui.mapPrompt.textContent = (game.credits || 0) >= betaRandomRoomCost
+        ? `按 E 消耗 ${betaRandomRoomCost} 学分进入 ${door.label}`
+        : `需要 ${betaRandomRoomCost} 学分开启 ${door.label}`;
+    } else if (isBetaVersion() && door.key === "boss") {
+      ui.mapPrompt.textContent = "按 E 打开 Boss 前商店";
+    } else {
+      ui.mapPrompt.textContent = `按 E 进入 ${door.label}`;
+    }
   }
 
   function enterNearbyMapDoor() {
@@ -1472,11 +1614,11 @@
     game.monsterClearDelay = 0;
     game.roomReward = {
       weapon: room.rewardWeapon || room.enemy.rewardWeapon,
-      buff: room.rewardBuff || room.enemy.rewardBuff,
       clearEyebrow: room.title,
       clearTitle: room.clearTitle || `${room.enemy.name}被击败`,
       clearText: room.clearText || `你击败了${room.enemy.name}，获得了新的武器和增益。`,
     };
+    restoreMissingHpOnRoomEnter(game.player);
     game.pendingChallenge = null;
     game.player.x = W * 0.5;
     game.player.y = H * 0.74;
@@ -1504,7 +1646,7 @@
       geometry: "geometry",
       linear: "linear",
     };
-    const lockedKind = knowledgeRoomKinds[room.completedKey];
+    const lockedKind = room.allowMixedEnemies ? null : knowledgeRoomKinds[room.knowledgeKey || room.completedKey];
     const pool = randomMonsterPool.filter((enemy) => {
       if (enemy.id === primary.id) return false;
       return lockedKind ? enemy.kind === lockedKind : true;
@@ -1549,7 +1691,7 @@
       y: position.y,
       baseX: position.x,
       baseY: position.y,
-      r: enemyDef.radius,
+      r: enemyDef.radius * characterSizeScale,
       hp,
       maxHp: hp,
       fireTimer: 0.65 + index * 0.32,
@@ -1565,6 +1707,106 @@
     };
   }
 
+  function customEnemyPosition(index, total) {
+    const safeTotal = Math.max(1, total);
+    const columns = Math.max(1, Math.ceil(Math.sqrt(safeTotal * 1.35)));
+    const rows = Math.max(1, Math.ceil(safeTotal / columns));
+    const col = index % columns;
+    const row = Math.floor(index / columns);
+    const spanX = arena.width - 190;
+    const spanY = arena.height - 190;
+    const x = columns <= 1
+      ? W * 0.5
+      : arena.left + 95 + (spanX * col) / Math.max(1, columns - 1);
+    const y = rows <= 1
+      ? H * 0.28
+      : arena.top + 78 + (spanY * row) / Math.max(1, rows - 1);
+    const jitter = total > 9 ? 14 : 8;
+    return arenaPoint(
+      x + (Math.random() - 0.5) * jitter,
+      y + (Math.random() - 0.5) * jitter,
+      42,
+    );
+  }
+
+  function createDeveloperCustomEnemy(enemyDef, index, total) {
+    const position = customEnemyPosition(index, total);
+    const hp = Math.max(20, Math.round(Number(enemyDef.hp || baseStats.enemyHp || 60)));
+    return {
+      id: `${enemyDef.id || "enemy"}-custom-${index}-${Date.now().toString(36)}`,
+      name: enemyDef.name,
+      shortName: enemyDef.shortName,
+      kind: enemyDef.kind,
+      pattern: enemyDef.pattern,
+      mechanics: [...(enemyDef.mechanics || [])],
+      color: enemyDef.color,
+      x: position.x,
+      y: position.y,
+      baseX: position.x,
+      baseY: position.y,
+      r: (enemyDef.radius || 24) * characterSizeScale,
+      hp,
+      maxHp: hp,
+      fireTimer: 0.45 + (index % 6) * 0.18,
+      moveT: index * 0.63,
+      moveAmp: enemyDef.moveAmp || 64,
+      moveSpeed: enemyDef.moveSpeed || 1.4,
+      fireEvery: enemyDef.fireEvery || 1.2,
+      facingAngle: Math.PI / 2,
+      backHitFlash: 0,
+      shieldFlash: 0,
+      healFlash: 0,
+      defeated: false,
+    };
+  }
+
+  function startDeveloperCustomRoomFromPanel() {
+    const defs = developerCustomEnemyDefs();
+    const selections = defs.map((enemy) => {
+      const input = ui.modalBody?.querySelector(`[data-custom-enemy-count="${CSS.escape(enemy.id)}"]`);
+      return {
+        enemy,
+        count: clamp(Math.round(Number(input?.value || 0)), 0, 12),
+      };
+    }).filter((item) => item.count > 0);
+    const total = selections.reduce((sum, item) => sum + item.count, 0);
+    if (!total) {
+      game.developerCustomMessage = "至少给一种怪物设置数量，才能进入自定义房间。";
+      return false;
+    }
+
+    mode = "combat";
+    game.developerMode = true;
+    game.developerModeUsed = true;
+    game.developerCustomMessage = `已进入自定义房间：共 ${total} 个测试目标。`;
+    game.activeRoom = "monster";
+    game.activeRoomKey = "__developerCustom";
+    game.roomTitle = "自定义房间";
+    game.roomReward = null;
+    game.pendingChallenge = null;
+    game.challengeCount = Math.min(3, total);
+    game.defeatedInRoom = 0;
+    game.monsterClearDelay = 0;
+    game.player.x = W * 0.5;
+    game.player.y = H * 0.74;
+    game.playerShots = [];
+    game.enemyShots = [];
+    game.enemyLasers = [];
+    game.slashes = [];
+    game.particles = [];
+    armPassiveShieldTimer(game.player);
+    const expanded = [];
+    selections.forEach(({ enemy, count }) => {
+      for (let i = 0; i < count; i += 1) expanded.push(enemy);
+    });
+    game.enemies = expanded.map((enemy, index) => createDeveloperCustomEnemy(enemy, index, expanded.length));
+    game.obstacles = generateRoomObstacles("monster");
+    closeModal();
+    showScreen("combat");
+    updateHud();
+    return true;
+  }
+
   function startMonsterRoom(roomKey = "monster", overrideRoom = null) {
     return openChallengeSelect(roomKey, overrideRoom);
   }
@@ -1572,6 +1814,7 @@
   function openChestRoom(roomKey = "chest") {
     if (game.completed[roomKey]) return;
     game.completed[roomKey] = true;
+    restoreMissingHpOnRoomEnter(game.player);
     const rewardWeapon = pickChestWeapon(game.player);
     const rewardBuff = pickChestBuff();
 
@@ -1580,27 +1823,42 @@
       showClear(
         "宝箱房",
         "宝箱打开了",
-        `宝箱里出现了两个奖励：武器「${weaponName}」和增益「${rewardBuff}」。只能选择其中一个。`,
+        `宝箱里出现了两个奖励：武器「${weaponName}」和增益「${rewardBuff}」。可以选择其中一个，也可以都不拿。`,
         {
           weaponId: rewardWeapon,
           altBuff: rewardBuff,
-          title: `二选一：${weaponName} / ${rewardBuff}`,
+          buffIds: [rewardBuff],
+          title: `奖励选择：${weaponName} / ${rewardBuff}`,
           acceptLabel: "选择武器",
-          skipLabel: "选择增益",
+          buffLabel: "选择增益",
+          declineLabel: "都不拿",
           acceptText: `已选择武器并加入背包：${weaponName}。`,
-          skipText: `已选择增益：${rewardBuff}。没有加入${weaponName}，本局仍保留圣剑榜资格。`,
+          buffText: `已选择增益：${rewardBuff}。没有加入${weaponName}，本局仍保留圣剑榜资格。`,
+          declineText: `你没有领取宝箱奖励。没有加入${weaponName}，本局仍保留圣剑榜资格。`,
         }
       );
       return;
     }
 
-    grantBuff(game.player, rewardBuff);
-    showClear("宝箱房", "宝箱打开了", `你获得了增益：${rewardBuff}。`);
+    showClear(
+      "宝箱房",
+      "宝箱打开了",
+      `宝箱里出现了增益「${rewardBuff}」。可以选择领取，也可以不拿。`,
+      {
+        buffIds: [rewardBuff],
+        title: `奖励选择：${rewardBuff}`,
+        buffLabel: "领取增益",
+        declineLabel: "都不拿",
+        buffText: `已选择增益：${rewardBuff}。`,
+        declineText: "你没有领取宝箱奖励。",
+      }
+    );
   }
 
   function startRandomRoom(roomKey) {
     if (game.completed[roomKey]) return;
     const revealed = game.randomRooms[roomKey];
+    if (!revealed && !chargeBetaRandomRoom(roomKey)) return;
     if (revealed?.type === "monster") {
       startMonsterRoom(roomKey, revealed.room);
       return;
@@ -1611,16 +1869,18 @@
     }
     const roll = Math.random();
     if (roll < randomRoomMonsterChance) {
-      const enemy = pickRandomMonsterEnemy();
+      const sourceRoom = pickRandomMonsterRoomTemplate();
+      const enemy = sourceRoom.enemy;
       const title = randomRoomTitle(roomKey);
       startMonsterRoom(roomKey, {
         completedKey: roomKey,
+        knowledgeKey: sourceRoom.completedKey,
+        allowMixedEnemies: true,
         title,
         label: `${title}：${enemy.name}`,
-        rewardWeapon: enemy.rewardWeapon,
-        rewardBuff: enemy.rewardBuff,
+        rewardWeapon: sourceRoom.rewardWeapon || enemy.rewardWeapon,
         clearTitle: `${enemy.name}被击败`,
-        clearText: `你在随机教室中击败了${enemy.name}，奖励已加入背包。`,
+        clearText: `你在随机教室中完成了${sourceRoom.title || "知识点教室"}的同款测试。`,
         enemy,
       });
       if (game.pendingChallenge?.room) {
@@ -1632,45 +1892,65 @@
     openChestRoom(roomKey);
   }
 
-  function completedBossPrepCount() {
-    return completedRoomKeys.filter((key) => game.completed[key]).length;
-  }
-
-  function randomBossPrepCount() {
-    return ["chest", "randomB", "randomC"].filter((key) => game.completed[key]).length;
-  }
-
-  function preparedCoreRoom(coreId) {
-    return {
-      cauchy: "monster",
-      descartes: "geometry",
-      gauss: "linear",
-    }[coreId];
-  }
-
-  function isCorePrepared(coreId) {
-    const roomKey = preparedCoreRoom(coreId);
-    return Boolean(roomKey && game.completed[roomKey]);
-  }
-
   function bossShieldForCore(coreId, direct) {
-    if (direct) return 72;
-    return isCorePrepared(coreId) ? 28 : 46;
+    return direct ? 72 : 60;
   }
 
   function bossInitialCoreHp(direct) {
-    const baseHp = direct ? 360 : Number(baseStats.bossCoreHp || 300);
-    if (direct) return baseHp;
-    return Math.max(250, baseHp - completedBossPrepCount() * 8);
+    return Number(baseStats.bossCoreHp || 300);
   }
 
-  function startBossRoom() {
+  function ensureObstacleId(obstacle, prefix = "obstacle") {
+    if (!obstacle) return "";
+    obstacle.id ||= `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return obstacle.id;
+  }
+
+  function chooseInitialBossDomain(boss) {
+    const candidates = boss?.cores.filter((core) => core.hp > 0) || [];
+    if (!candidates.length) return;
+    const core = candidates[Math.floor(Math.random() * candidates.length)];
+    boss.initialDomainCoreId = core.id;
+    boss.angle = -core.offset;
+    boss.rotateFrom = boss.angle;
+    boss.rotateTo = boss.angle;
+  }
+
+  function ensureBossNeutralObstacles(targetCount = bossInitialObstacleCount) {
+    const neutral = game.obstacles.filter((obstacle) => !obstacle.cauchyDomain && !obstacle.cauchyCoreWall);
+    for (let i = neutral.length; i < targetCount; i += 1) {
+      const obstacle = createRoomObstacle("boss", game.obstacles, null, i === 0 ? "brokenLine" : null);
+      if (!obstacle) break;
+      ensureObstacleId(obstacle, "boss-wall");
+      obstacle.bossNeutral = true;
+      game.obstacles.push(obstacle);
+    }
+  }
+
+  function replaceBossNeutralObstacles(targetCount) {
+    game.obstacles = game.obstacles.filter((obstacle) => obstacle.cauchyDomain || obstacle.cauchyCoreWall);
+    for (let i = 0; i < targetCount; i += 1) {
+      const forcedShape = i === 0 ? "brokenLine" : null;
+      const obstacle = createRoomObstacle("boss", game.obstacles, null, forcedShape);
+      if (!obstacle) continue;
+      ensureObstacleId(obstacle, "boss-wall");
+      obstacle.bossNeutral = true;
+      game.obstacles.push(obstacle);
+    }
+  }
+
+  function startBossRoom(options = {}) {
+    const bossOptions = options && typeof options === "object" ? options : {};
+    if (isBetaVersion() && !bossOptions.bypassShop) {
+      return openBetaBossShop();
+    }
     mode = "combat";
     game.activeRoom = "boss";
     game.pendingChallenge = null;
     game.challengeCount = 1;
     game.defeatedInRoom = 0;
     game.monsterClearDelay = 0;
+    if (!bossOptions.skipRestore) restoreMissingHpOnRoomEnter(game.player);
     game.player.x = W * 0.5;
     game.player.y = H * 0.78;
     game.playerShots = [];
@@ -1689,9 +1969,16 @@
       x: W * 0.5,
       y: H * 0.31,
       moveBaseX: W * 0.5,
+      moveBaseY: H * 0.31,
       moveT: 0,
       moveAmp: direct ? 82 : 68,
       moveSpeed: direct ? 0.72 : 0.56,
+      moveCycle: direct ? 8.8 : 10.2,
+      movePath: [
+        { x: W * 0.5, y: H * 0.24 },
+        { x: W * 0.36, y: H * 0.39 },
+        { x: W * 0.64, y: H * 0.39 },
+      ],
       angle: 0,
       rotateFrom: 0,
       rotateTo: 0,
@@ -1705,18 +1992,28 @@
       domainName: "",
       domainElapsed: 0,
       domainIndex: 0,
+      initialDomainCoreId: "",
       gaussZones: [],
       gaussZoneTimer: 0,
       gaussZoneBonus: 0,
-      gaussPendingPlayerHit: false,
+      gaussNextZoneCount: 0,
+      gaussDomainKillHealCount: 0,
+      gaussFullPowerStealthTimer: gaussFullPowerStealthEvery,
       descartesQuadrant: "",
-      descartesIdleTimer: 0,
+      descartesQuadrantChanges: 0,
+      descartesQuadrantProjectionCount: 0,
+      descartesFullPowerTimer: descartesFullPowerSpawnEvery,
       cauchyDomainObstacleIds: [],
+      cauchyCandidateObstacleIds: [],
+      cauchyHighlightTimer: cauchyHighlightEvery,
+      cauchyBombs: [],
+      cauchyFullPowerTimer: cauchyFullPowerCycle,
       laserCount: 0,
       shotPatternCounts: {},
       weaponDamage: {},
       weaponDamageNames: {},
       obstacleBoomCount: 0,
+      fullPowerCoreId: "",
       intro: {
         elapsed: 0,
         blackTime: 1,
@@ -1740,12 +2037,11 @@
           maxHp: coreHp,
           shield: bossShieldForCore("cauchy", direct),
           maxShield: bossShieldForCore("cauchy", direct),
-          prepared: isCorePrepared("cauchy"),
           color: colors.chalk,
           offset: 0,
           attack: "cauchySquares",
-          fireEvery: direct ? 0.9 : 1.12,
-          baseFireEvery: direct ? 0.9 : 1.12,
+          fireEvery: direct ? 1.2 : 1.45,
+          baseFireEvery: direct ? 1.2 : 1.45,
           fireTimer: 0.8,
         },
         {
@@ -1757,7 +2053,6 @@
           maxHp: coreHp,
           shield: bossShieldForCore("descartes", direct),
           maxShield: bossShieldForCore("descartes", direct),
-          prepared: isCorePrepared("descartes"),
           color: colors.cyan,
           offset: (Math.PI * 2) / 3,
           attack: "descartesCross",
@@ -1774,7 +2069,6 @@
           maxHp: coreHp,
           shield: bossShieldForCore("gauss", direct),
           maxShield: bossShieldForCore("gauss", direct),
-          prepared: isCorePrepared("gauss"),
           color: colors.warning,
           offset: (Math.PI * 4) / 3,
           attack: "gaussZones",
@@ -1784,9 +2078,12 @@
         },
       ],
     };
+    chooseInitialBossDomain(game.boss);
     game.obstacles = [];
+    ensureBossNeutralObstacles(bossInitialObstacleCount);
     showScreen("combat");
     updateHud();
+    return true;
   }
 
   function showClear(eyebrow, title, text, weaponChoice = null) {
@@ -2453,16 +2750,16 @@
         ["圣剑通关", scoreDetails?.swordOnly ? "是" : "否"],
         ["圣剑奖励", scoreDetails?.swordOnly ? `+${scoreDetails.swordBonus}` : "-"],
         ["最终评分", `${score}`],
-        ["绩点状态", win ? "保住了" : "重修预警"],
     ]);
     hideLeaderboardNameForm();
     const statsEntry = makeRunStatsEntry(Boolean(win), score, seconds, scoreDetails);
-    if (win && options.saveLeaderboard !== false) {
+    const canSaveRunStats = !game.developerModeUsed;
+    if (win && options.saveLeaderboard !== false && canSaveRunStats) {
       recordFunStats(statsEntry);
       const updated = saveLeaderboardEntry(statsEntry);
       const ranks = leaderboardRanksForEntry(statsEntry, updated);
       if (ranks.length) showLeaderboardNameForm(statsEntry, ranks);
-    } else if (!win && options.saveStats !== false) {
+    } else if (!win && options.saveStats !== false && canSaveRunStats) {
       recordFunStats(statsEntry);
     }
     showScreen("result");
@@ -2496,7 +2793,13 @@
     }
     const player = game.player;
     player.attackTimer = Math.max(0, player.attackTimer - dt);
-    player.weaponSealTimer = Math.max(0, (player.weaponSealTimer || 0) - dt);
+    if (player.weaponSealSourceId) {
+      if (!enemyById(player.weaponSealSourceId)) {
+        clearWeaponSealFromSource(player.weaponSealSourceId);
+      }
+    } else {
+      player.weaponSealTimer = Math.max(0, (player.weaponSealTimer || 0) - dt);
+    }
     player.enemySlowTimer = Math.max(0, (player.enemySlowTimer || 0) - dt);
     if (player.enemySlowTimer <= 0) {
       player.enemySlowMultiplier = 1;
@@ -2546,7 +2849,7 @@
   }
 
   function movementSpeedMultiplier(player) {
-    let multiplier = hasBuff(player, "熬夜咖啡") ? 2 : 1;
+    let multiplier = hasBuff(player, "熬夜咖啡") ? 1.5 : 1;
     if ((player.enemySlowTimer || 0) > 0) {
       multiplier *= player.enemySlowMultiplier || enemySlowMultiplier;
     }
@@ -2622,13 +2925,9 @@
         return;
       }
     }
-    player.attackTimer = weapon.cooldown * bossDomainAttackCooldownMultiplier();
+    player.attackTimer = weapon.cooldown * playerAttackCooldownMultiplier(player);
     const attackKind = weapon.kind;
-    const damageMultiplier =
-      weaponDamageScale(weapon) *
-      (hasBuff(player, "学霸笔记") ? 1.1 : 1) *
-      (hasBuff(player, "公式大全") ? 1.1 : 1) *
-      (player.mistakeBoostTimer > 0 ? 1.25 : 1);
+    const damageMultiplier = weaponDamageScale(weapon) * playerDamageBuffMultiplier(player);
     const sourceWeaponId = weapon.id;
     const sourceWeaponName = displayWeaponName(weapon);
 
@@ -2757,36 +3056,10 @@
     return (arena.top + arena.bottom) / 2;
   }
 
-  function enemyDistanceToPlayer(enemy) {
-    return game.player ? distance(enemy, game.player) : 220;
-  }
-
   function enemyDamageMultiplier(enemy) {
     let multiplier = 1;
     if (hasEnemyMechanic(enemy, "gaussHalfField") && enemyInTopHalf(enemy)) {
       multiplier *= 2;
-    }
-    if (hasEnemyMechanic(enemy, "distanceLaw")) {
-      const close = clamp((180 - enemyDistanceToPlayer(enemy)) / 120, 0, 1);
-      multiplier *= 1 + close * 0.2;
-    }
-    return multiplier;
-  }
-
-  function enemyFireRateMultiplier(enemy) {
-    let multiplier = 1;
-    if (hasEnemyMechanic(enemy, "distanceLaw")) {
-      const close = clamp((190 - enemyDistanceToPlayer(enemy)) / 130, 0, 1);
-      multiplier *= 1 + close * 0.25;
-    }
-    return multiplier;
-  }
-
-  function enemyShotSpeedMultiplier(enemy) {
-    let multiplier = 1;
-    if (hasEnemyMechanic(enemy, "distanceLaw")) {
-      const close = clamp((170 - enemyDistanceToPlayer(enemy)) / 120, 0, 1);
-      multiplier *= 1 + close * 0.12;
     }
     return multiplier;
   }
@@ -2796,19 +3069,17 @@
     if (hasEnemyMechanic(enemy, "jordanDomain") && (enemy.jordanTransitionTimer || 0) > 0) {
       return 0;
     }
-    if (hasEnemyMechanic(enemy, "missShield") && (enemy.missShieldTimer || 0) > 0) {
-      multiplier *= 0.22;
+    if (hasEnemyMechanic(enemy, "lhopitalBlade") && (!enemy.lhopitalInitialized || (enemy.lhopitalInvincibleTimer || 0) > 0)) {
+      return 0;
+    }
+    if (hasEnemyMechanic(enemy, "lhopitalBlade") && (enemy.lhopitalRestTimer || 0) > 0) {
+      multiplier *= 0.25;
     }
     if (hasEnemyMechanic(enemy, "taylorTripleDash") && (enemy.taylorRestTimer || 0) > 0) {
-      multiplier *= 0.1;
+      multiplier *= 0.2;
     }
     if (hasEnemyMechanic(enemy, "gaussHalfField") && enemyInTopHalf(enemy)) {
       multiplier *= 0.5;
-    }
-    if (hasEnemyMechanic(enemy, "distanceLaw")) {
-      const far = clamp((enemyDistanceToPlayer(enemy) - 170) / 170, 0, 1);
-      const close = clamp((130 - enemyDistanceToPlayer(enemy)) / 90, 0, 1);
-      multiplier *= (1 - far * 0.28) * (1 + close * 0.08);
     }
     return multiplier;
   }
@@ -2823,7 +3094,7 @@
       x,
       y,
       angle,
-      speed * enemyShotSpeedMultiplier(enemy),
+      speed,
       damage * enemyDamageMultiplier(enemy),
       color,
       {
@@ -2901,17 +3172,74 @@
       : Math.abs(player.y - laser.y) <= player.r + halfWidth;
   }
 
-  function grantMissShield(enemy) {
-    if (!enemy || !hasEnemyMechanic(enemy, "missShield")) return;
-    const duration = Math.max(0.55, (enemy.fireTimer || enemy.fireEvery || 1) - 0.18);
-    enemy.missShieldTimer = duration;
-    enemy.shieldFlash = 0.55;
-    burst(enemy.x, enemy.y, colors.paper, 14);
+  function beginLhopitalSlash(enemy) {
+    const player = game.player || enemy;
+    const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+    const target = arenaPoint(
+      enemy.x + Math.cos(angle) * 86,
+      enemy.y + Math.sin(angle) * 86,
+      38
+    );
+    enemy.lhopitalSlashAngle = angle;
+    enemy.lhopitalSlashFromX = enemy.x;
+    enemy.lhopitalSlashFromY = enemy.y;
+    enemy.lhopitalSlashTargetX = target.x;
+    enemy.lhopitalSlashTargetY = target.y;
+    enemy.lhopitalSlashWarnTimer = 0.18;
+    enemy.lhopitalSlashWarnMax = 0.18;
+    enemy.lhopitalSlashHitPlayer = false;
   }
 
-  function onEnemyLaserExpired(laser) {
-    if (!laser?.shieldOnMiss || laser.hit) return;
-    grantMissShield(enemyById(laser.ownerId));
+  function startLhopitalSlash(enemy) {
+    enemy.lhopitalSlashFromX = enemy.x;
+    enemy.lhopitalSlashFromY = enemy.y;
+    enemy.lhopitalSlashActiveTimer = 0.24;
+    enemy.lhopitalSlashActiveMax = 0.24;
+    enemy.lhopitalTrailTimer = 0;
+  }
+
+  function finishLhopitalSlash(enemy) {
+    enemy.baseX = enemy.x;
+    enemy.baseY = enemy.y;
+    enemy.moveT = 0;
+    enemy.lhopitalSlashRemaining = Math.max(0, (enemy.lhopitalSlashRemaining || 1) - 1);
+    if (enemy.lhopitalSlashRemaining > 0) {
+      enemy.lhopitalSlashDelay = 0.24;
+      return;
+    }
+    enemy.lhopitalRestTimer = enemyHpRatio(enemy) <= 0.2 ? lhopitalEnragedRestDuration : lhopitalRestDuration;
+    enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, enemy.lhopitalRestTimer);
+  }
+
+  function updateLhopitalBlade(enemy, dt) {
+    if (!hasEnemyMechanic(enemy, "lhopitalBlade")) return;
+    if (!enemy.lhopitalInitialized) {
+      enemy.lhopitalInitialized = true;
+      enemy.lhopitalInvincibleTimer = lhopitalInvincibleDuration;
+      enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, lhopitalInvincibleDuration);
+    }
+    enemy.lhopitalInvincibleTimer = Math.max(0, (enemy.lhopitalInvincibleTimer || 0) - dt);
+    if (enemy.lhopitalInvincibleTimer > 0) {
+      enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.25);
+      return;
+    }
+    enemy.lhopitalRestTimer = Math.max(0, (enemy.lhopitalRestTimer || 0) - dt);
+    if (enemy.lhopitalRestTimer > 0) {
+      enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.25);
+      return;
+    }
+    if ((enemy.lhopitalSlashActiveTimer || 0) > 0) return;
+    if ((enemy.lhopitalSlashWarnTimer || 0) > 0) {
+      enemy.lhopitalSlashWarnTimer = Math.max(0, enemy.lhopitalSlashWarnTimer - dt);
+      if (enemy.lhopitalSlashWarnTimer <= 0) startLhopitalSlash(enemy);
+      return;
+    }
+    enemy.lhopitalSlashDelay = Math.max(0, (enemy.lhopitalSlashDelay || 0) - dt);
+    if (enemy.lhopitalSlashDelay > 0) return;
+    if ((enemy.lhopitalSlashRemaining || 0) <= 0) {
+      enemy.lhopitalSlashRemaining = enemyHpRatio(enemy) <= 0.2 ? 4 : 3;
+    }
+    beginLhopitalSlash(enemy);
   }
 
   function createTaylorDashPoints(enemy) {
@@ -2963,9 +3291,65 @@
     if (enemy.taylorDashPoints?.length) {
       beginTaylorDashStep(enemy);
     } else {
-      enemy.taylorRestTimer = 1.35;
+      enemy.taylorRestTimer = taylorRestDuration;
       enemy.taylorDashTimer = 3.0 + Math.random() * 0.8;
     }
+  }
+
+  function scheduleArchimedesDash(enemy, target, fromWall = false, warningTime = archimedesDashWarning) {
+    if (!enemy || !target) return;
+    const point = arenaPoint(target.x, target.y, 42);
+    enemy.archimedesDashTargetX = point.x;
+    enemy.archimedesDashTargetY = point.y;
+    enemy.archimedesDashWarnTimer = warningTime;
+    enemy.archimedesDashWarnMax = warningTime;
+    enemy.archimedesDashHitPlayer = false;
+    enemy.archimedesDashFromWall = Boolean(fromWall);
+    enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.28);
+  }
+
+  function startArchimedesDash(enemy) {
+    const dx = (enemy.archimedesDashTargetX || enemy.x) - enemy.x;
+    const dy = (enemy.archimedesDashTargetY || enemy.y) - enemy.y;
+    const dist = Math.hypot(dx, dy);
+    enemy.archimedesDashFromX = enemy.x;
+    enemy.archimedesDashFromY = enemy.y;
+    enemy.archimedesDashActiveTimer = clamp(dist / 650, 0.24, 0.56);
+    enemy.archimedesDashActiveMax = enemy.archimedesDashActiveTimer;
+    enemy.archimedesTrailTimer = 0;
+  }
+
+  function finishArchimedesDash(enemy) {
+    enemy.baseX = enemy.x;
+    enemy.baseY = enemy.y;
+    enemy.moveT = 0;
+    if (enemy.archimedesDashFromWall) {
+      enemy.archimedesWallDashCount = (enemy.archimedesWallDashCount || 0) + 1;
+    } else {
+      enemy.archimedesWallDashCount = 0;
+    }
+  }
+
+  function updateArchimedesMarkDash(enemy, dt) {
+    if (!hasEnemyMechanic(enemy, "archimedesMarkDash")) return;
+    if ((enemy.archimedesDashActiveTimer || 0) > 0) return;
+    if ((enemy.archimedesDashWarnTimer || 0) > 0) {
+      enemy.archimedesDashWarnTimer = Math.max(0, enemy.archimedesDashWarnTimer - dt);
+      if (enemy.archimedesDashWarnTimer <= 0) startArchimedesDash(enemy);
+    }
+  }
+
+  function markArchimedesDashTarget(shot, obstacle) {
+    if (!shot?.archimedesMark) return false;
+    const enemy = enemyById(shot.ownerId);
+    if (!enemy || enemy.defeated || !hasEnemyMechanic(enemy, "archimedesMarkDash")) return false;
+    const center = obstacleCenter(obstacle);
+    obstacle.marked = true;
+    obstacle.markTimer = archimedesDashWarning;
+    obstacle.maxMarkTimer = archimedesDashWarning;
+    scheduleArchimedesDash(enemy, center, true);
+    burst(center.x, center.y, enemy.color || colors.cyan, 12);
+    return true;
   }
 
   function scheduleJacobiVolley(enemy, damageMultiplier = 1) {
@@ -3017,6 +3401,17 @@
         wallSplitDepth: 1,
       });
     }
+  }
+
+  function fireJordanHalfSlash(enemy) {
+    if ((enemy.jordanSlashWarnTimer || 0) > 0 || (enemy.jordanSlashActiveTimer || 0) > 0) return;
+    const player = game.player || enemy;
+    enemy.jordanSlashAngle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+    enemy.jordanSlashRadius = jordanDomainRadius * jordanSlashRadiusScale;
+    enemy.jordanSlashWarnTimer = jordanSlashWarnDuration;
+    enemy.jordanSlashWarnMax = jordanSlashWarnDuration;
+    enemy.jordanSlashHitPlayer = false;
+    enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.22);
   }
 
   function triggerGaussDeathBeams(enemy) {
@@ -3073,19 +3468,12 @@
         enemy.x = enemy.baseX;
         enemy.y = enemy.baseY;
         enemy.moveT = 0;
-        const nextQuadrant = enemyQuadrantIndex(enemy.x, enemy.y);
-        enemy.healedQuadrants = enemy.healedQuadrants || [];
-        if (!enemy.healedQuadrants.includes(nextQuadrant) && enemy.healedQuadrants.length < 3) {
-          enemy.healedQuadrants.push(nextQuadrant);
-          enemy.hp = Math.min(enemy.maxHp, enemy.hp + enemy.maxHp * 0.06);
-          enemy.healFlash = 0.55;
-        }
         burst(enemy.x, enemy.y, enemy.color || colors.cyan, 18);
-        enemy.quadrantTimer = 3.7 + Math.random() * 1.0;
+        enemy.quadrantTimer = 5.0;
       }
       return;
     }
-    if (enemy.quadrantTimer == null) enemy.quadrantTimer = 2.2 + Math.random() * 0.8;
+    if (enemy.quadrantTimer == null) enemy.quadrantTimer = 5.0;
     enemy.quadrantTimer -= dt;
     if (enemy.quadrantTimer <= 0) {
       const current = enemyQuadrantIndex(enemy.x, enemy.y);
@@ -3093,8 +3481,8 @@
       const target = enemyQuadrantCenter(next);
       enemy.quadrantTargetX = target.x;
       enemy.quadrantTargetY = target.y;
-      enemy.quadrantWarnTimer = 0.58;
-      enemy.quadrantWarnMax = 0.58;
+      enemy.quadrantWarnTimer = 1.0;
+      enemy.quadrantWarnMax = 1.0;
       enemy.quadrantTimer = 99;
     }
   }
@@ -3103,12 +3491,6 @@
     if (!hasEnemyMechanic(enemy, "dashScatter")) return;
     if (enemy.dashWarnTimer > 0) {
       enemy.dashWarnTimer -= dt;
-      const player = game.player;
-      if (player) {
-        const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
-        enemy.dashTargetX = clamp(player.x + Math.cos(angle) * 74, arena.left + 36, arena.right - 36);
-        enemy.dashTargetY = clamp(player.y + Math.sin(angle) * 74, arena.top + 36, arena.bottom - 36);
-      }
       if (enemy.dashWarnTimer <= 0) {
         enemy.dashFromX = enemy.x;
         enemy.dashFromY = enemy.y;
@@ -3116,20 +3498,51 @@
         enemy.dashActiveMax = 0.34;
         enemy.dashTrailTimer = 0;
         enemy.dashHitPlayer = false;
+        fireEuclidDashVolley(enemy);
       }
       return;
     }
     if ((enemy.dashActiveTimer || 0) > 0) return;
-    if (enemy.dashTimer == null) enemy.dashTimer = 3.1 + Math.random() * 0.9;
+    if (enemy.dashSequenceRemaining > 0) return;
+    const dashIntervalMultiplier = enemy.dashIntervalMultiplier || 1;
+    if (enemy.dashTimer == null) enemy.dashTimer = 3.0 * dashIntervalMultiplier;
     enemy.dashTimer -= dt;
     if (enemy.dashTimer <= 0) {
-      const player = game.player;
-      const angle = player ? Math.atan2(player.y - enemy.y, player.x - enemy.x) : enemy.facingAngle || 0;
-      enemy.dashTargetX = clamp((player?.x || enemy.x) + Math.cos(angle) * 74, arena.left + 36, arena.right - 36);
-      enemy.dashTargetY = clamp((player?.y || enemy.y) + Math.sin(angle) * 74, arena.top + 36, arena.bottom - 36);
-      enemy.dashWarnTimer = 0.58;
-      enemy.dashWarnMax = 0.58;
-      enemy.dashTimer = 4.7 + Math.random() * 1.0;
+      enemy.dashSequenceRemaining = 2;
+      enemy.dashSequenceDirection = Math.random() < 0.5 ? -1 : 1;
+      queueEuclidDashStep(enemy, 0.58);
+    }
+  }
+
+  function queueEuclidDashStep(enemy, warningTime = 0.38) {
+    const player = game.player;
+    const baseAngle = player ? Math.atan2(player.y - enemy.y, player.x - enemy.x) : enemy.facingAngle || 0;
+    const sideAngle = baseAngle + (enemy.dashSequenceDirection || 1) * Math.PI / 2;
+    const target = arenaPoint(
+      enemy.x + Math.cos(baseAngle) * 38 + Math.cos(sideAngle) * 112,
+      enemy.y + Math.sin(baseAngle) * 38 + Math.sin(sideAngle) * 112,
+      36
+    );
+    enemy.facingAngle = baseAngle;
+    enemy.dashTargetX = target.x;
+    enemy.dashTargetY = target.y;
+    enemy.dashWarnTimer = warningTime;
+    enemy.dashWarnMax = warningTime;
+  }
+
+  function fireEuclidDashVolley(enemy) {
+    const base = enemy.facingAngle || 0;
+    const squareSlots = new Set([1, 4, 7].map((slot) => (slot + Math.floor(Math.random() * 10)) % 10));
+    for (let i = 0; i < 10; i += 1) {
+      const square = squareSlots.has(i);
+      const angle = base + (Math.PI * 2 * i) / 10;
+      fireEnemyShot(enemy, enemy.x, enemy.y, angle, square ? 142 : 126, square ? 8.5 : 6.5, enemy.color, {
+        r: square ? 7 : 4.5,
+        shape: square ? "square" : "circle",
+        weaponSeal: square,
+        weaponSealSourceId: square ? enemy.id : "",
+        life: 3.1,
+      });
     }
   }
 
@@ -3232,24 +3645,52 @@
     if (!player) return;
     enemy.jordanDomainTick = Math.max(0, (enemy.jordanDomainTick || 0) - dt);
     if (distance(player, enemy) > jordanDomainRadius && enemy.jordanDomainTick <= 0) {
-      applyPlayerDamage(scaledIncomingDamage(5.5), enemy.color || colors.warning);
+      applyPlayerDamage(scaledIncomingDamage(2 * jordanDomainTickEvery), enemy.color || colors.warning);
       player.invuln = Math.max(player.invuln, 0.22);
       enemy.jordanDomainTick = jordanDomainTickEvery;
     }
+  }
+
+  function updateJordanHalfSlash(enemy, dt) {
+    if (!hasEnemyMechanic(enemy, "jordanDomain")) return;
+    enemy.jordanSlashActiveTimer = Math.max(0, (enemy.jordanSlashActiveTimer || 0) - dt);
+    if ((enemy.jordanSlashWarnTimer || 0) <= 0) return;
+    enemy.jordanSlashWarnTimer = Math.max(0, enemy.jordanSlashWarnTimer - dt);
+    if (enemy.jordanSlashWarnTimer > 0) return;
+
+    enemy.jordanSlashActiveTimer = 0.18;
+    const player = game.player;
+    const radius = enemy.jordanSlashRadius || jordanDomainRadius * jordanSlashRadiusScale;
+    if (player && player.invuln <= 0 && distance(player, enemy) <= player.r + radius) {
+      const targetAngle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+      if (Math.abs(angleDelta(targetAngle, enemy.jordanSlashAngle || 0)) <= Math.PI / 2) {
+        applyPlayerDamage(scaledIncomingDamage(jordanSlashDamage * enemyDamageMultiplier(enemy)), enemy.color || colors.warning);
+        player.invuln = Math.max(player.invuln, 0.62);
+        enemy.jordanSlashHitPlayer = true;
+      }
+    }
+    burst(
+      enemy.x + Math.cos(enemy.jordanSlashAngle || 0) * radius * 0.52,
+      enemy.y + Math.sin(enemy.jordanSlashAngle || 0) * radius * 0.52,
+      enemy.color || colors.warning,
+      16
+    );
   }
 
   function updateEnemyMechanics(enemy, dt) {
     enemy.backHitFlash = Math.max(0, (enemy.backHitFlash || 0) - dt);
     enemy.shieldFlash = Math.max(0, (enemy.shieldFlash || 0) - dt);
     enemy.healFlash = Math.max(0, (enemy.healFlash || 0) - dt);
-    enemy.missShieldTimer = Math.max(0, (enemy.missShieldTimer || 0) - dt);
+    updateLhopitalBlade(enemy, dt);
     updateQuadrantBlink(enemy, dt);
     updateDashScatter(enemy, dt);
     updateGaussHalfField(enemy, dt);
     updateTaylorTripleDash(enemy, dt);
+    updateArchimedesMarkDash(enemy, dt);
     updateJacobiVolley(enemy, dt);
     updateJacobiBackBlink(enemy, dt);
     updateJordanDomain(enemy, dt);
+    updateJordanHalfSlash(enemy, dt);
   }
 
   function spawnDashTrail(enemy) {
@@ -3264,6 +3705,50 @@
   }
 
   function updateEnemyPosition(enemy, dt) {
+    if ((enemy.lhopitalSlashActiveTimer || 0) > 0 && enemy.lhopitalSlashFromX != null && enemy.lhopitalSlashTargetX != null) {
+      enemy.lhopitalSlashActiveTimer = Math.max(0, enemy.lhopitalSlashActiveTimer - dt);
+      const progress = 1 - enemy.lhopitalSlashActiveTimer / Math.max(0.001, enemy.lhopitalSlashActiveMax || 0.24);
+      const eased = 1 - Math.pow(1 - clamp(progress, 0, 1), 2.2);
+      enemy.x = enemy.lhopitalSlashFromX + (enemy.lhopitalSlashTargetX - enemy.lhopitalSlashFromX) * eased;
+      enemy.y = enemy.lhopitalSlashFromY + (enemy.lhopitalSlashTargetY - enemy.lhopitalSlashFromY) * eased;
+      enemy.lhopitalTrailTimer = (enemy.lhopitalTrailTimer || 0) - dt;
+      if (enemy.lhopitalTrailTimer <= 0) {
+        enemy.lhopitalTrailTimer = 0.055;
+        burst(enemy.x, enemy.y, enemy.color || colors.paper, 3);
+      }
+      const player = game.player;
+      if (player && !enemy.lhopitalSlashHitPlayer && player.invuln <= 0 && distance(player, enemy) <= player.r + enemy.r + 9 * characterSizeScale) {
+        applyPlayerDamage(scaledIncomingDamage(14 * enemyDamageMultiplier(enemy)), enemy.color || colors.paper);
+        player.invuln = Math.max(player.invuln, 0.62);
+        enemy.lhopitalSlashHitPlayer = true;
+      }
+      if (enemy.lhopitalSlashActiveTimer <= 0) {
+        finishLhopitalSlash(enemy);
+      }
+      return;
+    }
+    if ((enemy.archimedesDashActiveTimer || 0) > 0 && enemy.archimedesDashFromX != null && enemy.archimedesDashTargetX != null) {
+      enemy.archimedesDashActiveTimer = Math.max(0, enemy.archimedesDashActiveTimer - dt);
+      const progress = 1 - enemy.archimedesDashActiveTimer / Math.max(0.001, enemy.archimedesDashActiveMax || 0.36);
+      const eased = 1 - Math.pow(1 - clamp(progress, 0, 1), 2.5);
+      enemy.x = enemy.archimedesDashFromX + (enemy.archimedesDashTargetX - enemy.archimedesDashFromX) * eased;
+      enemy.y = enemy.archimedesDashFromY + (enemy.archimedesDashTargetY - enemy.archimedesDashFromY) * eased;
+      enemy.archimedesTrailTimer = (enemy.archimedesTrailTimer || 0) - dt;
+      if (enemy.archimedesTrailTimer <= 0) {
+        enemy.archimedesTrailTimer = 0.045;
+        burst(enemy.x, enemy.y, enemy.color || colors.cyan, 4);
+      }
+      const player = game.player;
+      if (player && !enemy.archimedesDashHitPlayer && player.invuln <= 0 && distance(player, enemy) <= player.r + enemy.r + 8 * characterSizeScale) {
+        applyPlayerDamage(scaledIncomingDamage(20 * enemyDamageMultiplier(enemy)), enemy.color || colors.cyan);
+        player.invuln = Math.max(player.invuln, 0.75);
+        enemy.archimedesDashHitPlayer = true;
+      }
+      if (enemy.archimedesDashActiveTimer <= 0) {
+        finishArchimedesDash(enemy);
+      }
+      return;
+    }
     if ((enemy.taylorDashActiveTimer || 0) > 0 && enemy.taylorDashFromX != null && enemy.taylorDashTargetX != null) {
       enemy.taylorDashActiveTimer = Math.max(0, enemy.taylorDashActiveTimer - dt);
       const progress = 1 - enemy.taylorDashActiveTimer / Math.max(0.001, enemy.taylorDashActiveMax || 0.3);
@@ -3276,7 +3761,7 @@
         burst(enemy.x, enemy.y, enemy.color || colors.chalk, 3);
       }
       const player = game.player;
-      if (player && !enemy.taylorDashHitPlayer && player.invuln <= 0 && distance(player, enemy) <= player.r + enemy.r + 5) {
+      if (player && !enemy.taylorDashHitPlayer && player.invuln <= 0 && distance(player, enemy) <= player.r + enemy.r + 5 * characterSizeScale) {
         applyPlayerDamage(scaledIncomingDamage(22), enemy.color || colors.chalk);
         player.invuln = Math.max(player.invuln, 0.82);
         enemy.taylorDashHitPlayer = true;
@@ -3295,10 +3780,14 @@
       enemy.dashTrailTimer = (enemy.dashTrailTimer || 0) - dt;
       if (enemy.dashTrailTimer <= 0) {
         enemy.dashTrailTimer = 0.075;
-        spawnDashTrail(enemy);
+        if (hasEnemyMechanic(enemy, "dashScatter")) {
+          burst(enemy.x, enemy.y, enemy.color || colors.cyan, 3);
+        } else {
+          spawnDashTrail(enemy);
+        }
       }
       const player = game.player;
-      if (player && !enemy.dashHitPlayer && player.invuln <= 0 && distance(player, enemy) <= player.r + enemy.r + 3) {
+      if (player && !enemy.dashHitPlayer && player.invuln <= 0 && distance(player, enemy) <= player.r + enemy.r + 3 * characterSizeScale) {
         applyPlayerDamage(scaledIncomingDamage(15 * enemyDamageMultiplier(enemy)), enemy.color || colors.cyan);
         player.invuln = Math.max(player.invuln, 0.75);
         enemy.dashHitPlayer = true;
@@ -3308,6 +3797,14 @@
         enemy.baseX = enemy.x;
         enemy.baseY = enemy.y;
         enemy.moveT = 0;
+        if (hasEnemyMechanic(enemy, "dashScatter") && (enemy.dashSequenceRemaining || 0) > 1) {
+          enemy.dashSequenceRemaining -= 1;
+          enemy.dashSequenceDirection = -(enemy.dashSequenceDirection || 1);
+          queueEuclidDashStep(enemy, 0.26);
+        } else if (hasEnemyMechanic(enemy, "dashScatter")) {
+          enemy.dashSequenceRemaining = 0;
+          enemy.dashTimer = 3.0;
+        }
       }
       return;
     }
@@ -3316,13 +3813,19 @@
       enemy.y = enemy.baseY;
       return;
     }
+    if ((enemy.lhopitalRestTimer || 0) > 0) {
+      enemy.x = enemy.baseX;
+      enemy.y = enemy.baseY;
+      return;
+    }
     if (enemy.randomDrift) {
+      const driftIntervalMultiplier = enemy.driftIntervalMultiplier || 1;
       enemy.driftTimer = (enemy.driftTimer || 0) - dt;
       if (enemy.driftTimer <= 0 || enemy.driftTargetX == null) {
         const point = randomArenaPoint(44);
         enemy.driftTargetX = point.x;
         enemy.driftTargetY = point.y;
-        enemy.driftTimer = 0.75 + Math.random() * 0.65;
+        enemy.driftTimer = (0.75 + Math.random() * 0.65) * driftIntervalMultiplier;
       }
       enemy.baseX += (enemy.driftTargetX - enemy.baseX) * Math.min(1, dt * 1.8);
       enemy.baseY += (enemy.driftTargetY - enemy.baseY) * Math.min(1, dt * 1.8);
@@ -3336,7 +3839,7 @@
 
   function onEnemyAttackHitPlayer(source) {
     if (source?.weaponSeal) {
-      sealPlayerNonGeometryWeapons(weaponSealDuration);
+      sealPlayerNonGeometryWeapons(source.weaponSealSourceId ? 999 : weaponSealDuration, source.weaponSealSourceId || "");
     }
     if (source?.cauchySlow) {
       applyEnemySlow(0.72, cauchyDotDuration);
@@ -3346,7 +3849,10 @@
       game.player.cauchyDotTick = Math.min(game.player.cauchyDotTick || 0.5, 0.5);
     }
     if (source?.gaussZone && game.boss) {
-      game.boss.gaussPendingPlayerHit = true;
+      triggerGaussHitRetaliation(bossCoreById("gauss"));
+      applyEnemySlow(0.78, gaussZoneDebuffDuration);
+      game.player.cauchyDotTimer = Math.max(game.player.cauchyDotTimer || 0, gaussZoneDebuffDuration);
+      game.player.cauchyDotTick = Math.min(game.player.cauchyDotTick || 0.5, 0.5);
     }
   }
 
@@ -3377,7 +3883,7 @@
 
   function spawnSplitEnemies(enemy) {
     if (!hasEnemyMechanic(enemy, "splitOnDeath") || enemy.splitChild) return false;
-    const childHp = Math.max(18, Math.round(enemy.maxHp * 0.5));
+    const childHp = Math.max(18, Math.round(enemy.maxHp * lagrangeChildHpMultiplier));
     [-1, 1].forEach((side, index) => {
       const point = splitSpawnPoint(enemy, side);
       const child = {
@@ -3387,18 +3893,20 @@
         y: point.y,
         baseX: point.x,
         baseY: point.y,
-        r: Math.max(16, enemy.r * 0.76),
+        r: Math.max(16 * characterSizeScale, enemy.r * 0.76),
         hp: childHp,
         maxHp: childHp,
         moveT: side * 1.2,
         moveAmp: Math.max(44, enemy.moveAmp * 0.78),
         moveSpeed: enemy.moveSpeed * 1.42,
-        fireEvery: enemy.fireEvery * 0.94,
-        fireTimer: 0.36 + index * 0.18,
+        fireEvery: enemy.fireEvery,
+        fireTimer: 0.48 + index * 0.28,
         mechanics: (enemy.mechanics || []).filter((mechanic) => mechanic !== "splitOnDeath"),
         splitChild: true,
         randomDrift: true,
         driftTimer: 0,
+        driftIntervalMultiplier: 0.78,
+        dashIntervalMultiplier: 1,
         shieldFlash: 0,
         healFlash: 0,
         defeated: false,
@@ -3413,6 +3921,7 @@
     triggerGaussDeathBeams(enemy);
     const didSplit = spawnSplitEnemies(enemy);
     enemy.defeated = true;
+    clearWeaponSealFromSource(enemy.id);
     game.kills += 1;
     game.defeatedInRoom += 1;
     burst(enemy.x, enemy.y, didSplit ? colors.paper : enemy.color, didSplit ? 32 : 28);
@@ -3444,7 +3953,7 @@
       updateEnemyFacing(enemy, previousX, previousY);
       enemy.fireTimer -= dt;
       if (enemy.fireTimer <= 0) {
-        enemy.fireTimer = enemy.fireEvery / enemyFireRateMultiplier(enemy);
+        enemy.fireTimer = enemy.fireEvery;
         fireEnemyPattern(enemy);
       }
 
@@ -3465,14 +3974,28 @@
 
   function completeMonsterChallenge() {
     if (!game.activeRoomKey || game.completed[game.activeRoomKey]) return;
+    if (isDeveloperCustomRoom()) {
+      const defeated = Math.max(0, game.defeatedInRoom || 0);
+      game.player.weaponSealSourceId = "";
+      game.player.weaponSealTimer = 0;
+      showClear(
+        "开发者模式",
+        "自定义房间测试完成",
+        `本次共击败 ${defeated} 个测试目标，没有结算奖励，也不会记录排行榜。`,
+        null,
+      );
+      return;
+    }
     const reward = game.roomReward || {};
     const player = game.player;
     const count = clamp(game.challengeCount || 1, 1, 3);
-    const grantedBuffs = [];
+    const rewardBuffs = [];
     let weaponName = "";
     let weaponAction = "获得正常版武器";
 
     game.completed[game.activeRoomKey] = true;
+    player.weaponSealSourceId = "";
+    player.weaponSealTimer = 0;
 
     if (reward.weapon) {
       const equivalentIds = weaponFamilyIds(reward.weapon);
@@ -3483,30 +4006,40 @@
       weaponName = weaponChoiceName(reward.weapon);
     }
 
-    if (count >= 2 && reward.buff) {
-      grantBuff(player, reward.buff);
-      grantedBuffs.push(reward.buff);
+    if (count >= 2) {
+      rewardBuffs.push(pickChallengeBuff(rewardBuffs));
     }
     if (count >= 3) {
-      const extraBuff = pickChallengeBuff(grantedBuffs);
-      grantBuff(player, extraBuff);
-      grantedBuffs.push(extraBuff);
+      const extraBuff = pickChallengeBuff(rewardBuffs);
+      rewardBuffs.push(extraBuff);
     }
+    const creditGain = awardBetaKnowledgeCredits(game.activeRoomKey, count);
 
     const weaponText = weaponName ? `${weaponAction}：${weaponName}` : "获得战斗奖励";
-    const buffText = grantedBuffs.length ? `，并获得增益：${grantedBuffs.join("、")}` : "";
-    const clearText = `挑战 ${count} 人完成，${weaponText}${buffText}。${weaponName ? "是否加入背包？" : ""}`;
-    const rewardSuffix = grantedBuffs.length ? ` 增益已获得：${grantedBuffs.join("、")}。` : "";
+    const buffText = rewardBuffs.length ? `，可选增益：${rewardBuffs.join("、")}` : "";
+    const creditText = creditGain
+      ? `获得 ${creditGain} 学分，当前 ${game.credits} 学分。`
+      : "";
+    const clearText = rewardBuffs.length
+      ? `挑战 ${count} 人完成，${weaponText}${buffText}。${creditText}可以勾选武器和一个增益，确认后领取。`
+      : `挑战 ${count} 人完成，${weaponText}。${creditText}勾选后确认领取，也可以直接离开。`;
     showClear(
       reward.clearEyebrow || "怪物房",
       reward.clearTitle || "知识投影被击败",
       clearText,
-      weaponName
+      weaponName || rewardBuffs.length
         ? {
           weaponId: reward.weapon,
+          buffIds: rewardBuffs,
+          altBuff: rewardBuffs[0],
+          allowWeaponWithBuff: Boolean(weaponName && rewardBuffs.length),
+          title: `奖励选择：${[weaponName, rewardBuffs.length ? rewardBuffs.join("、") : ""].filter(Boolean).join(" / ")}`,
+          acceptLabel: "武器",
+          weaponShortLabel: "武器",
+          buffLabel: "增益",
+          confirmLabel: "确认领取",
           acceptText: `已加入背包：${weaponName}。`,
-          skipText: `没有加入${weaponName}，本局仍保留圣剑榜资格。${rewardSuffix}`,
-          rewardSuffix,
+          declineText: `你没有领取本房间奖励。${weaponName ? `没有加入${weaponName}，本局仍保留圣剑榜资格。` : ""}`,
         }
         : null
     );
@@ -3522,7 +4055,7 @@
   }
 
   function pickChallengeBuff(excluded = []) {
-    const options = ["学霸笔记", "公式大全", "熬夜咖啡", "草稿纸护盾", "错题本", "绩点守护", "临时抱佛脚"];
+    const options = ["学霸笔记", "公式大全", "熬夜咖啡", "草稿纸", "错题本", "绩点守护", "临时抱佛脚", "鸡煲"];
     const available = options.filter((name) => !excluded.includes(name));
     const source = available.length ? available : options;
     return source[Math.floor(Math.random() * source.length)];
@@ -3537,32 +4070,16 @@
       return;
     }
     if (enemy.pattern === "burstTen") {
-      const count = 10;
-      const spread = enemy.splitChild ? 0.78 : 0.9;
+      const count = enemy.splitChild ? 2 : 8;
+      const spread = enemy.splitChild ? 0.28 : 0.86;
       for (let i = 0; i < count; i += 1) {
-        const offset = (i - (count - 1) / 2) * (spread / (count - 1));
-        fire(enemy.x, enemy.y, baseAngle + offset, (enemy.splitChild ? 188 : 166) + Math.abs(offset) * 32, 8.2, enemy.color, {
+        const offset = count === 1 ? 0 : (i - (count - 1) / 2) * (spread / Math.max(1, count - 1));
+        const baseSpeed = enemy.splitChild ? 166 * lagrangeChildShotSpeedMultiplier : 166;
+        fire(enemy.x, enemy.y, baseAngle + offset, baseSpeed + Math.abs(offset) * 32, 8.2, enemy.color, {
           r: 4.5,
           life: 4.0,
         });
       }
-      return;
-    }
-    if (enemy.pattern === "edgeLaser") {
-      enemy.missShieldTimer = 0;
-      spawnEnemyLaser({
-        orientation: "ray",
-        angle: baseAngle,
-        sourceX: enemy.x,
-        sourceY: enemy.y,
-        warningTime: 0.58,
-        activeTime: 0.32,
-        width: 17,
-        damage: 13 * enemyDamageMultiplier(enemy),
-        color: enemy.color,
-        ownerId: enemy.id,
-        shieldOnMiss: true,
-      });
       return;
     }
     if (enemy.pattern === "jacobiVolley") {
@@ -3573,8 +4090,24 @@
     }
     if (enemy.pattern === "jordanReactive") {
       if (enemy.jordanDomainActive) {
-        fireJordanRing(enemy, true);
+        fireJordanHalfSlash(enemy);
+      } else {
+        fireJordanRing(enemy, false);
       }
+      return;
+    }
+    if (enemy.pattern === "archimedesTriangle") {
+      if ((enemy.archimedesDashWarnTimer || 0) > 0 || (enemy.archimedesDashActiveTimer || 0) > 0) return;
+      if ((enemy.archimedesWallDashCount || 0) >= archimedesWallDashLimit) {
+        scheduleArchimedesDash(enemy, { x: game.player.x, y: game.player.y }, false, archimedesPlayerLockWarning);
+        return;
+      }
+      fire(enemy.x, enemy.y, baseAngle, 298, 10.5, enemy.color, {
+        shape: "triangle",
+        r: 8,
+        life: 3.0,
+        archimedesMark: true,
+      });
       return;
     }
     if (enemy.pattern === "axisLaser") {
@@ -3604,71 +4137,11 @@
       });
       return;
     }
-    if (enemy.pattern === "tripleLaser") {
-      const vertical = Math.sin(enemy.moveT * 1.7) > 0;
-      spawnEnemyLaser({
-        orientation: "vertical",
-        x: clamp(game.player.x, arena.left + 24, arena.right - 24),
-        warningTime: 0.5,
-        activeTime: 0.26,
-        width: 14,
-        damage: 11 * enemyDamageMultiplier(enemy),
-        color: enemy.color,
-        sourceX: enemy.x,
-        sourceY: enemy.y,
-        ownerId: enemy.id,
-      });
-      spawnEnemyLaser({
-        orientation: "horizontal",
-        y: clamp(game.player.y, arena.top + 24, arena.bottom - 24),
-        warningTime: 0.5,
-        activeTime: 0.26,
-        width: 14,
-        damage: 11 * enemyDamageMultiplier(enemy),
-        color: enemy.color,
-        sourceX: enemy.x,
-        sourceY: enemy.y,
-        ownerId: enemy.id,
-      });
-      spawnEnemyLaser({
-        orientation: vertical ? "vertical" : "horizontal",
-        x: vertical ? clamp(game.player.x + (Math.random() < 0.5 ? -64 : 64), arena.left + 24, arena.right - 24) : 0,
-        y: vertical ? 0 : clamp(game.player.y + (Math.random() < 0.5 ? -54 : 54), arena.top + 24, arena.bottom - 24),
-        warningTime: 0.56,
-        activeTime: 0.24,
-        width: 12,
-        damage: 9 * enemyDamageMultiplier(enemy),
-        color: enemy.color,
-        sourceX: enemy.x,
-        sourceY: enemy.y,
-        ownerId: enemy.id,
-      });
-      return;
-    }
     if (enemy.pattern === "wall") {
       const sideX = -Math.sin(baseAngle);
       const sideY = Math.cos(baseAngle);
       for (let i = -2; i <= 2; i += 1) {
         fire(enemy.x + sideX * i * 24, enemy.y + sideY * i * 24, baseAngle, 150 + Math.abs(i) * 12, 10);
-      }
-      return;
-    }
-    if (enemy.pattern === "circle") {
-      for (let i = 0; i < 10; i += 1) {
-        fire(enemy.x, enemy.y, (Math.PI * 2 * i) / 10 + enemy.moveT * 0.2, 145, 10);
-      }
-      return;
-    }
-    if (enemy.pattern === "triangle") {
-      for (let i = 0; i < 3; i += 1) {
-        fire(enemy.x, enemy.y, baseAngle + (i - 1) * 0.34, 165, 10, enemy.color, {
-          shape: "square",
-          r: 7,
-          pulse: i * 0.18,
-        });
-      }
-      for (let i = 0; i < 3; i += 1) {
-        fire(enemy.x, enemy.y, (Math.PI * 2 * i) / 3 + enemy.moveT * 0.18, 125, 8);
       }
       return;
     }
@@ -3689,9 +4162,14 @@
       core.hitFlash = Math.max(0, (core.hitFlash || 0) - dt);
       core.guardFlash = Math.max(0, (core.guardFlash || 0) - dt);
       core.overloadFlash = Math.max(0, (core.overloadFlash || 0) - dt);
+      core.healFlash = Math.max(0, (core.healFlash || 0) - dt);
+      core.invisibleTimer = Math.max(0, (core.invisibleTimer || 0) - dt);
+      core.revealTimer = Math.max(0, (core.revealTimer || 0) - dt);
     });
 
     updateBossDomain(boss, dt);
+    updateBossFullPower(boss, dt);
+    updateCauchyBombs(boss, dt);
 
     const aliveCores = boss.cores.filter((core) => core.hp > 0);
     const activeCores = bossActiveCores(boss, aliveCores);
@@ -3717,7 +4195,7 @@
     boss.cores.forEach((core) => {
       if (core.hp <= 0) return;
       const pos = corePosition(core);
-      applyPlayerDamageToCircle({ ...core, x: pos.x, y: pos.y, r: 25 }, "boss", core);
+      applyPlayerDamageToCircle({ ...core, x: pos.x, y: pos.y, r: bossCoreHitRadius }, "boss", core);
     });
     updateBossDeaths(boss);
   }
@@ -3732,11 +4210,33 @@
     return game.activeRoom === "boss" && Boolean(boss?.intro) && boss.intro.elapsed < boss.intro.total;
   }
 
+  function isBossCoreRevealed(core) {
+    return Boolean(core && (core.revealTimer || 0) > 0);
+  }
+
+  function isBossCoreHidden(core) {
+    return Boolean(core && core.hp > 0 && (core.invisibleTimer || 0) > 0 && !isBossCoreRevealed(core));
+  }
+
   function updateBossMovement(boss, dt) {
     if (isBossIntroActive()) return;
     boss.moveT = (boss.moveT || 0) + dt;
-    const offset = Math.sin(boss.moveT * boss.moveSpeed) * boss.moveAmp;
-    boss.x = clamp(boss.moveBaseX + offset, arena.left + 180, arena.right - 180);
+    const path = boss.movePath?.length >= 3
+      ? boss.movePath
+      : [
+        { x: boss.moveBaseX || W * 0.5, y: boss.moveBaseY || H * 0.28 },
+        { x: W * 0.36, y: H * 0.39 },
+        { x: W * 0.64, y: H * 0.39 },
+      ];
+    const cycle = Math.max(3, boss.moveCycle || 10);
+    const segmentProgress = ((boss.moveT % cycle) / cycle) * path.length;
+    const index = Math.floor(segmentProgress) % path.length;
+    const nextIndex = (index + 1) % path.length;
+    const local = easeInOut(segmentProgress - Math.floor(segmentProgress));
+    const from = path[index];
+    const to = path[nextIndex];
+    boss.x = clamp(from.x + (to.x - from.x) * local, arena.left + 160 * bossSizeScale, arena.right - 160 * bossSizeScale);
+    boss.y = clamp(from.y + (to.y - from.y) * local, arena.top + 130 * bossSizeScale, arena.bottom - 230 * bossSizeScale);
   }
 
   function bossCoreById(id) {
@@ -3752,8 +4252,12 @@
       .map((item) => item.core)[0] || null;
   }
 
+  function aliveBossCoreCount(boss = game.boss) {
+    return boss?.cores.filter((core) => core.hp > 0).length || 0;
+  }
+
   function isBossCoreInDomain(core, boss = game.boss) {
-    return Boolean(boss && core && core.hp > 0 && boss.domainCoreId === core.id && !boss.rotating);
+    return Boolean(boss && core && core.hp > 0 && aliveBossCoreCount(boss) > 1 && boss.domainCoreId === core.id && !boss.rotating);
   }
 
   function bossFrontCoreIds(boss = game.boss) {
@@ -3776,7 +4280,8 @@
   function updateBossDomain(boss, dt) {
     if (isBossIntroActive()) return;
     if (!boss.domainCoreId && !boss.rotating) {
-      startBossDomain(boss, bossTopCore(boss));
+      startBossDomain(boss, bossCoreById(boss.initialDomainCoreId) || bossTopCore(boss));
+      boss.initialDomainCoreId = "";
     }
     if (boss.domainCoreId) {
       boss.domainElapsed = (boss.domainElapsed || 0) + dt;
@@ -3815,7 +4320,7 @@
       explodeCauchyDomainWalls(boss);
     }
     if (boss.domainCoreId === "descartes") {
-      clearBossProjections();
+      spawnDescartesExitProjections(boss);
     }
     if (boss.domainCoreId === "gauss") {
       boss.gaussZones = [];
@@ -3834,12 +4339,13 @@
     boss.domainName = "";
     boss.domainElapsed = 0;
     boss.descartesQuadrant = "";
-    boss.descartesIdleTimer = 0;
+    boss.descartesQuadrantChanges = 0;
+    boss.descartesQuadrantProjectionCount = 0;
   }
 
   function decorateCauchyDomainWall(obstacle) {
     if (!obstacle) return obstacle;
-    obstacle.id ||= `cauchy-wall-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    ensureObstacleId(obstacle, "cauchy-wall");
     obstacle.cauchyDomain = true;
     obstacle.marked = true;
     obstacle.markTimer = 0;
@@ -3849,20 +4355,26 @@
   }
 
   function enterCauchyDomain(boss) {
-    game.obstacles = game.obstacles.filter((obstacle) => !obstacle.cauchyDomain);
+    explodeCauchyDomainWalls(boss);
+    boss.cauchyBombs = [];
+    game.enemyShots = game.enemyShots.filter((shot) => !shot.cauchyMarksWall);
+    game.obstacles = game.obstacles.filter((obstacle) => !obstacle.cauchyCoreWall && !obstacle.cauchyDomain);
+    replaceBossNeutralObstacles(cauchyDomainWallCount);
     boss.cauchyDomainObstacleIds = [];
-    for (let i = 0; i < cauchyDomainWallCount; i += 1) {
-      const obstacle = createRoomObstacle("boss", game.obstacles, null, i === 0 ? "brokenLine" : null);
-      if (obstacle) {
-        decorateCauchyDomainWall(obstacle);
-        game.obstacles.push(obstacle);
-        boss.cauchyDomainObstacleIds.push(obstacle.id);
-      }
-    }
+    boss.cauchyHighlightTimer = cauchyHighlightEvery;
+    boss.cauchyCandidateObstacleIds = game.obstacles
+      .filter((obstacle) => !obstacle.cauchyCoreWall && !obstacle.cauchyDomain)
+      .slice(0, cauchyDomainWallCount)
+      .map((obstacle) => {
+        ensureObstacleId(obstacle, "boss-wall");
+        obstacle.cauchyCandidate = true;
+        return obstacle.id;
+      });
     boss.cores.filter((core) => core.hp > 0).forEach((core) => {
       const wall = createCauchyCoreWall(core);
       if (wall) {
         decorateCauchyDomainWall(wall);
+        wall.cauchyCoreWall = true;
         game.obstacles.push(wall);
         boss.cauchyDomainObstacleIds.push(wall.id);
       }
@@ -3890,50 +4402,87 @@
     const walls = game.obstacles.filter((obstacle) => obstacle.cauchyDomain);
     walls.forEach((wall) => {
       const center = obstacleCenter(wall);
-      const base = Math.atan2(game.player.y - center.y, game.player.x - center.x);
-      [-0.44, 0, 0.44].forEach((offset, index) => {
-        spawnEnemyShot(center.x, center.y, base + offset, 128 + index * 12, 9, colors.warning, {
-          pattern: "straight",
-          shape: "square",
-          r: 7,
-          life: 3.2,
-        });
-      });
-      burst(center.x, center.y, colors.warning, 18);
+      scatterCauchyWallBullets(center, cauchyExplosionBulletCount);
+      burst(center.x, center.y, colors.chalk, 18);
     });
     boss.obstacleBoomCount = (boss.obstacleBoomCount || 0) + walls.length;
     game.obstacles = game.obstacles.filter((obstacle) => !obstacle.cauchyDomain);
     boss.cauchyDomainObstacleIds = [];
+    boss.cauchyCandidateObstacleIds = [];
+  }
+
+  function scatterCauchyWallBullets(center, count) {
+    const base = Math.random() * Math.PI * 2;
+    for (let i = 0; i < count; i += 1) {
+      const angle = base + (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.18;
+      spawnEnemyShot(center.x, center.y, angle, 112 + Math.random() * 34, 9, colors.chalk, {
+        pattern: "straight",
+        shape: "square",
+        r: 7,
+        life: 3.2,
+      });
+    }
+  }
+
+  function explodeAllBossWallsAsCauchy(boss, bulletCount = cauchyExplosionBulletCount) {
+    const walls = game.obstacles.filter((obstacle) => !obstacle.broken);
+    if (!walls.length) return;
+    for (let i = 0; i < bulletCount; i += 1) {
+      const wall = walls[Math.floor(Math.random() * walls.length)];
+      scatterCauchyWallBullets(obstacleCenter(wall), 1);
+    }
+    walls.forEach((wall) => {
+      const center = obstacleCenter(wall);
+      burst(center.x, center.y, colors.chalk, 12);
+    });
+    boss.obstacleBoomCount = (boss.obstacleBoomCount || 0) + walls.length;
+    game.obstacles = [];
+    boss.cauchyDomainObstacleIds = [];
+    boss.cauchyCandidateObstacleIds = [];
+  }
+
+  function generateCauchyFullPowerWalls(boss) {
+    game.obstacles = [];
+    boss.cauchyDomainObstacleIds = [];
+    boss.cauchyCandidateObstacleIds = [];
+    for (let i = 0; i < cauchyFullPowerWallCount; i += 1) {
+      const obstacle = createRoomObstacle("boss", game.obstacles, null, i === 0 ? "curve" : null);
+      if (!obstacle) continue;
+      decorateCauchyDomainWall(obstacle);
+      obstacle.cauchyFullWall = true;
+      game.obstacles.push(obstacle);
+      boss.cauchyDomainObstacleIds.push(obstacle.id);
+    }
   }
 
   function enterGaussDomain(boss, core) {
     boss.gaussZones = [];
+    boss.gaussZoneBonus = 0;
+    boss.gaussNextZoneCount = gaussZoneResetCount;
     const hpRatio = clamp((core.hp || 0) / Math.max(1, core.maxHp || 1), 0.001, 1);
     const restoreRatio = Math.max(0.25, Math.ceil(hpRatio * 4) / 4);
+    boss.cores.forEach((item) => {
+      if (item.hp > 0) {
+        item.invisibleTimer = Math.max(item.invisibleTimer || 0, bossCoreInvisibleDuration);
+      }
+    });
     const others = boss.cores.filter((item) => item !== core && item.hp > 0);
     others.forEach((item) => {
-      item.hp = Math.max(item.hp, item.maxHp * restoreRatio);
+      item.hp = item.maxHp * restoreRatio;
+      const bonus = bossShieldForCore(item.id, boss.direct);
+      item.domainShieldBonus = (item.domainShieldBonus || 0) + bonus;
+      item.shield = (item.shield || 0) + bonus;
+      item.maxShield = (item.maxShield || 0) + bonus;
+      item.domainDamageMultiplier = 1.5;
+      item.overloadFlash = Math.max(item.overloadFlash || 0, bossDomainCycleSeconds);
     });
-    const sorted = [...others].sort((a, b) => a.hp - b.hp);
-    const low = sorted[0];
-    const high = sorted[sorted.length - 1];
-    if (low) {
-      const bonus = boss.direct ? 42 : 34;
-      low.domainShieldBonus = (low.domainShieldBonus || 0) + bonus;
-      low.shield = (low.shield || 0) + bonus;
-      low.maxShield = (low.maxShield || 0) + bonus;
-    }
-    if (high && high !== low) {
-      high.domainFireMultiplier = 2;
-      high.domainDamageMultiplier = 1.5;
-      high.overloadFlash = Math.max(high.overloadFlash || 0, bossDomainCycleSeconds);
-    }
   }
 
   function enterDescartesDomain(boss) {
     clearBossProjections();
     boss.descartesQuadrant = bossPlayerQuadrant();
-    boss.descartesIdleTimer = 0;
+    boss.descartesQuadrantChanges = 0;
+    boss.descartesQuadrantProjectionCount = 0;
   }
 
   function bossPlayerQuadrant() {
@@ -3947,28 +4496,60 @@
     return "q4";
   }
 
+  function randomPointInBossQuadrant(quadrant) {
+    const midX = (arena.left + arena.right) / 2;
+    const midY = (arena.top + arena.bottom) / 2;
+    const bounds = {
+      q1: { left: arena.left, right: midX, top: arena.top, bottom: midY },
+      q2: { left: midX, right: arena.right, top: arena.top, bottom: midY },
+      q3: { left: arena.left, right: midX, top: midY, bottom: arena.bottom },
+      q4: { left: midX, right: arena.right, top: midY, bottom: arena.bottom },
+    }[quadrant] || { left: arena.left, right: arena.right, top: arena.top, bottom: arena.bottom };
+    const padding = 42;
+    return {
+      x: bounds.left + padding + Math.random() * Math.max(1, bounds.right - bounds.left - padding * 2),
+      y: bounds.top + padding + Math.random() * Math.max(1, bounds.bottom - bounds.top - padding * 2),
+    };
+  }
+
+  function spawnBossProjectionsInQuadrant(quadrant, count, source = "descartes") {
+    if (source === "descartes-quadrant") {
+      const boss = game.boss;
+      const spawned = boss?.descartesQuadrantProjectionCount || 0;
+      if (boss) boss.descartesQuadrantProjectionCount = spawned + count;
+    }
+    for (let i = 0; i < count; i += 1) {
+      const point = randomPointInBossQuadrant(quadrant);
+      spawnBossProjection(point.x, point.y, source);
+    }
+  }
+
+  function spawnDescartesExitProjections(boss) {
+    const changes = Math.max(0, Math.min(4, boss.descartesQuadrantChanges || 0));
+    const count = changes <= 0 ? 6 : Math.max(0, 8 - changes * 2);
+    for (let i = 0; i < count; i += 1) {
+      const point = randomArenaPoint(48);
+      spawnBossProjection(point.x, point.y, "descartes-exit");
+    }
+  }
+
   function updateDescartesDomain(boss, dt) {
     const quadrant = bossPlayerQuadrant();
     if (!quadrant) return;
+    if (boss.fullPowerCoreId === "descartes") {
+      boss.descartesQuadrant = quadrant;
+      return;
+    }
     if (!boss.descartesQuadrant) {
       boss.descartesQuadrant = quadrant;
       return;
     }
     if (quadrant !== boss.descartesQuadrant) {
+      const previousQuadrant = boss.descartesQuadrant;
       boss.descartesQuadrant = quadrant;
-      boss.descartesIdleTimer = 0;
-      spawnBossProjection(game.player.x, game.player.y, "descartes");
+      boss.descartesQuadrantChanges = (boss.descartesQuadrantChanges || 0) + 1;
+      spawnBossProjectionsInQuadrant(previousQuadrant, 2, "descartes-quadrant");
       return;
-    }
-    boss.descartesIdleTimer = (boss.descartesIdleTimer || 0) + dt;
-    if (boss.descartesIdleTimer >= descartesProjectionIdleSeconds) {
-      const angle = Math.random() * Math.PI * 2;
-      spawnBossProjection(
-        game.player.x + Math.cos(angle) * 46,
-        game.player.y + Math.sin(angle) * 46,
-        "descartes"
-      );
-      boss.descartesIdleTimer = 0;
     }
   }
 
@@ -4002,14 +4583,15 @@
       y: point.y,
       baseX: point.x,
       baseY: point.y,
-      r: 15,
-      hp: 22,
-      maxHp: 22,
+      r: 15 * characterSizeScale,
+      hp: bossProjectionHp,
+      maxHp: bossProjectionHp,
       fireTimer: 0.55,
       fireEvery: 1.15,
       moveT: 0,
-      moveAmp: 0,
-      moveSpeed: 0,
+      moveAmp: 10 + Math.random() * 10,
+      moveSpeed: 1.4 + Math.random() * 0.6,
+      movePhase: Math.random() * Math.PI * 2,
       facingAngle: 0,
       backHitFlash: 0,
       shieldFlash: 0,
@@ -4021,13 +4603,17 @@
   }
 
   function clearBossProjections() {
+    const count = game.enemies.filter((enemy) => enemy.bossProjection).length;
     game.enemies = game.enemies.filter((enemy) => !enemy.bossProjection);
+    return count;
   }
 
   function updateBossProjections(dt) {
     game.enemies.forEach((enemy) => {
       if (!enemy.bossProjection || enemy.defeated) return;
       enemy.moveT += dt;
+      enemy.x = clamp(enemy.baseX + Math.cos(enemy.moveT * enemy.moveSpeed + enemy.movePhase) * enemy.moveAmp, arena.left + 24, arena.right - 24);
+      enemy.y = clamp(enemy.baseY + Math.sin(enemy.moveT * enemy.moveSpeed * 1.3 + enemy.movePhase) * enemy.moveAmp * 0.62, arena.top + 24, arena.bottom - 24);
       enemy.fireTimer -= dt;
       enemy.facingAngle = Math.atan2(game.player.y - enemy.y, game.player.x - enemy.x);
       if (enemy.fireTimer <= 0) {
@@ -4050,14 +4636,18 @@
   function createGaussZones(core) {
     const boss = game.boss;
     if (!boss || core.hp <= 0) return;
-    const count = gaussZoneBaseCount + Math.min(3, boss.gaussZoneBonus || 0);
+    const baseCount = boss.fullPowerCoreId === "gauss"
+      ? gaussZoneMaxCount
+      : boss.gaussNextZoneCount || gaussZoneBaseCount;
+    const count = Math.min(gaussZoneMaxCount, baseCount + Math.min(gaussZoneMaxCount - baseCount, boss.gaussZoneBonus || 0));
     boss.gaussZoneBonus = 0;
+    boss.gaussNextZoneCount = 0;
     boss.gaussZones = Array.from({ length: count }, (_, index) => ({
       ...randomArenaPoint(58),
       r: 26,
       life: gaussZoneDuration,
       pulse: index * 0.65,
-      fireTimer: 0.15 + index * 0.12,
+      fireTimer: 0.25 + index * 0.12,
       coreId: core.id,
     }));
   }
@@ -4070,16 +4660,19 @@
       zone.fireTimer -= dt;
       if (zone.fireTimer <= 0 && core && core.hp > 0) {
         zone.fireTimer = gaussZoneFireEvery;
-        const aim = Math.atan2(game.player.y - zone.y, game.player.x - zone.x) + (Math.random() - 0.5) * 0.3;
-        spawnEnemyShot(zone.x, zone.y, aim, 116, 8 * (core.domainDamageMultiplier || 1), core.color, {
-          pattern: "curve",
-          gaussZone: true,
-          curveAmp: 48,
-          curveFreq: 4.6,
-          curvePhase: zone.pulse,
-          side: Math.random() > 0.5 ? 1 : -1,
-          r: 5,
-          life: 3.8,
+        const aim = Math.atan2(game.player.y - zone.y, game.player.x - zone.x) + (Math.random() - 0.5) * 0.22;
+        [0, 1, 2].forEach((slot) => {
+          const offset = (Math.PI * 2 * slot) / 3;
+          spawnEnemyShot(zone.x, zone.y, aim + offset, 118, bossAttackDamage(core, 8), core.color, {
+            pattern: "curve",
+            gaussZone: true,
+            curveAmp: 48,
+            curveFreq: 4.6,
+            curvePhase: zone.pulse + slot * 1.15,
+            side: slot % 2 ? 1 : -1,
+            r: 5,
+            life: 4.2,
+          });
         });
       }
     });
@@ -4088,9 +4681,12 @@
 
   function updateBossObstacles(boss, dt) {
     if (!game.obstacles.length) return;
-    if (boss.domainCoreId !== "cauchy") {
-      game.obstacles = game.obstacles.filter((obstacle) => !obstacle.cauchyDomain);
-      return;
+    if (boss.domainCoreId === "cauchy") {
+      boss.cauchyHighlightTimer = Math.max(0, (boss.cauchyHighlightTimer || cauchyHighlightEvery) - dt);
+      if (boss.cauchyHighlightTimer <= 0) {
+        highlightRandomCauchyCandidate(boss);
+        boss.cauchyHighlightTimer = cauchyHighlightEvery;
+      }
     }
     game.obstacles.forEach((obstacle) => {
       if (!obstacle.cauchyDomain) return;
@@ -4098,6 +4694,18 @@
       obstacle.markTimer = 0;
       obstacle.maxMarkTimer = 1;
     });
+  }
+
+  function highlightRandomCauchyCandidate(boss) {
+    const candidates = game.obstacles.filter((obstacle) => (
+      !obstacle.broken &&
+      !obstacle.cauchyDomain &&
+      (boss.cauchyCandidateObstacleIds || []).includes(obstacle.id)
+    ));
+    if (!candidates.length) return;
+    const obstacle = candidates[Math.floor(Math.random() * candidates.length)];
+    decorateCauchyDomainWall(obstacle);
+    boss.cauchyDomainObstacleIds.push(obstacle.id);
   }
 
   function updateBossRotation(boss, dt) {
@@ -4137,6 +4745,23 @@
         core.collapseTimer = 0.8;
         const pos = corePosition(core);
         burst(pos.x, pos.y, core.color, 46);
+        if (core.id === "cauchy") {
+          boss.cauchyBombs = [];
+        }
+        if (core.id === "gauss") {
+          boss.gaussZones = [];
+          boss.gaussZoneBonus = 0;
+        }
+        if (boss.domainCoreId === "gauss" && core.id !== "gauss") {
+          const gauss = bossCoreById("gauss");
+          if (gauss && gauss.hp > 0) {
+            gauss.hp = gauss.maxHp;
+            gauss.healFlash = Math.max(gauss.healFlash || 0, 0.7);
+            boss.gaussDomainKillHealCount = (boss.gaussDomainKillHealCount || 0) + 1;
+            const gaussPos = corePosition(gauss);
+            burst(gaussPos.x, gaussPos.y, gauss.color, 34);
+          }
+        }
       }
       if (core.collapseTimer) {
         core.collapseTimer = Math.max(0, core.collapseTimer - 0.016);
@@ -4152,6 +4777,91 @@
         startBossDomain(boss, bossTopCore(boss));
       }
     }
+  }
+
+  function bossAttackDamage(core, baseDamage) {
+    return baseDamage * (core?.domainDamageMultiplier || 1) * (core?.fullPowerDamageMultiplier || 1);
+  }
+
+  function restoreCoreToQuarter(core, minimumRatio = 0.25) {
+    if (!core || core.hp <= 0) return;
+    const hpRatio = clamp((core.hp || 0) / Math.max(1, core.maxHp || 1), 0.001, 1);
+    const restoreRatio = Math.max(minimumRatio, Math.ceil(hpRatio * 4) / 4);
+    core.hp = core.maxHp * restoreRatio;
+    core.healFlash = Math.max(core.healFlash || 0, 0.7);
+  }
+
+  function updateBossFullPower(boss, dt) {
+    if (!boss) return;
+    const alive = boss.cores.filter((core) => core.hp > 0);
+    if (alive.length !== 1) return;
+    const core = alive[0];
+    if (boss.fullPowerCoreId !== core.id) {
+      enterBossFullPower(boss, core);
+    }
+    if (core.id === "gauss") {
+      updateGaussFullPower(boss, core, dt);
+    } else if (core.id === "cauchy") {
+      updateCauchyFullPower(boss, dt);
+    } else if (core.id === "descartes") {
+      updateDescartesFullPower(boss, dt);
+    }
+  }
+
+  function enterBossFullPower(boss, core) {
+    boss.fullPowerCoreId = core.id;
+    boss.phaseName = "末核领域";
+    core.enraged = true;
+    core.fullPowerDamageMultiplier = core.id === "descartes" ? 1 : 1.5;
+    core.overloadFlash = Math.max(core.overloadFlash || 0, bossDomainCycleSeconds);
+    const pos = corePosition(core);
+    burst(pos.x, pos.y, core.color, 54);
+
+    if (core.id === "gauss") {
+      restoreCoreToQuarter(core);
+      core.maxShield = Math.max(core.maxShield || 0, bossShieldForCore("gauss", boss.direct));
+      core.shield = core.maxShield;
+      boss.gaussZones = [];
+      boss.gaussNextZoneCount = gaussZoneMaxCount;
+      boss.gaussZoneBonus = 0;
+      boss.gaussFullPowerStealthTimer = gaussFullPowerStealthEvery;
+    } else if (core.id === "cauchy") {
+      explodeAllBossWallsAsCauchy(boss, cauchyExplosionBulletCount);
+      generateCauchyFullPowerWalls(boss);
+      boss.cauchyFullPowerTimer = cauchyFullPowerCycle;
+    } else if (core.id === "descartes") {
+      const cleared = clearBossProjections(true);
+      if (cleared > 0) {
+        core.hp = Math.min(core.maxHp, core.hp + cleared * 5);
+        core.healFlash = Math.max(core.healFlash || 0, 0.7);
+      }
+      boss.descartesFullPowerTimer = descartesFullPowerSpawnEvery;
+    }
+  }
+
+  function updateGaussFullPower(boss, core, dt) {
+    boss.gaussFullPowerStealthTimer = Math.max(0, (boss.gaussFullPowerStealthTimer || gaussFullPowerStealthEvery) - dt);
+    if (boss.gaussFullPowerStealthTimer <= 0 && (core.invisibleTimer || 0) <= 0) {
+      core.invisibleTimer = gaussFullPowerStealthDuration;
+      boss.gaussFullPowerStealthTimer = gaussFullPowerStealthEvery + gaussFullPowerStealthDuration;
+      burst(corePosition(core).x, corePosition(core).y, core.color, 20);
+    }
+  }
+
+  function updateCauchyFullPower(boss, dt) {
+    boss.cauchyFullPowerTimer = Math.max(0, (boss.cauchyFullPowerTimer || cauchyFullPowerCycle) - dt);
+    if (boss.cauchyFullPowerTimer > 0) return;
+    explodeAllBossWallsAsCauchy(boss, cauchyExplosionBulletCount);
+    generateCauchyFullPowerWalls(boss);
+    boss.cauchyFullPowerTimer = cauchyFullPowerCycle;
+  }
+
+  function updateDescartesFullPower(boss, dt) {
+    boss.descartesFullPowerTimer = Math.max(0, (boss.descartesFullPowerTimer || descartesFullPowerSpawnEvery) - dt);
+    if (boss.descartesFullPowerTimer > 0) return;
+    const point = randomArenaPoint(56);
+    spawnBossProjection(point.x, point.y, "descartes-full");
+    boss.descartesFullPowerTimer = descartesFullPowerSpawnEvery;
   }
 
   function bossPhaseMultiplier() {
@@ -4186,25 +4896,111 @@
   }
 
   function fireCauchySquares(pos, core) {
-    const targetAngle = Math.atan2(game.player.y - pos.y, game.player.x - pos.x);
-    const sideX = -Math.sin(targetAngle);
-    const sideY = Math.cos(targetAngle);
-    const damage = 7 * (core.domainDamageMultiplier || 1);
-    [-1, 0, 1].forEach((slot) => {
-      spawnEnemyShot(pos.x + sideX * slot * 18, pos.y + sideY * slot * 18, targetAngle, 138, damage, core.color, {
-        pattern: "straight",
-        shape: "square",
-        r: 8,
-        life: 3.7,
-        cauchyDot: true,
-        cauchySlow: true,
-        cauchyMarksWall: true,
-      });
+    const boss = game.boss;
+    if (!boss) return;
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 18 + Math.random() * 66;
+    const target = arenaPoint(
+      game.player.x + Math.cos(angle) * radius,
+      game.player.y + Math.sin(angle) * radius,
+      68
+    );
+    boss.cauchyBombs ||= [];
+    boss.cauchyBombs.push({
+      stage: "large",
+      x: target.x,
+      y: target.y,
+      r: 58,
+      timer: 0.68,
+      maxTimer: 0.68,
+      coreId: core.id,
+      color: core.color,
+      damage: bossAttackDamage(core, 13),
+      bulletDamage: bossAttackDamage(core, 7),
+      sourceX: pos.x,
+      sourceY: pos.y,
+      pulse: Math.random() * Math.PI * 2,
     });
+  }
+
+  function updateCauchyBombs(boss, dt) {
+    if (!boss?.cauchyBombs?.length) return;
+    const spawned = [];
+    boss.cauchyBombs.forEach((bomb) => {
+      bomb.timer -= dt;
+      if (bomb.timer > 0) return;
+      explodeCauchyBomb(bomb);
+      if (bomb.stage === "large") {
+        const base = Math.atan2(game.player.y - bomb.y, game.player.x - bomb.x) + Math.random() * 0.55;
+        for (let i = 0; i < 5; i += 1) {
+          const angle = base + (Math.PI * 2 * i) / 5;
+          const point = arenaPoint(
+            bomb.x + Math.cos(angle) * 72,
+            bomb.y + Math.sin(angle) * 72,
+            48
+          );
+          spawned.push({
+            stage: "small",
+            x: point.x,
+            y: point.y,
+            r: 28,
+            timer: 0.48,
+            maxTimer: 0.48,
+            coreId: bomb.coreId,
+            color: bomb.color,
+            damage: Math.max(5, bomb.damage * 0.52),
+            bulletDamage: bomb.bulletDamage,
+            sourceX: bomb.x,
+            sourceY: bomb.y,
+            pulse: bomb.pulse + i,
+          });
+        }
+      } else {
+        fireCauchyBombRow(bomb);
+      }
+    });
+    boss.cauchyBombs = [
+      ...boss.cauchyBombs.filter((bomb) => bomb.timer > 0),
+      ...spawned,
+    ];
+  }
+
+  function explodeCauchyBomb(bomb) {
+    burst(bomb.x, bomb.y, bomb.color || colors.chalk, bomb.stage === "large" ? 24 : 14);
+    const player = game.player;
+    if (player && player.invuln <= 0 && distance(player, bomb) <= player.r + bomb.r) {
+      applyPlayerDamage(scaledIncomingDamage(bomb.damage || 8), bomb.color || colors.chalk);
+      player.invuln = Math.max(player.invuln, bomb.stage === "large" ? 0.78 : 0.55);
+    }
+  }
+
+  function fireCauchyBombRow(bomb) {
+    const baseAngle = Math.random() * Math.PI * 2;
+    for (let i = 0; i < 3; i += 1) {
+      const angle = baseAngle + (Math.PI * 2 * i) / 3 + (Math.random() - 0.5) * 0.32;
+      spawnEnemyShot(
+        bomb.x,
+        bomb.y,
+        angle,
+        145 + Math.random() * 22,
+        bomb.bulletDamage || 7,
+        bomb.color || colors.chalk,
+        {
+          pattern: "straight",
+          shape: "square",
+          r: 7,
+          life: 3.6,
+          cauchyDot: true,
+          cauchySlow: true,
+          cauchyMarksWall: true,
+        }
+      );
+    }
   }
 
   function fireDescartesCross(pos, core) {
     fireDescartesLaser(pos, core);
+    if (game.boss?.fullPowerCoreId === "descartes") return;
     spawnBossProjection(
       clamp(game.player.x, arena.left + 46, arena.right - 46),
       clamp(game.player.y, arena.top + 46, arena.bottom - 46),
@@ -4215,7 +5011,7 @@
   function fireDescartesLaser(pos, core) {
     const snapX = clamp(game.player.x, arena.left + 76, arena.right - 76);
     const snapY = clamp(game.player.y, arena.top + 50, arena.bottom - 38);
-    const damage = 18 * (core.domainDamageMultiplier || 1);
+    const damage = bossAttackDamage(core, 18);
     spawnEnemyLaser({
       orientation: "vertical",
       x: snapX,
@@ -4317,10 +5113,6 @@
   function updateLasers(dt) {
     game.enemyLasers.forEach((laser) => {
       laser.age += dt;
-      if (!laser.expiredHandled && laser.age >= laser.warningTime + laser.activeTime) {
-        laser.expiredHandled = true;
-        onEnemyLaserExpired(laser);
-      }
     });
     game.enemyLasers = game.enemyLasers.filter((laser) => laser.age < laser.warningTime + laser.activeTime);
   }
@@ -4367,11 +5159,33 @@
     burst(x, y, shot.color || colors.warning, 8);
   }
 
+  function splitEnemyShotFromObstacle(shot, obstacle) {
+    if (!shot.wallSplit || shot.wallSplitDone || (shot.wallSplitDepth || 0) <= 0) return;
+    shot.wallSplitDone = true;
+    const center = obstacleCenter(obstacle);
+    const normalAngle = Math.atan2(shot.y - center.y, shot.x - center.x);
+    [-0.48, 0, 0.48].forEach((offset, index) => {
+      spawnEnemyShot(shot.x, shot.y, normalAngle + offset, 124 + index * 9, (shot.damage || 6) * 0.72, shot.color || colors.warning, {
+        r: Math.max(3, (shot.r || 4) * 0.72),
+        life: 2.3,
+        ownerId: shot.ownerId,
+        pattern: index === 1 ? "straight" : "curve",
+        curveAmp: index === 1 ? 0 : 18,
+        curveFreq: 4.5,
+        curvePhase: index,
+      });
+    });
+    burst(shot.x, shot.y, shot.color || colors.warning, 8);
+  }
+
   function blockShotWithObstacles(shot) {
     if (shot.life <= 0) return;
     if (shot.ignoresObstacles) return;
     const obstacle = game.obstacles.find((item) => !item.broken && circleObstacleCollision(shot, item, shot.r || 4));
     if (!obstacle) return;
+    if (!shot.weaponId && obstacle.cauchyDomain) {
+      return;
+    }
     if (shot.weaponId && obstacle.cauchyDomain) {
       reflectPlayerShotFromCauchyWall(shot, obstacle);
       shot.life = 0;
@@ -4380,6 +5194,12 @@
     if (shot.cauchyMarksWall) {
       decorateCauchyDomainWall(obstacle);
     }
+    if (shot.archimedesMark) {
+      markArchimedesDashTarget(shot, obstacle);
+    }
+    if (shot.wallSplit && (shot.wallSplitDepth || 0) > 0 && !shot.wallSplitDone) {
+      splitEnemyShotFromObstacle(shot, obstacle);
+    }
     shot.life = 0;
     burst(shot.x, shot.y, colors.muted, shot.shape === "beam" ? 7 : 4);
   }
@@ -4387,7 +5207,7 @@
   function reflectPlayerShotFromCauchyWall(shot, obstacle) {
     const center = obstacleCenter(obstacle);
     const angle = Math.atan2(game.player.y - shot.y, game.player.x - shot.x);
-    spawnEnemyShot(shot.x, shot.y, angle, 156, Math.max(7, (shot.damage || 8) * 0.45), colors.warning, {
+    spawnEnemyShot(shot.x, shot.y, angle, 156, Math.max(7, (shot.damage || 8) * 0.45), colors.chalk, {
       pattern: "curve",
       shape: shot.shape === "beam" ? "square" : shot.shape || "circle",
       curveAmp: 30,
@@ -4398,7 +5218,7 @@
       life: 3.2,
     });
     obstacle.marked = true;
-    burst(center.x, center.y, colors.warning, 10);
+    burst(center.x, center.y, colors.chalk, 10);
   }
 
   function resolvePlayerObstacles() {
@@ -4469,7 +5289,7 @@
       game.boss.cores.forEach((core) => {
         if (core === coreRef || core.hp <= 0 || shot.hitIds.has(core.id)) return;
         const pos = corePosition(core);
-        if (distance(pos, target) > radius + 25) return;
+        if (distance(pos, target) > radius + bossCoreHitRadius) return;
         damageBossCore(core, scaledBossDamage(splashDamage, shot.kind, core), shot.weaponId, shot.weaponName);
         shot.hitIds.add(core.id);
         burst(pos.x, pos.y, core.color, 8);
@@ -4543,6 +5363,12 @@
     if (!boss || !core || core.hp <= 0) return 0;
     let remaining = Math.max(0, Number(amount || 0));
     let absorbed = 0;
+    if (remaining > 0 && (core.invisibleTimer || 0) > 0) {
+      core.revealTimer = Math.max(core.revealTimer || 0, bossCoreRevealDuration);
+      core.hitFlash = Math.max(core.hitFlash || 0, 0.18);
+      const pos = corePosition(core);
+      burst(pos.x, pos.y, core.color || colors.paper, 10);
+    }
     if ((core.shield || 0) > 0) {
       if (!bossShieldAllowsWeapon(core, sourceWeaponId)) {
         core.guardFlash = 0.28;
@@ -4566,9 +5392,6 @@
     }
     recordBossWeaponDamage(sourceWeaponId, sourceWeaponName, absorbed + hpDamage);
     core.hitFlash = 0.18;
-    if (core.id === "gauss" && boss.gaussPendingPlayerHit && absorbed + hpDamage > 0) {
-      triggerGaussHitRetaliation(core);
-    }
     return absorbed + hpDamage;
   }
 
@@ -4577,9 +5400,6 @@
     let damage = baseDamage * bossKindMultiplier(weaponKind, coreRef);
     const boss = game.boss;
     damage *= bossDomainDamageMultiplier();
-    if (coreRef.prepared) {
-      damage *= 1.08;
-    }
     return damage;
   }
 
@@ -4596,12 +5416,13 @@
   function triggerGaussHitRetaliation(core) {
     const boss = game.boss;
     if (!boss) return;
-    boss.gaussPendingPlayerHit = false;
-    boss.gaussZoneBonus = Math.min(3, (boss.gaussZoneBonus || 0) + 1);
+    const baseCount = boss.fullPowerCoreId === "gauss" ? gaussZoneMaxCount : boss.gaussNextZoneCount || gaussZoneBaseCount;
+    boss.gaussZoneBonus = Math.min(Math.max(0, gaussZoneMaxCount - baseCount), (boss.gaussZoneBonus || 0) + 1);
+    if (!core || core.hp <= 0) return;
     const pos = corePosition(core);
     const count = 10;
     for (let i = 0; i < count; i += 1) {
-      spawnEnemyShot(pos.x, pos.y, (Math.PI * 2 * i) / count, 122, 8, core.color, {
+      spawnEnemyShot(pos.x, pos.y, (Math.PI * 2 * i) / count, 122, bossAttackDamage(core, 8), core.color, {
         pattern: "straight",
         r: 5,
         life: 3.4,
@@ -4613,15 +5434,12 @@
   function applyPlayerDamage(amount, color) {
     const player = game.player;
     if (!player || amount <= 0) return 0;
-
-    if ((player.blockCharges || 0) > 0) {
-      player.blockCharges -= 1;
-      player.invuln = Math.max(player.invuln, 0.55);
-      burst(player.x, player.y, colors.paper, 18);
+    if (game.developerMode) {
+      player.invuln = Math.max(player.invuln || 0, 0.2);
       return 0;
     }
 
-    let remaining = amount;
+    let remaining = amount * incomingDamageMultiplier(player);
     if ((player.shield || 0) > 0) {
       const absorbed = Math.min(player.shield, remaining);
       player.shield -= absorbed;
@@ -4711,10 +5529,12 @@
       label: options.label || "",
       ownerId: options.ownerId || "",
       weaponSeal: Boolean(options.weaponSeal),
+      weaponSealSourceId: options.weaponSealSourceId || "",
       cauchyDot: Boolean(options.cauchyDot),
       cauchySlow: Boolean(options.cauchySlow),
       cauchyMarksWall: Boolean(options.cauchyMarksWall),
       gaussZone: Boolean(options.gaussZone),
+      archimedesMark: Boolean(options.archimedesMark),
       harmless: Boolean(options.harmless),
       ignoresObstacles: Boolean(options.ignoresObstacles),
       wallSplit: Boolean(options.wallSplit),
@@ -4743,7 +5563,6 @@
       sourceY: options.sourceY ?? options.y ?? 0,
       ownerId: options.ownerId || "",
       weaponSeal: Boolean(options.weaponSeal),
-      shieldOnMiss: Boolean(options.shieldOnMiss),
       deathBeam: Boolean(options.deathBeam),
       age: 0,
       hit: false,
@@ -5026,6 +5845,35 @@
       ctx.stroke();
       ctx.restore();
     }
+    if ((enemy.lhopitalSlashWarnTimer || 0) > 0) {
+      const progress = 1 - clamp(enemy.lhopitalSlashWarnTimer / Math.max(0.01, enemy.lhopitalSlashWarnMax || 0.18), 0, 1);
+      ctx.save();
+      ctx.globalAlpha = 0.28 + progress * 0.34;
+      ctx.strokeStyle = enemy.color || colors.paper;
+      ctx.lineWidth = 2 + progress * 2;
+      ctx.setLineDash([7, 5]);
+      ctx.beginPath();
+      ctx.moveTo(enemy.x, enemy.y);
+      ctx.lineTo(enemy.lhopitalSlashTargetX || enemy.x, enemy.lhopitalSlashTargetY || enemy.y);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if ((enemy.archimedesDashWarnTimer || 0) > 0) {
+      const progress = 1 - clamp(enemy.archimedesDashWarnTimer / Math.max(0.01, enemy.archimedesDashWarnMax || archimedesDashWarning), 0, 1);
+      ctx.save();
+      ctx.globalAlpha = 0.2 + progress * 0.38;
+      ctx.strokeStyle = enemy.color || colors.cyan;
+      ctx.lineWidth = 2 + progress * 2.5;
+      ctx.setLineDash([12, 8]);
+      ctx.beginPath();
+      ctx.moveTo(enemy.x, enemy.y);
+      ctx.lineTo(enemy.archimedesDashTargetX || enemy.x, enemy.archimedesDashTargetY || enemy.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(enemy.archimedesDashTargetX || enemy.x, enemy.archimedesDashTargetY || enemy.y, 18 + progress * 14, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
     if ((enemy.taylorDashWarnTimer || 0) > 0) {
       const progress = 1 - clamp(enemy.taylorDashWarnTimer / Math.max(0.01, enemy.taylorDashWarnMax || 0.26), 0, 1);
       ctx.save();
@@ -5054,21 +5902,31 @@
       ctx.stroke();
       ctx.restore();
     }
+    if ((enemy.jordanSlashWarnTimer || 0) > 0 || (enemy.jordanSlashActiveTimer || 0) > 0) {
+      const active = (enemy.jordanSlashActiveTimer || 0) > 0;
+      const progress = active
+        ? 1
+        : 1 - clamp(enemy.jordanSlashWarnTimer / Math.max(0.01, enemy.jordanSlashWarnMax || jordanSlashWarnDuration), 0, 1);
+      const radius = enemy.jordanSlashRadius || jordanDomainRadius * jordanSlashRadiusScale;
+      const angle = enemy.jordanSlashAngle || 0;
+      ctx.save();
+      ctx.globalAlpha = active ? 0.34 : 0.12 + progress * 0.28;
+      ctx.fillStyle = colors.warning;
+      ctx.strokeStyle = enemy.color || colors.warning;
+      ctx.lineWidth = active ? 4 : 2 + progress * 2;
+      ctx.setLineDash(active ? [] : [9, 6]);
+      ctx.beginPath();
+      ctx.moveTo(enemy.x, enemy.y);
+      ctx.arc(enemy.x, enemy.y, radius, angle - Math.PI / 2, angle + Math.PI / 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   function drawMonsterEnemy(enemy) {
     drawEnemyTelegraphs(enemy);
-    if (hasEnemyMechanic(enemy, "distanceLaw")) {
-      ctx.save();
-      ctx.globalAlpha = 0.18;
-      ctx.strokeStyle = enemy.color || colors.cyan;
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 8]);
-      ctx.beginPath();
-      ctx.arc(enemy.x, enemy.y, 170, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-    }
     if (enemy.jordanDomainActive) {
       ctx.save();
       ctx.globalAlpha = 0.13 + Math.sin((enemy.moveT || 0) * 3) * 0.025;
@@ -5087,21 +5945,21 @@
       ctx.save();
       ctx.globalAlpha = 0.18 + Math.sin((enemy.moveT || 0) * 9) * 0.04;
       ctx.strokeStyle = colors.paper;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = Math.max(1, 3 * characterSizeScale);
       ctx.beginPath();
-      ctx.arc(enemy.x, enemy.y, enemy.r + 22, 0, Math.PI * 2);
+      ctx.arc(enemy.x, enemy.y, enemy.r + 22 * characterSizeScale, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
-    if ((enemy.missShieldTimer || 0) > 0 || (enemy.jordanTransitionTimer || 0) > 0 || (enemy.shieldFlash || 0) > 0) {
-      const timer = Math.max(enemy.missShieldTimer || 0, enemy.jordanTransitionTimer || 0, enemy.shieldFlash || 0);
+    if ((enemy.lhopitalInvincibleTimer || 0) > 0 || (enemy.lhopitalRestTimer || 0) > 0 || (enemy.jordanTransitionTimer || 0) > 0 || (enemy.shieldFlash || 0) > 0) {
+      const timer = Math.max(enemy.lhopitalInvincibleTimer || 0, enemy.lhopitalRestTimer || 0, enemy.jordanTransitionTimer || 0, enemy.shieldFlash || 0);
       const shieldAlpha = Math.max(0.18, clamp(timer / Math.max(monsterShieldDuration, 1.05), 0, 1) * 0.42);
       ctx.save();
       ctx.globalAlpha = shieldAlpha;
       ctx.strokeStyle = colors.paper;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = Math.max(1, 3 * characterSizeScale);
       ctx.beginPath();
-      ctx.arc(enemy.x, enemy.y, enemy.r + 16 + Math.sin((enemy.moveT || 0) * 12) * 2, 0, Math.PI * 2);
+      ctx.arc(enemy.x, enemy.y, enemy.r + 16 * characterSizeScale + Math.sin((enemy.moveT || 0) * 12) * 2 * characterSizeScale, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
@@ -5109,19 +5967,19 @@
       ctx.save();
       ctx.globalAlpha = clamp(enemy.healFlash / 0.55, 0, 1) * 0.32;
       ctx.fillStyle = colors.mint;
-      circle(enemy.x, enemy.y, enemy.r + 22);
+      circle(enemy.x, enemy.y, enemy.r + 22 * characterSizeScale);
       ctx.restore();
     }
-    drawHealthBar(enemy.x - 38, enemy.y - 44, 76, 7, enemy.hp / enemy.maxHp, enemy.color);
+    drawHealthBar(enemy.x - 38 * characterSizeScale, enemy.y - 44 * characterSizeScale, 76 * characterSizeScale, Math.max(3, 7 * characterSizeScale), enemy.hp / enemy.maxHp, enemy.color);
     ctx.fillStyle = "rgba(255,255,255,0.12)";
-    circle(enemy.x, enemy.y, enemy.r + 10);
+    circle(enemy.x, enemy.y, enemy.r + 10 * characterSizeScale);
     ctx.fillStyle = enemy.color;
     circle(enemy.x, enemy.y, enemy.r);
     drawEnemyFacing(enemy);
     ctx.fillStyle = "#101514";
-    ctx.font = "bold 18px Microsoft YaHei, sans-serif";
+    ctx.font = `bold ${Math.max(9, 18 * characterSizeScale)}px Microsoft YaHei, sans-serif`;
     ctx.textAlign = "center";
-    ctx.fillText(enemy.shortName || "?", enemy.x, enemy.y + 6);
+    ctx.fillText(enemy.shortName || "?", enemy.x, enemy.y + 6 * characterSizeScale);
   }
 
   function drawMonsterRoom() {
@@ -5145,11 +6003,13 @@
       }
 
       const marked = Boolean(obstacle.marked);
+      const cauchyMarked = Boolean(obstacle.cauchyDomain);
       const markProgress = marked ? 1 - clamp((obstacle.markTimer || 0) / (obstacle.maxMarkTimer || 1), 0, 1) : 0;
-      ctx.fillStyle = marked ? "rgba(50, 38, 24, 0.98)" : "rgba(36, 40, 40, 0.96)";
-      ctx.strokeStyle = marked ? `rgba(240, 195, 93, ${0.48 + markProgress * 0.42})` : "rgba(244, 240, 230, 0.24)";
+      const markColor = cauchyMarked ? "143, 209, 158" : "240, 195, 93";
+      ctx.fillStyle = marked ? (cauchyMarked ? "rgba(22, 46, 33, 0.98)" : "rgba(50, 38, 24, 0.98)") : "rgba(36, 40, 40, 0.96)";
+      ctx.strokeStyle = marked ? `rgba(${markColor}, ${0.48 + markProgress * 0.42})` : "rgba(244, 240, 230, 0.24)";
       ctx.lineWidth = 2;
-      ctx.shadowColor = marked ? colors.warning : "transparent";
+      ctx.shadowColor = marked ? (cauchyMarked ? colors.chalk : colors.warning) : "transparent";
       ctx.shadowBlur = marked ? 12 + markProgress * 12 : 0;
       drawObstacleShape(obstacle, true, markProgress);
       ctx.shadowBlur = 0;
@@ -5158,7 +6018,7 @@
         ctx.fillRect(obstacle.x + 6, obstacle.y + 5, Math.max(0, obstacle.w - 12), 3);
       }
       if (marked && obstacle.shape === "rect") {
-        ctx.fillStyle = `rgba(240, 195, 93, ${0.14 + markProgress * 0.16})`;
+        ctx.fillStyle = `rgba(${markColor}, ${0.14 + markProgress * 0.16})`;
         ctx.fillRect(obstacle.x + 4, obstacle.y + obstacle.h - 7, Math.max(0, (obstacle.w - 8) * markProgress), 3);
       }
       if (obstacle.shape === "rect") {
@@ -5230,8 +6090,8 @@
   function drawEnemyFacing(enemy) {
     const angle = enemy.facingAngle ?? Math.PI / 2;
     const backAngle = angle + Math.PI;
-    const weakX = enemy.x + Math.cos(backAngle) * (enemy.r + 3);
-    const weakY = enemy.y + Math.sin(backAngle) * (enemy.r + 3);
+    const weakX = enemy.x + Math.cos(backAngle) * (enemy.r + 3 * characterSizeScale);
+    const weakY = enemy.y + Math.sin(backAngle) * (enemy.r + 3 * characterSizeScale);
     const flash = clamp((enemy.backHitFlash || 0) / 0.28, 0, 1);
 
     ctx.save();
@@ -5239,9 +6099,9 @@
     ctx.rotate(angle);
     ctx.fillStyle = "rgba(16,21,20,0.72)";
     ctx.beginPath();
-    ctx.moveTo(enemy.r + 7, 0);
-    ctx.lineTo(enemy.r - 4, -5);
-    ctx.lineTo(enemy.r - 4, 5);
+    ctx.moveTo(enemy.r + 7 * characterSizeScale, 0);
+    ctx.lineTo(enemy.r - 4 * characterSizeScale, -5 * characterSizeScale);
+    ctx.lineTo(enemy.r - 4 * characterSizeScale, 5 * characterSizeScale);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -5250,9 +6110,9 @@
     ctx.globalAlpha = 0.62 + flash * 0.38;
     ctx.strokeStyle = flash > 0 ? colors.paper : "rgba(244,240,230,0.72)";
     ctx.fillStyle = flash > 0 ? "rgba(244,240,230,0.28)" : "rgba(21,23,24,0.38)";
-    ctx.lineWidth = 2 + flash * 2;
+    ctx.lineWidth = Math.max(1, (2 + flash * 2) * characterSizeScale);
     ctx.beginPath();
-    ctx.arc(weakX, weakY, 7 + flash * 4, 0, Math.PI * 2);
+    ctx.arc(weakX, weakY, (7 + flash * 4) * characterSizeScale, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
     ctx.restore();
@@ -5262,29 +6122,36 @@
     const boss = game.boss;
     if (!boss) return;
     drawBossDomainField(boss);
+    drawBossBombs(boss);
 
-    ctx.save();
-    ctx.translate(boss.x, boss.y);
-    ctx.rotate(boss.angle * 0.35);
-    ctx.strokeStyle = boss.rotating ? "rgba(240,195,93,0.44)" : "rgba(255,255,255,0.14)";
-    ctx.lineWidth = boss.rotating ? 3 : 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, 44, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = "rgba(244,240,230,0.06)";
-    circle(0, 0, 30);
-    ctx.restore();
+    const introActive = isBossIntroActive();
+    const visibleAliveCores = boss.cores.filter((core) => core.hp > 0 && (introActive || !isBossCoreHidden(core)));
+    if (visibleAliveCores.length > 0) {
+      ctx.save();
+      ctx.translate(boss.x, boss.y);
+      ctx.rotate(boss.angle * 0.35);
+      ctx.strokeStyle = boss.rotating ? "rgba(240,195,93,0.44)" : "rgba(255,255,255,0.14)";
+      ctx.lineWidth = Math.max(1, (boss.rotating ? 3 : 2) * bossSizeScale);
+      ctx.beginPath();
+      ctx.arc(0, 0, 44 * bossSizeScale, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(244,240,230,0.06)";
+      circle(0, 0, 30 * bossSizeScale);
+      ctx.restore();
+    }
 
-    ctx.beginPath();
-    const positions = boss.cores.map(corePosition);
-    ctx.strokeStyle = boss.rotating ? "rgba(240,195,93,0.34)" : "rgba(255,255,255,0.16)";
-    ctx.lineWidth = boss.rotating ? 3 : 2;
-    positions.forEach((pos, index) => {
-      if (index === 0) ctx.moveTo(pos.x, pos.y);
-      else ctx.lineTo(pos.x, pos.y);
-    });
-    ctx.closePath();
-    ctx.stroke();
+    const positions = visibleAliveCores.map(corePosition);
+    if (positions.length > 1) {
+      ctx.beginPath();
+      ctx.strokeStyle = boss.rotating ? "rgba(240,195,93,0.34)" : "rgba(255,255,255,0.16)";
+      ctx.lineWidth = Math.max(1, (boss.rotating ? 3 : 2) * bossSizeScale);
+      positions.forEach((pos, index) => {
+        if (index === 0) ctx.moveTo(pos.x, pos.y);
+        else ctx.lineTo(pos.x, pos.y);
+      });
+      if (positions.length > 2) ctx.closePath();
+      ctx.stroke();
+    }
 
     const frontIds = new Set(bossFrontCoreIds(boss));
     boss.cores.forEach((core, index) => {
@@ -5292,6 +6159,9 @@
       const alive = core.hp > 0;
       const front = alive && frontIds.has(core.id);
       const invulnerable = alive && !front;
+      const hidden = alive && isBossCoreHidden(core);
+      const revealed = alive && isBossCoreRevealed(core);
+      if (hidden && !introActive) return;
       const introAlpha = bossIntroCoreAlpha(index);
       const overload = front && alive && ((core.domainFireMultiplier || 1) > 1 || (core.domainDamageMultiplier || 1) > 1);
       const tell = front && alive && !boss.rotating && (core.fireTimer || 0) > 0 && (core.fireTimer || 0) < 0.46;
@@ -5301,50 +6171,50 @@
       const pulse = 1 + Math.sin(performance.now() / (overload ? 92 : 180) + core.offset) * (overload ? 0.09 : 0.05);
       ctx.save();
       ctx.globalAlpha = alive ? introAlpha * (invulnerable ? 0.52 : 1) : 0.24;
-      ctx.shadowColor = invulnerable ? colors.paper : overload ? colors.warning : core.enraged ? colors.danger : core.color;
-      ctx.shadowBlur = alive ? (invulnerable ? guardFlash * 18 : overload ? 30 : core.enraged ? 24 : 10) + flash * 16 : 0;
+      ctx.shadowColor = revealed ? colors.paper : invulnerable ? colors.paper : overload ? colors.warning : core.enraged ? colors.danger : core.color;
+      ctx.shadowBlur = alive ? ((invulnerable ? guardFlash * 18 : overload ? 30 : core.enraged ? 24 : 10) + flash * 16) * bossSizeScale : 0;
       ctx.fillStyle = invulnerable ? "rgba(244,240,230,0.045)" : overload ? "rgba(240,195,93,0.16)" : core.enraged ? "rgba(231,111,97,0.18)" : "rgba(255,255,255,0.08)";
-      circle(pos.x, pos.y, (overload ? 43 : core.enraged ? 40 : 34) * pulse + flash * 3);
+      circle(pos.x, pos.y, ((overload ? 43 : core.enraged ? 40 : 34) * pulse + flash * 3) * bossSizeScale);
       ctx.shadowBlur = 0;
       drawCoreGlyph(core, pos);
       ctx.fillStyle = invulnerable ? "rgba(244,240,230,0.45)" : core.color;
-      circle(pos.x, pos.y, (core.enraged ? 27 : 25) * pulse);
+      circle(pos.x, pos.y, (core.enraged ? 27 : 25) * pulse * bossSizeScale);
       ctx.fillStyle = "#111";
-      ctx.font = "bold 16px Microsoft YaHei, sans-serif";
+      ctx.font = `bold ${Math.max(8, 16 * bossSizeScale)}px Microsoft YaHei, sans-serif`;
       ctx.textAlign = "center";
-      ctx.fillText(core.symbol || core.name.slice(0, 2), pos.x, pos.y + 5);
-      drawHealthBar(pos.x - 42, pos.y - 52, 84, 7, Math.max(0, core.hp / core.maxHp), core.color);
+      ctx.fillText(core.symbol || core.name.slice(0, 2), pos.x, pos.y + 5 * bossSizeScale);
+      drawHealthBar(pos.x - 42 * bossSizeScale, pos.y - 52 * bossSizeScale, 84 * bossSizeScale, Math.max(3, 7 * bossSizeScale), Math.max(0, core.hp / core.maxHp), core.color);
       if ((core.maxShield || 0) > 0) {
-        drawHealthBar(pos.x - 42, pos.y - 42, 84, 4, Math.max(0, (core.shield || 0) / core.maxShield), colors.cyan);
+        drawHealthBar(pos.x - 42 * bossSizeScale, pos.y - 42 * bossSizeScale, 84 * bossSizeScale, Math.max(2, 4 * bossSizeScale), Math.max(0, (core.shield || 0) / core.maxShield), colors.cyan);
       }
       if (invulnerable) {
         ctx.strokeStyle = `rgba(244,240,230,${0.42 + guardFlash * 0.32})`;
-        ctx.lineWidth = 2 + guardFlash * 2;
+        ctx.lineWidth = Math.max(1, (2 + guardFlash * 2) * bossSizeScale);
         ctx.setLineDash([9, 7]);
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 37 + Math.sin(performance.now() / 120) * 2 + guardFlash * 5, 0, Math.PI * 2);
+        ctx.arc(pos.x, pos.y, (37 + Math.sin(performance.now() / 120) * 2 + guardFlash * 5) * bossSizeScale, 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
       }
       if (overload) {
         ctx.strokeStyle = `rgba(244,240,230,${0.62 + overloadFlash * 0.28})`;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = Math.max(1, 3 * bossSizeScale);
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 48 + Math.sin(performance.now() / 55) * 4, 0, Math.PI * 2);
+        ctx.arc(pos.x, pos.y, (48 + Math.sin(performance.now() / 55) * 4) * bossSizeScale, 0, Math.PI * 2);
         ctx.stroke();
       }
       if (tell) {
         ctx.strokeStyle = `rgba(255,255,255,${0.22 + Math.sin(performance.now() / 45) * 0.08})`;
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = Math.max(1, 1.5 * bossSizeScale);
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 31 + Math.max(0, 0.46 - core.fireTimer) * 30, 0, Math.PI * 2);
+        ctx.arc(pos.x, pos.y, (31 + Math.max(0, 0.46 - core.fireTimer) * 30) * bossSizeScale, 0, Math.PI * 2);
         ctx.stroke();
       }
       if (core.enraged) {
         ctx.strokeStyle = colors.danger;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = Math.max(1, 2 * bossSizeScale);
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 33 + Math.sin(performance.now() / 90) * 3, 0, Math.PI * 2);
+        ctx.arc(pos.x, pos.y, (33 + Math.sin(performance.now() / 90) * 3) * bossSizeScale, 0, Math.PI * 2);
         ctx.stroke();
       }
       ctx.restore();
@@ -5352,6 +6222,34 @@
     game.enemies.filter((enemy) => enemy.bossProjection).forEach(drawMonsterEnemy);
 
     ctx.textAlign = "start";
+  }
+
+  function drawBossBombs(boss) {
+    if (!boss?.cauchyBombs?.length) return;
+    ctx.save();
+    boss.cauchyBombs.forEach((bomb) => {
+      const progress = 1 - clamp((bomb.timer || 0) / Math.max(0.001, bomb.maxTimer || 1), 0, 1);
+      const alpha = bomb.stage === "large" ? 0.2 : 0.16;
+      const lineAlpha = bomb.stage === "large" ? 0.24 : 0.16;
+      ctx.strokeStyle = `rgba(143, 209, 158, ${0.34 + progress * 0.38})`;
+      ctx.fillStyle = `rgba(143, 209, 158, ${alpha + progress * 0.1})`;
+      ctx.lineWidth = bomb.stage === "large" ? 2.4 : 1.8;
+      ctx.setLineDash(bomb.stage === "large" ? [8, 7] : [5, 6]);
+      ctx.beginPath();
+      ctx.arc(bomb.x, bomb.y, bomb.r * (0.86 + progress * 0.14), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (bomb.sourceX != null && bomb.sourceY != null) {
+        ctx.globalAlpha = lineAlpha + progress * 0.22;
+        ctx.beginPath();
+        ctx.moveTo(bomb.sourceX, bomb.sourceY);
+        ctx.lineTo(bomb.x, bomb.y);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    });
+    ctx.restore();
   }
 
   function drawBossDomainField(boss) {
@@ -5412,27 +6310,27 @@
   function drawCoreGlyph(core, pos) {
     ctx.save();
     ctx.strokeStyle = core.color;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = Math.max(1, 1.5 * bossSizeScale);
     ctx.globalAlpha *= 0.58;
     if (core.id === "descartes") {
       ctx.beginPath();
-      ctx.moveTo(pos.x - 38, pos.y);
-      ctx.lineTo(pos.x + 38, pos.y);
-      ctx.moveTo(pos.x, pos.y - 38);
-      ctx.lineTo(pos.x, pos.y + 38);
+      ctx.moveTo(pos.x - 38 * bossSizeScale, pos.y);
+      ctx.lineTo(pos.x + 38 * bossSizeScale, pos.y);
+      ctx.moveTo(pos.x, pos.y - 38 * bossSizeScale);
+      ctx.lineTo(pos.x, pos.y + 38 * bossSizeScale);
       ctx.stroke();
     } else if (core.id === "gauss") {
       for (let row = -1; row <= 1; row += 1) {
         for (let col = -1; col <= 1; col += 1) {
-          ctx.strokeRect(pos.x + col * 17 - 5, pos.y + row * 17 - 5, 10, 10);
+          ctx.strokeRect(pos.x + col * 17 * bossSizeScale - 5 * bossSizeScale, pos.y + row * 17 * bossSizeScale - 5 * bossSizeScale, 10 * bossSizeScale, 10 * bossSizeScale);
         }
       }
     } else {
       ctx.beginPath();
       for (let i = 0; i < 38; i += 1) {
         const t = i / 37;
-        const x = pos.x - 38 + t * 76;
-        const y = pos.y + Math.sin(t * Math.PI * 2) * 15;
+        const x = pos.x - 38 * bossSizeScale + t * 76 * bossSizeScale;
+        const y = pos.y + Math.sin(t * Math.PI * 2) * 15 * bossSizeScale;
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
@@ -5477,6 +6375,21 @@
         ctx.strokeStyle = "rgba(255,255,255,0.42)";
         ctx.lineWidth = 1.5;
         ctx.strokeRect(-size / 2, -size / 2, size, size);
+        ctx.restore();
+      } else if (shot.shape === "triangle") {
+        const size = shot.r * 2.65 * pulse;
+        ctx.save();
+        ctx.translate(shot.x, shot.y);
+        ctx.rotate(shot.angle || 0);
+        ctx.beginPath();
+        ctx.moveTo(size * 0.62, 0);
+        ctx.lineTo(-size * 0.42, -size * 0.5);
+        ctx.lineTo(-size * 0.42, size * 0.5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.42)";
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
         ctx.restore();
       } else {
         circle(shot.x, shot.y, shot.r * pulse);
@@ -5585,25 +6498,25 @@
 
   function drawPlayer() {
     const player = game.player;
-    if ((player.shield || 0) > 0 || (player.blockCharges || 0) > 0) {
+    if ((player.shield || 0) > 0) {
       ctx.save();
-      ctx.globalAlpha = (player.shield || 0) > 0 ? 0.38 : 0.24;
-      ctx.strokeStyle = (player.blockCharges || 0) > 0 ? colors.paper : colors.cyan;
-      ctx.lineWidth = (player.blockCharges || 0) > 0 ? 4 : 3;
+      ctx.globalAlpha = 0.38;
+      ctx.strokeStyle = colors.cyan;
+      ctx.lineWidth = Math.max(1, 3 * characterSizeScale);
       ctx.beginPath();
-      ctx.arc(player.x, player.y, player.r + 16, 0, Math.PI * 2);
+      ctx.arc(player.x, player.y, player.r + 16 * characterSizeScale, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
     ctx.globalAlpha = player.invuln > 0 ? 0.62 : 1;
     ctx.fillStyle = "rgba(244,240,230,0.16)";
-    circle(player.x, player.y, player.r + 9);
+    circle(player.x, player.y, player.r + 9 * characterSizeScale);
     ctx.fillStyle = colors.paper;
     circle(player.x, player.y, player.r);
     ctx.fillStyle = colors.ink;
-    ctx.font = "bold 18px Microsoft YaHei, sans-serif";
+    ctx.font = `bold ${Math.max(9, 18 * characterSizeScale)}px Microsoft YaHei, sans-serif`;
     ctx.textAlign = "center";
-    ctx.fillText("学", player.x, player.y + 6);
+    ctx.fillText("学", player.x, player.y + 6 * characterSizeScale);
     ctx.textAlign = "start";
     ctx.globalAlpha = 1;
   }
@@ -5654,7 +6567,7 @@
 
   function corePosition(core) {
     const boss = game.boss;
-    const radius = 92;
+    const radius = bossCoreOrbitRadius;
     const angle = boss.angle + core.offset - Math.PI / 2;
     return {
       x: boss.x + Math.cos(angle) * radius,
@@ -5668,13 +6581,13 @@
     hud.root?.classList.toggle("hud-intro-hidden", isBossIntroActive());
     if (hud.hp) {
       const shieldText = player.shield > 0 ? ` +${Math.ceil(player.shield)}盾` : "";
-      const blockText = player.blockCharges > 0
-        ? ` | 免伤x${player.blockCharges}`
-        : hasBuff(player, "草稿纸护盾")
-          ? ` | 免伤${Math.ceil(player.blockTimer || draftShieldInterval)}s`
-          : "";
-      const sealText = (player.weaponSealTimer || 0) > 0 ? ` | 非几何封锁${Math.ceil(player.weaponSealTimer)}s` : "";
-      hud.hp.textContent = `${Math.max(0, Math.ceil(player.hp))} / ${player.maxHp}${shieldText}${blockText}${sealText}`;
+      const sealText = (player.weaponSealTimer || 0) > 0
+        ? player.weaponSealSourceId
+          ? " | 非几何封锁：直到目标倒下"
+          : ` | 非几何封锁${Math.ceil(player.weaponSealTimer)}s`
+        : "";
+      const developerText = game.developerMode ? " | DEV" : "";
+      hud.hp.textContent = `${Math.max(0, Math.ceil(player.hp))} / ${player.maxHp}${shieldText}${sealText}${developerText}`;
     }
     const weaponNames = player.weapons
       .map((weapon, index) => `${index + 1}.${displayWeaponName(weapon)} ${ammoLabel(weapon)}`)
@@ -5692,133 +6605,16 @@
     }
   }
 
-  const buffDetails = {
-    临时抱佛脚: {
-      type: "宝箱增益",
-      effect: "立即回复 30 点生命值。重复获得会再次触发回复。",
-      source: "宝箱房或挑战三人时随机获得。",
-    },
-    学霸笔记: {
-      type: "战斗增益",
-      effect: "造成伤害提高 10%。",
-      source: "宝箱房获得远程武器时附带。",
-    },
-    公式大全: {
-      type: "战斗增益",
-      effect: "造成伤害提高 10%。可与学霸笔记同时生效。",
-      source: "宝箱房或挑战三人时随机获得。",
-    },
-    熬夜咖啡: {
-      type: "战斗增益",
-      effect: "移动速度提高 100%。",
-      source: "宝箱房或挑战三人时随机获得。",
-    },
-    草稿纸护盾: {
-      type: "生存增益",
-      effect: "最多同时存在 1 层免伤。获得时立刻补满，之后每 10 秒补充 1 层；受到伤害时优先消耗，完全抵消该次伤害。",
-      source: "宝箱房或挑战三人时随机获得。",
-    },
-    错题本: {
-      type: "反击增益",
-      effect: "被击中后 4 秒内造成伤害提高 25%。",
-      source: "宝箱房或挑战三人时随机获得。",
-    },
-    绩点守护: {
-      type: "生存增益",
-      effect: "濒死时自动触发一次，回复至 45% 最大生命值并获得短暂无敌。",
-      source: "宝箱房或挑战三人时随机获得。",
-    },
-    函数机枪: {
-      type: "知识印记",
-      effect: "表示已完成微积分教室并获得函数机枪；函数机枪对柯西核心有克制伤害。",
-      source: "击败拉格朗日投影或宝箱获得。",
-    },
-    积分狙击枪: {
-      type: "知识印记",
-      effect: "表示已获得积分狙击枪；它发射高伤害穿透弹，适合点杀高血量目标。",
-      source: "击败洛必达投影或宝箱获得。",
-    },
-    泰勒扩散炮: {
-      type: "知识印记",
-      effect: "表示已获得泰勒扩散炮；子弹飞行一段时间后分裂，适合清理弹幕空隙里的小怪。",
-      source: "击败泰勒投影或宝箱获得。",
-    },
-    坐标系大宝剑: {
-      type: "知识印记",
-      effect: "表示已获得坐标系大宝剑；攻击会形成横纵坐标轴式十字斩击。",
-      source: "击败阿基米德投影或宝箱获得。",
-    },
-    极坐标霰弹枪: {
-      type: "知识印记",
-      effect: "表示已完成欧氏几何教室并获得极坐标霰弹枪；它对笛卡尔核心有克制伤害。",
-      source: "击败笛卡尔投影或宝箱获得。",
-    },
-    几何护盾: {
-      type: "知识印记",
-      effect: "表示已获得几何护盾；它会周期性生成护盾，主动攻击还能清除附近弹幕。",
-      source: "击败欧几里得投影或宝箱获得。",
-    },
-    "矩阵 RPG": {
-      type: "知识印记",
-      effect: "表示已完成线性代数教室并获得矩阵 RPG；它对高斯核心有克制伤害。",
-      source: "击败高斯投影或宝箱获得。",
-    },
-    "LU 分解法杖": {
-      type: "知识印记",
-      effect: "表示已获得 LU 分解法杖；子弹会分裂成 L/U 方向弹道。",
-      source: "击败若尔当投影或宝箱获得。",
-    },
-    行列式激光: {
-      type: "知识印记",
-      effect: "表示已获得行列式激光；按住攻击可以形成稳定的直线激光弹道。",
-      source: "击败高斯投影或宝箱获得。",
-    },
-    泰勒展开: {
-      type: "知识印记",
-      effect: "随机房通关记录；同时代表泰勒扩散炮相关路线已出现。",
-      source: "随机房击败泰勒投影。",
-    },
-    洛必达法则: {
-      type: "知识印记",
-      effect: "随机房通关记录；同时代表积分狙击枪相关路线已出现。",
-      source: "随机房击败洛必达投影。",
-    },
-    圆面积: {
-      type: "知识印记",
-      effect: "随机房通关记录；同时代表坐标系大宝剑相关路线已出现。",
-      source: "随机房击败阿基米德投影。",
-    },
-    几何直觉: {
-      type: "知识印记",
-      effect: "随机房通关记录；同时代表几何护盾相关路线已出现。",
-      source: "随机房击败欧几里得投影。",
-    },
-    雅可比矩阵: {
-      type: "知识印记",
-      effect: "随机房通关记录；同时代表矩阵 RPG 相关路线已出现。",
-      source: "随机房击败雅可比投影。",
-    },
-    约旦标准型: {
-      type: "知识印记",
-      effect: "随机房通关记录；同时代表 LU 分解法杖相关路线已出现。",
-      source: "随机房击败若尔当投影。",
-    },
-    高斯消元: {
-      type: "知识印记",
-      effect: "随机房通关记录；同时代表行列式激光相关路线已出现。",
-      source: "随机房击败高斯投影。",
-    },
-  };
-
   function buffInfoMarkup() {
     const player = game.player;
-    if (!player?.buffs?.length) {
+    const activeBuffs = player?.buffs?.filter((buff) => buffDetails[buff]) || [];
+    if (!activeBuffs.length) {
       return `
         <p class="buff-empty">当前暂无增益。进入知识点房间或宝箱房后，这里会显示已获得增益的效果说明。</p>
       `;
     }
 
-    const counts = player.buffs.reduce((map, buff) => {
+    const counts = activeBuffs.reduce((map, buff) => {
       map.set(buff, (map.get(buff) || 0) + 1);
       return map;
     }, new Map());
@@ -5848,7 +6644,7 @@
     }).join("");
 
     return `
-      <p>这里显示当前已获得的增益、知识印记和它们的实际作用。</p>
+      <p>这里显示当前已获得增益的实际作用。</p>
       <div class="buff-list">${cards}</div>
     `;
   }
@@ -5958,7 +6754,47 @@
     return parts.join(" / ");
   }
 
+  function weaponInfoPager(pageIndex, totalPages) {
+    return `
+      <div class="weapon-info-pager" aria-label="武器与增益分页">
+        <button type="button" data-weapon-info-page="${Math.max(0, pageIndex - 1)}" ${pageIndex <= 0 ? "disabled" : ""}>上一页</button>
+        <span>${pageIndex + 1} / ${totalPages}</span>
+        <button type="button" data-weapon-info-page="${Math.min(totalPages - 1, pageIndex + 1)}" ${pageIndex >= totalPages - 1 ? "disabled" : ""}>下一页</button>
+      </div>
+    `;
+  }
+
+  function buffCatalogMarkup() {
+    const cards = buffRewardIds.map((name) => {
+      const detail = buffDetails[name] || {
+        type: "增益",
+        effect: "当前基础版暂未记录该增益的具体说明。",
+        source: "房间奖励。",
+      };
+      return `
+        <article class="buff-card">
+          <header>
+            <div>
+              <strong>${escapeHtml(name)}</strong>
+              <span>${escapeHtml(detail.type || "增益")}</span>
+            </div>
+          </header>
+          <p>${escapeHtml(detail.effect || "获得一项战斗增益。")}</p>
+          <small>${escapeHtml(detail.source || "房间奖励。")}</small>
+        </article>
+      `;
+    }).join("");
+
+    return `
+      <p>以下为当前可获得的全部增益。宝箱房会在随机武器和随机增益中二选一，知识点教室则会随挑战人数给出可选增益。</p>
+      <div class="buff-list buff-catalog">${cards}</div>
+    `;
+  }
+
   function weaponStatsMarkup() {
+    const totalPages = 2;
+    const pageIndex = clamp(weaponInfoPageIndex, 0, totalPages - 1);
+    weaponInfoPageIndex = pageIndex;
     const ids = Object.keys(weapons);
     const rows = ids.map((id) => {
       const weapon = weapons[id];
@@ -5977,7 +6813,7 @@
       `;
     }).join("");
 
-    return `
+    const weaponPage = `
       <p>以下为 1 级基础数据。重复获得同类武器后，现有武器会升级，伤害、弹匣和换弹效率会同步提升。</p>
       <div class="weapon-table-wrap">
         <table class="weapon-table">
@@ -5999,6 +6835,17 @@
       </div>
       <p class="weapon-note">Boss 战中，对应学科武器命中对应核心造成 1.25 倍伤害，非对应学科武器造成 0.8 倍伤害。</p>
       ${ownedWeaponStatsMarkup()}
+    `;
+
+    return `
+      <div class="weapon-info-board">
+        <div class="weapon-info-page-head">
+          <span>武器与增益</span>
+          <strong>${pageIndex === 0 ? "武器数据" : "增益简介"}</strong>
+        </div>
+        ${pageIndex === 0 ? weaponPage : buffCatalogMarkup()}
+        ${weaponInfoPager(pageIndex, totalPages)}
+      </div>
     `;
   }
 
@@ -6047,6 +6894,293 @@
         </section>
       </div>
     `;
+  }
+
+  function enemyCodexMarkup() {
+    const sections = [
+      {
+        title: "普通投影",
+        entries: [
+          {
+            name: "拉格朗日投影",
+            meta: "微积分 / 八连弹与分裂",
+            body: "每隔一段时间朝玩家方向打出八颗扇形弹，死亡后分裂成两个本体 2/5 血量的小投影。分裂体只发射两颗弹，但弹速更快、移动更随机。",
+            tip: "击杀前先留出走位空间，避免被分裂体贴脸夹击。",
+          },
+          {
+            name: "洛必达投影",
+            meta: "微积分 / 剑盾循环",
+            body: "开局 5 秒无敌，随后朝玩家方向连续挥剑三次并向前突进。挥剑后会休息举盾，休息期间受到伤害减少 75%；低血量时休息更短且多挥一次。",
+            tip: "开场先拉开距离，等它挥剑结束后再看准举盾间隙输出。",
+          },
+          {
+            name: "泰勒投影",
+            meta: "微积分 / 三段冲刺",
+            body: "平时不射击，会周期性预警后三段连续冲刺。冲刺命中会造成高伤害，冲刺后的短暂休息期受到伤害大幅降低。",
+            tip: "看见预警后横向拉开，等休息期结束再集中火力。",
+          },
+          {
+            name: "阿基米德投影",
+            meta: "欧氏几何 / 三角标记冲刺",
+            body: "向玩家发射高速三角弹，三角弹命中障碍物后生成标记点，随后预警并冲刺到标记位置。两次墙体冲刺后，下一次会直接预瞄玩家位置。",
+            tip: "看到障碍物被标记后先离开路径，第三次冲刺尤其不要贪刀。",
+          },
+          {
+            name: "笛卡尔投影",
+            meta: "欧氏几何 / 坐标轴激光",
+            body: "每次锁定玩家当前 x 坐标与 y 坐标，生成贯穿全图的十字激光。它会把地图划成四个象限，每隔 8 秒闪现到其他象限。",
+            tip: "不要长时间站在横竖轴交点附近，换象限后尽快重新拉开角度。",
+          },
+          {
+            name: "欧几里得投影",
+            meta: "欧氏几何 / 双半圆冲刺",
+            body: "每次攻击会进行两段方向相反的半圆冲刺。每段冲刺都会发射一圈 10 发弹，其中 3 发方形弹命中后会封锁非欧氏几何和圣剑之外的武器，直到欧几里得倒下。",
+            tip: "被方形弹命中后先切回圣剑或几何武器，优先处理欧几里得解除封锁。",
+          },
+          {
+            name: "雅可比投影",
+            meta: "线性代数 / 连续齐射",
+            body: "会发起四波五连弹齐射，并周期性闪现到玩家身后附近。闪现落点后的齐射伤害更高。",
+            tip: "注意背后判定和落点预警，闪现后先躲第一轮再反打。",
+          },
+          {
+            name: "若尔当投影",
+            meta: "线性代数 / 领域压迫",
+            body: "半血以上会发射碰到障碍物后分裂的环形弹。半血以下展开圆形安全领域，玩家在领域外每秒持续扣血，本体攻击改为前方半圈挥刀。",
+            tip: "领域内保持近中距离绕圈，不要被迫退到场边。",
+          },
+          {
+            name: "高斯投影",
+            meta: "线性代数 / 上下半场",
+            body: "会在上下半场切换。上半区时伤害翻倍、受到伤害减半，并且在上半区死亡会释放五道死亡激光；下半区会低血保护并缓慢回复。",
+            tip: "尽量在下半区压血，确认走位安全后再完成击杀。",
+          },
+          {
+            name: "Boss 投影",
+            meta: `Boss 召唤物 / ${bossProjectionHp} 生命`,
+            body: "由笛卡尔核心领域召唤，会小幅移动并朝玩家射击。每次切换象限会在旧象限生成两个投影，领域结束时会按切换次数额外召唤 6/4/2/0 个投影。",
+            tip: "投影血量低，但会挤压走位；场上过多时优先清掉。",
+          },
+        ],
+      },
+      {
+        title: "Boss 核心",
+        entries: [
+          {
+            name: "三位一体",
+            meta: "Boss 通用规则",
+            body: "三核心沿三角轨迹移动并每 20 秒轮转。当前位于上方的核心进入领域，领域核心不攻击且生命无敌，但护盾仍可被对应武器或圣剑击破。",
+            tip: "优先判断当前可伤害核心，再用克制或高命中武器输出。",
+          },
+          {
+            name: "柯西核心",
+            meta: "微积分 / 炸弹链与墙体领域",
+            body: "普通攻击会在玩家附近标出大范围炸点，爆炸后分裂成五个小炸点，小炸点爆炸后朝随机方向发射三枚方块弹。领域中会生成或点亮柯西墙，玩家子弹会被领域墙反射，领域开始和结束都会引爆绿墙。",
+            tip: "先离开圆形落点，再观察小炸点的排弹方向，不要贴着绿色领域墙输出。",
+          },
+          {
+            name: "笛卡尔核心",
+            meta: "欧氏几何 / 十字激光与象限领域",
+            body: "普通攻击为十字激光并在交点生成投影。领域内按玩家所在象限改变规则：一象限玩家输出降低，二象限承伤提高，三象限移速降低，四象限武器冷却变长；换象限会在旧象限召唤两个投影。",
+            tip: "尽量避免长期停在二、三、四象限的危险状态里。",
+          },
+          {
+            name: "高斯核心",
+            meta: "线性代数 / 随机点曲线弹",
+            body: "普通攻击会生成多个随机区域，每个区域周期性发射三向曲线弹。高斯领域会让另外两个核心回升到当前血量阈值、加盾并强化伤害，所有核心短暂隐身；玩家被区域弹命中会提高下一轮区域数量，若其他核心在高斯领域中死亡，高斯会回满血。",
+            tip: "高斯领域期间先保命和控场，不要急着击杀其他核心。",
+          },
+        ],
+      },
+    ];
+    return `
+      <div class="enemy-codex">
+        ${sections.map((section) => `
+          <section class="codex-section">
+            <h3>${escapeHtml(section.title)}</h3>
+            <div class="codex-grid">
+              ${section.entries.map((entry) => `
+                <article class="codex-card">
+                  <header>
+                    <strong>${escapeHtml(entry.name)}</strong>
+                    <span>${escapeHtml(entry.meta)}</span>
+                  </header>
+                  <p>${escapeHtml(entry.body)}</p>
+                  <small>${escapeHtml(entry.tip)}</small>
+                </article>
+              `).join("")}
+            </div>
+          </section>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function betaBossShopMarkup() {
+    const shop = ensureBetaBossShopStock();
+    const hp = Math.max(0, Math.ceil(game.player?.hp || 0));
+    const credits = Math.max(0, Math.round(Number(game.credits || 0)));
+    const refreshCost = Math.max(1, Math.round(Number(shop.refreshCost || 1)));
+    const canBuy = hp > betaShopItemHpCost;
+    const cards = shop.stock.map((item, index) => {
+      const name = betaShopItemName(item);
+      const weapon = item.type === "weapon" ? weapons[item.id] : null;
+      const meta = item.type === "weapon"
+        ? `${weaponKindLabel(weapon?.kind)} / ${weapon?.ranged ? "远程" : "近战"} / ${weaponDamageLabel(weapon)}`
+        : `${buffDetails[item.id]?.type || "增益"} / ${buffBriefText(item.id)}`;
+      const detail = item.type === "weapon"
+        ? "加入背包；如果已拥有同类武器，则强化现有武器。"
+        : (buffDetails[item.id]?.effect || "获得一项战斗增益。");
+      return `
+        <article class="beta-shop-card${item.purchased ? " purchased" : ""}">
+          <header>
+            <span>${item.type === "weapon" ? "武器" : "增益"}</span>
+            <strong>${escapeHtml(name)}</strong>
+          </header>
+          <p>${escapeHtml(meta)}</p>
+          <small>${escapeHtml(detail)}</small>
+          <button type="button" data-beta-shop-buy="${index}" ${item.purchased || !canBuy ? "disabled" : ""}>
+            ${item.purchased ? "已兑换" : `${betaShopItemHpCost} 生命兑换`}
+          </button>
+        </article>
+      `;
+    }).join("");
+    return `
+      <div class="beta-shop">
+        <div class="beta-shop-status">
+          <span>学分 <strong>${credits}</strong></span>
+          <span>生命 <strong>${hp}</strong></span>
+          <span>刷新 <strong>${refreshCost}</strong></span>
+        </div>
+        <p class="beta-shop-note">每件商品消耗 ${betaShopItemHpCost} 生命；刷新只消耗学分，价格从 1 学分开始逐次增加。进入商店时的房间回血已经结算，开始 Boss 战后不会再次回血。</p>
+        <div class="beta-shop-grid">${cards}</div>
+        <div class="beta-shop-actions">
+          <button type="button" data-beta-shop-action="refresh" ${credits < refreshCost ? "disabled" : ""}>刷新商店（${refreshCost} 学分）</button>
+          <button class="primary-action" type="button" data-beta-shop-action="start">开始 Boss 战</button>
+        </div>
+        <p class="beta-shop-message">${escapeHtml(shop.message || "可以直接开始 Boss 战，也可以用生命和学分做最后准备。")}</p>
+      </div>
+    `;
+  }
+
+  function developerMarkup() {
+    const player = game.player;
+    const status = game.developerMode
+      ? "\u5df2\u5f00\u542f\uff1a\u672c\u5c40\u4e0d\u4f1a\u6263\u8840\uff0c\u4e14\u4e0d\u8bb0\u5165\u6392\u884c\u699c"
+      : "\u5df2\u5173\u95ed";
+    const weaponRows = Object.keys(weapons).map((id) => {
+      const owned = player?.weapons?.find((weapon) => weapon.id === id);
+      const label = owned ? displayWeaponName(owned) : weapons[id].name;
+      const details = owned
+        ? `Lv.${owned.level || 1} / ${weaponDamageLabel(owned)} / ${ammoLabel(owned)}`
+        : "\u672a\u62e5\u6709";
+      return `
+        <div class="developer-row${owned ? " is-owned" : ""}">
+          <div>
+            <strong>${escapeHtml(label)}</strong>
+            <span>${escapeHtml(details)}</span>
+          </div>
+          <div class="developer-actions">
+            <button type="button" data-dev-action="weapon-add" data-weapon-id="${escapeHtml(id)}">+</button>
+            <button type="button" data-dev-action="weapon-remove" data-weapon-id="${escapeHtml(id)}" ${owned ? "" : "disabled"}>-</button>
+          </div>
+        </div>
+      `;
+    }).join("");
+    const buffRows = buffRewardIds.map((name) => {
+      const count = player?.buffs?.filter((buff) => buff === name).length || 0;
+      const details = buffDetails[name];
+      return `
+        <div class="developer-row${count ? " is-owned" : ""}">
+          <div>
+            <strong>${escapeHtml(name)}</strong>
+            <span>${escapeHtml(details?.type || "\u589e\u76ca")} / x${count}</span>
+          </div>
+          <div class="developer-actions">
+            <button type="button" data-dev-action="buff-add" data-buff="${escapeHtml(name)}">+</button>
+            <button type="button" data-dev-action="buff-remove" data-buff="${escapeHtml(name)}" ${count ? "" : "disabled"}>-</button>
+          </div>
+        </div>
+      `;
+    }).join("");
+    const customRows = developerCustomEnemyDefs().map((enemy) => `
+      <label class="developer-custom-row">
+        <span>
+          <strong>${escapeHtml(enemy.name)}</strong>
+          <small>${escapeHtml(weaponKindLabel(enemy.kind))} / ${escapeHtml(enemy.pattern || "none")} / ${Math.round(enemy.hp || 0)} HP</small>
+        </span>
+        <input
+          type="number"
+          min="0"
+          max="12"
+          step="1"
+          value="0"
+          data-custom-enemy-count="${escapeHtml(enemy.id)}"
+          aria-label="${escapeHtml(enemy.name)}数量"
+        >
+      </label>
+    `).join("");
+    return `
+      <div class="developer-panel">
+        <p class="developer-status">${escapeHtml(status)}</p>
+        <div class="developer-grid">
+          <section class="developer-section">
+            <h3>&#27494;&#22120;</h3>
+            ${weaponRows}
+          </section>
+          <section class="developer-section">
+            <h3>&#22686;&#30410;</h3>
+            ${buffRows}
+          </section>
+        </div>
+        <section class="developer-section developer-custom-room">
+          <h3>自定义房间</h3>
+          <p>设置每种怪物的数量后进入测试房。自定义房间不会结算奖励，也不会记录排行榜。</p>
+          ${game.developerCustomMessage ? `<p class="developer-custom-message">${escapeHtml(game.developerCustomMessage)}</p>` : ""}
+          <div class="developer-custom-grid">
+            ${customRows}
+          </div>
+          <div class="developer-custom-actions">
+            <button class="primary-action" type="button" data-dev-action="custom-room-start">进入自定义房间</button>
+          </div>
+        </section>
+      </div>
+    `;
+  }
+
+  function handleDeveloperAction(button) {
+    const player = ensureDeveloperPlayer();
+    if (!player) return false;
+    game.developerMode = true;
+    game.developerModeUsed = true;
+    const action = button?.dataset?.devAction;
+    let changed = false;
+    if (action === "custom-room-start") {
+      const started = startDeveloperCustomRoomFromPanel();
+      if (!started && !ui.modal.hidden && ui.modal.dataset.kind === "developer") {
+        ui.modalBody.innerHTML = developerMarkup();
+      }
+      return started;
+    }
+    if (action === "weapon-add") {
+      changed = addWeapon(player, button.dataset.weaponId, true);
+    } else if (action === "weapon-remove") {
+      changed = removeWeapon(player, button.dataset.weaponId);
+    } else if (action === "buff-add") {
+      const buff = button.dataset.buff;
+      if (buffRewardIds.includes(buff)) {
+        grantBuff(player, buff);
+        changed = true;
+      }
+    } else if (action === "buff-remove") {
+      changed = removeBuff(player, button.dataset.buff);
+    }
+    if (!changed) return false;
+    updateHud();
+    if (!ui.modal.hidden && ui.modal.dataset.kind === "developer") {
+      ui.modalBody.innerHTML = developerMarkup();
+    }
+    return true;
   }
 
   function escapeHtml(value) {
@@ -6321,25 +7455,15 @@
 
   function openModal(kind) {
     if (kind === "funFacts") funFactsPageIndex = 0;
+    if (kind === "weapons") weaponInfoPageIndex = 0;
     const content = {
-      guide: {
-        title: "游戏说明",
-        body: `
-          <p>进入知识点房间可以获得武器和增益；直接进入 Boss 房只能携带初始圣剑 ∫，难度更高。</p>
-          <ul>
-            <li>W/A/S/D 控制移动</li>
-            <li>鼠标移动控制攻击方向</li>
-            <li>鼠标左键攻击，圣剑可以抵消敌方弹幕</li>
-            <li>按 1-9 选择对应武器，按 Q 在已有武器间循环</li>
-            <li>远程武器有弹匣限制，打空后自动换弹，也可以按 R 手动换弹</li>
-            <li>重复获得同类武器时会强化现有武器，显示为 +1、+2 等等级</li>
-            <li>击败 Boss 三个核心即可通关</li>
-          </ul>
-        `,
-      },
       weapons: {
-        title: "武器数据",
+        title: "武器与增益",
         body: weaponStatsMarkup(),
+      },
+      enemyCodex: {
+        title: "名人堂",
+        body: enemyCodexMarkup(),
       },
       funFacts: {
         title: "趣味知识",
@@ -6349,13 +7473,17 @@
         title: "背包",
         body: inventoryMarkup(),
       },
+      developer: {
+        title: "\u5f00\u53d1\u8005\u6a21\u5f0f",
+        body: developerMarkup(),
+      },
+      betaShop: {
+        title: "β 学分商店",
+        body: betaBossShopMarkup(),
+      },
       leaderboard: {
         title: "通关排行榜",
         body: leaderboardMarkup(),
-      },
-      buffs: {
-        title: "当前增益说明",
-        body: buffInfoMarkup(),
       },
       settings: {
         title: "设置",
@@ -6365,7 +7493,7 @@
       },
     }[kind];
     ui.modal.dataset.kind = kind;
-    ui.modalPanel.classList.toggle("modal-panel-wide", kind === "weapons" || kind === "inventory" || kind === "leaderboard" || kind === "funFacts");
+    ui.modalPanel.classList.toggle("modal-panel-wide", kind === "weapons" || kind === "enemyCodex" || kind === "inventory" || kind === "leaderboard" || kind === "funFacts" || kind === "developer" || kind === "betaShop");
     ui.modalPanel.classList.toggle("modal-panel-no-title", kind === "funFacts");
     if (kind === "funFacts") {
       ui.modalPanel.setAttribute("aria-label", content.title);
@@ -6407,6 +7535,10 @@
     return Boolean(event.target.closest("button, .modal-backdrop, .screen, .hud-inventory-button"));
   }
 
+  function isTextInputTarget(target) {
+    return Boolean(target?.closest?.("input, textarea, [contenteditable='true']"));
+  }
+
   function updatePointerFromEvent(event, pressed = false) {
     if (mode !== "combat" || !ui.modal.hidden || shouldIgnoreCombatPointer(event)) return false;
     Object.assign(mouse, canvasMousePosition(event));
@@ -6416,27 +7548,6 @@
       event.preventDefault();
     }
     return true;
-  }
-
-  function distance(a, b) {
-    return Math.hypot(a.x - b.x, a.y - b.y);
-  }
-
-  function distancePointToSegment(px, py, ax, ay, bx, by) {
-    const vx = bx - ax;
-    const vy = by - ay;
-    const lenSq = vx * vx + vy * vy;
-    if (!lenSq) return Math.hypot(px - ax, py - ay);
-    const t = clamp(((px - ax) * vx + (py - ay) * vy) / lenSq, 0, 1);
-    return Math.hypot(px - (ax + vx * t), py - (ay + vy * t));
-  }
-
-  function angleDelta(a, b) {
-    return Math.atan2(Math.sin(a - b), Math.cos(a - b));
-  }
-
-  function smoothAngle(current, target, rate) {
-    return current + angleDelta(target, current) * rate;
   }
 
   function isEnemyBackHit(enemy, source) {
@@ -6475,9 +7586,6 @@
       applyEnemySlow(0.86, 2.4);
       enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.25);
     }
-    if (hasEnemyMechanic(enemy, "jordanDomain") && !enemy.jordanDomainActive && !(enemy.jordanTransitionTimer > 0)) {
-      fireJordanRing(enemy, false);
-    }
     startJordanTransition(enemy);
     lockGaussBottomHp(enemy);
   }
@@ -6492,169 +7600,6 @@
     };
   }
 
-  function circleRectCollision(circleRef, rect, radius = circleRef.r || 0) {
-    const nearestX = clamp(circleRef.x, rect.x, rect.x + rect.w);
-    const nearestY = clamp(circleRef.y, rect.y, rect.y + rect.h);
-    return Math.hypot(circleRef.x - nearestX, circleRef.y - nearestY) <= radius;
-  }
-
-  function circleObstacleCollision(circleRef, obstacle, radius = circleRef.r || 0) {
-    return Boolean(circleObstacleHit(circleRef, obstacle, radius));
-  }
-
-  function circleObstacleHit(circleRef, obstacle, radius = circleRef.r || 0) {
-    if (!circleRectCollision(circleRef, expandRect(obstacle, Math.max(radius, obstacle.thickness || 0)), 0)) {
-      return null;
-    }
-
-    if (!obstacle.shape || obstacle.shape === "rect") {
-      const nearestX = clamp(circleRef.x, obstacle.x, obstacle.x + obstacle.w);
-      const nearestY = clamp(circleRef.y, obstacle.y, obstacle.y + obstacle.h);
-      const dist = Math.hypot(circleRef.x - nearestX, circleRef.y - nearestY);
-      return dist <= radius ? { nearestX, nearestY, distance: dist, collisionRadius: radius } : null;
-    }
-
-    if (obstacle.shape === "line" || obstacle.shape === "curve" || obstacle.shape === "corner") {
-      const hitRadius = radius + (obstacle.thickness || 8) / 2;
-      const nearest = nearestPointOnPolyline(circleRef, obstacle.points || []);
-      return nearest && nearest.distance <= hitRadius
-        ? { nearestX: nearest.x, nearestY: nearest.y, distance: nearest.distance, collisionRadius: hitRadius }
-        : null;
-    }
-
-    if (obstacle.shape === "brokenLine") {
-      const hitRadius = radius + (obstacle.thickness || 8) / 2;
-      const nearest = nearestPointOnSegments(circleRef, obstacle.segments || []);
-      return nearest && nearest.distance <= hitRadius
-        ? { nearestX: nearest.x, nearestY: nearest.y, distance: nearest.distance, collisionRadius: hitRadius }
-        : null;
-    }
-
-    if (obstacle.shape === "blob") {
-      const points = obstacle.points || [];
-      const nearest = nearestPointOnPolyline(circleRef, [...points, points[0]].filter(Boolean));
-      const inside = pointInPolygon(circleRef, points);
-      if (inside) {
-        const center = obstacleCenter(obstacle);
-        return { nearestX: center.x, nearestY: center.y, distance: 0, collisionRadius: radius + 1 };
-      }
-      return nearest && nearest.distance <= radius
-        ? { nearestX: nearest.x, nearestY: nearest.y, distance: nearest.distance, collisionRadius: radius }
-        : null;
-    }
-
-    return null;
-  }
-
-  function obstacleCenter(obstacle) {
-    if (obstacle.segments?.length) {
-      const points = obstacle.segments.flat();
-      return {
-        x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
-        y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
-      };
-    }
-    if (obstacle.points?.length) {
-      return {
-        x: obstacle.points.reduce((sum, point) => sum + point.x, 0) / obstacle.points.length,
-        y: obstacle.points.reduce((sum, point) => sum + point.y, 0) / obstacle.points.length,
-      };
-    }
-    return { x: obstacle.x + obstacle.w / 2, y: obstacle.y + obstacle.h / 2 };
-  }
-
-  function obstacleVisualArea(obstacle) {
-    if (obstacle.shape === "line" || obstacle.shape === "curve" || obstacle.shape === "corner") {
-      const points = obstacle.points || [];
-      let length = 0;
-      for (let i = 0; i < points.length - 1; i += 1) {
-        length += Math.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y);
-      }
-      return length * (obstacle.thickness || 8);
-    }
-    if (obstacle.shape === "brokenLine") {
-      return (obstacle.segments || []).reduce((total, segment) => {
-        let length = 0;
-        for (let i = 0; i < segment.length - 1; i += 1) {
-          length += Math.hypot(segment[i + 1].x - segment[i].x, segment[i + 1].y - segment[i].y);
-        }
-        return total + length * (obstacle.thickness || 8);
-      }, 0);
-    }
-    if (obstacle.shape === "blob") {
-      const points = obstacle.points || [];
-      let area = 0;
-      for (let i = 0; i < points.length; i += 1) {
-        const next = points[(i + 1) % points.length];
-        area += points[i].x * next.y - next.x * points[i].y;
-      }
-      return Math.abs(area) / 2;
-    }
-    return obstacle.w * obstacle.h;
-  }
-
-  function nearestPointOnPolyline(point, points) {
-    if (!points || points.length < 2) return null;
-    let best = null;
-    for (let i = 0; i < points.length - 1; i += 1) {
-      const candidate = nearestPointOnSegment(point.x, point.y, points[i].x, points[i].y, points[i + 1].x, points[i + 1].y);
-      if (!best || candidate.distance < best.distance) best = candidate;
-    }
-    return best;
-  }
-
-  function nearestPointOnSegments(point, segments) {
-    let best = null;
-    (segments || []).forEach((segment) => {
-      const candidate = nearestPointOnPolyline(point, segment || []);
-      if (candidate && (!best || candidate.distance < best.distance)) best = candidate;
-    });
-    return best;
-  }
-
-  function nearestPointOnSegment(px, py, ax, ay, bx, by) {
-    const vx = bx - ax;
-    const vy = by - ay;
-    const lenSq = vx * vx + vy * vy;
-    if (!lenSq) {
-      return { x: ax, y: ay, distance: Math.hypot(px - ax, py - ay) };
-    }
-    const t = clamp(((px - ax) * vx + (py - ay) * vy) / lenSq, 0, 1);
-    const x = ax + vx * t;
-    const y = ay + vy * t;
-    return { x, y, distance: Math.hypot(px - x, py - y) };
-  }
-
-  function pointInPolygon(point, points) {
-    if (!points || points.length < 3) return false;
-    let inside = false;
-    for (let i = 0, j = points.length - 1; i < points.length; j = i, i += 1) {
-      const a = points[i];
-      const b = points[j];
-      const crosses = (a.y > point.y) !== (b.y > point.y)
-        && point.x < ((b.x - a.x) * (point.y - a.y)) / ((b.y - a.y) || 1) + a.x;
-      if (crosses) inside = !inside;
-    }
-    return inside;
-  }
-
-  function expandRect(rect, amount) {
-    return {
-      x: rect.x - amount,
-      y: rect.y - amount,
-      w: rect.w + amount * 2,
-      h: rect.h + amount * 2,
-    };
-  }
-
-  function rectsOverlap(a, b) {
-    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-  }
-
-  function clamp(value, min, max) {
-    return Math.max(min, Math.min(max, value));
-  }
-
   function inBounds(x, y, margin) {
     return x > -margin && x < W + margin && y > -margin && y < H + margin;
   }
@@ -6666,10 +7611,16 @@
     draw();
   }
 
-  ui.start.addEventListener("click", resetGame);
+  ui.start.addEventListener("click", openVersionSelect);
+  ui.versionAlpha?.addEventListener("click", () => startVersion("alpha"));
+  ui.versionBeta?.addEventListener("click", () => startVersion("beta"));
+  ui.versionBack?.addEventListener("click", () => {
+    mode = "menu";
+    showScreen("menu");
+  });
   hud.inventory?.addEventListener("click", () => openModal("inventory"));
-  ui.guide.addEventListener("click", () => openModal("guide"));
   ui.weaponStats.addEventListener("click", () => openModal("weapons"));
+  ui.enemyCodex?.addEventListener("click", () => openModal("enemyCodex"));
   ui.funFacts?.addEventListener("click", () => openModal("funFacts"));
   ui.leaderboard?.addEventListener("click", () => openModal("leaderboard"));
   ui.settings.addEventListener("click", () => openModal("settings"));
@@ -6678,6 +7629,31 @@
     if (event.target === ui.modal) closeModal();
   });
   ui.modalBody.addEventListener("click", (event) => {
+    const betaShopBuy = event.target.closest("[data-beta-shop-buy]");
+    if (betaShopBuy && ui.modal.dataset.kind === "betaShop") {
+      buyBetaShopItem(Number(betaShopBuy.dataset.betaShopBuy));
+      return;
+    }
+    const betaShopAction = event.target.closest("[data-beta-shop-action]");
+    if (betaShopAction && ui.modal.dataset.kind === "betaShop") {
+      const action = betaShopAction.dataset.betaShopAction;
+      if (action === "refresh") refreshBetaBossShop();
+      if (action === "start") startBossFromBetaShop();
+      return;
+    }
+    const developerButton = event.target.closest("[data-dev-action]");
+    if (developerButton && ui.modal.dataset.kind === "developer") {
+      handleDeveloperAction(developerButton);
+      return;
+    }
+    const weaponInfoButton = event.target.closest("[data-weapon-info-page]");
+    if (weaponInfoButton && ui.modal.dataset.kind === "weapons") {
+      const nextPage = Number(weaponInfoButton.dataset.weaponInfoPage);
+      if (!Number.isFinite(nextPage)) return;
+      weaponInfoPageIndex = Math.max(0, Math.round(nextPage));
+      ui.modalBody.innerHTML = weaponStatsMarkup();
+      return;
+    }
     const button = event.target.closest("[data-fun-facts-page]");
     if (!button || ui.modal.dataset.kind !== "funFacts") return;
     const nextPage = Number(button.dataset.funFactsPage);
@@ -6692,9 +7668,14 @@
     button.addEventListener("click", () => beginMonsterChallenge(button.dataset.challengeCount));
   });
   ui.challengeBack?.addEventListener("click", () => enterMap("当前状态：已返回地图，可以重新选择教室。"));
-  ui.acceptWeapon?.addEventListener("click", () => resolveWeaponChoice(true));
-  ui.skipWeapon?.addEventListener("click", () => resolveWeaponChoice(false));
-  ui.backToMap.addEventListener("click", () => enterMap("当前状态：奖励已整理，可以继续选择房间或挑战 Boss。"));
+  ui.acceptWeapon?.addEventListener("click", () => toggleRewardWeaponSelection());
+  ui.skipWeapon?.addEventListener("click", () => toggleRewardBuffSelection(0));
+  ui.secondBuffReward?.addEventListener("click", () => toggleRewardBuffSelection(1));
+  ui.confirmReward?.addEventListener("click", () => resolveRewardChoice("selection"));
+  ui.backToMap.addEventListener("click", () => {
+    if (game.pendingWeaponChoice) resolveRewardChoice("none");
+    enterMap("当前状态：奖励已整理，可以继续选择房间或挑战 Boss。");
+  });
   ui.resume.addEventListener("click", () => {
     mode = "combat";
     showScreen("combat");
@@ -6714,6 +7695,11 @@
   });
 
   window.addEventListener("keydown", (event) => {
+    if (event.code === "KeyI" && event.shiftKey && !isTextInputTarget(event.target)) {
+      event.preventDefault();
+      toggleDeveloperMode();
+      return;
+    }
     if (event.code === "Escape") {
       if (!ui.modal.hidden) {
         closeModal();
@@ -6808,6 +7794,8 @@
 
   const debugApi = {
     resetGame,
+    openVersionSelect,
+    startVersion,
     startMonsterRoom,
     openChestRoom,
     startBossRoom,
@@ -6840,6 +7828,27 @@
       updateHud();
       return this.state();
     },
+    previewSplitEnemyForVerify(index = 0) {
+      const enemy = game.enemies[Number(index) || 0];
+      if (!enemy) return { didSplit: false, children: [], state: this.state() };
+      const originalLength = game.enemies.length;
+      const didSplit = spawnSplitEnemies(enemy);
+      const children = game.enemies.slice(originalLength).map((child) => ({
+        id: child.id,
+        pattern: child.pattern,
+        mechanics: [...(child.mechanics || [])],
+        splitChild: Boolean(child.splitChild),
+        randomDrift: Boolean(child.randomDrift),
+        fireEvery: Number((child.fireEvery || 0).toFixed(3)),
+        fireTimer: Number((child.fireTimer || 0).toFixed(3)),
+        driftIntervalMultiplier: child.driftIntervalMultiplier || 1,
+        dashIntervalMultiplier: child.dashIntervalMultiplier || 1,
+        hp: Math.max(0, Math.ceil(child.hp)),
+        maxHp: Math.max(1, Math.ceil(child.maxHp)),
+      }));
+      game.enemies.splice(originalLength);
+      return { didSplit, children, state: this.state() };
+    },
     grantBuffForVerify(name) {
       if (game.player) {
         grantBuff(game.player, name);
@@ -6855,6 +7864,8 @@
     damagePlayerForVerify(amount) {
       const before = {
         hp: game.player?.hp,
+        maxHp: game.player?.maxHp,
+        shield: game.player?.shield || 0,
         blockCharges: game.player?.blockCharges || 0,
       };
       applyPlayerDamage(Number(amount) || 0, colors.danger);
@@ -6869,9 +7880,63 @@
       resolveWeaponChoice(false);
       return this.state();
     },
+    choosePendingBuffForVerify(index = 0) {
+      resolveRewardChoice("buff", Number(index) || 0);
+      return this.state();
+    },
+    togglePendingWeaponForVerify() {
+      toggleRewardWeaponSelection();
+      return this.state();
+    },
+    togglePendingBuffForVerify(index = 0) {
+      toggleRewardBuffSelection(Number(index) || 0);
+      return this.state();
+    },
+    confirmPendingRewardForVerify() {
+      resolveRewardChoice("selection");
+      return this.state();
+    },
+    declinePendingRewardForVerify() {
+      resolveRewardChoice("none");
+      return this.state();
+    },
     addWeaponForVerify(id) {
       const added = addWeapon(game.player, id, true);
       if (added) rememberRewardFamily(id);
+      updateHud();
+      return this.state();
+    },
+    setCreditsForVerify(value) {
+      game.credits = Math.max(0, Math.round(Number(value) || 0));
+      updateMap();
+      return this.state();
+    },
+    openBetaBossShopForVerify() {
+      openBetaBossShop();
+      return this.state();
+    },
+    buyBetaShopItemForVerify(index = 0) {
+      buyBetaShopItem(Number(index) || 0);
+      return this.state();
+    },
+    refreshBetaShopForVerify() {
+      refreshBetaBossShop();
+      return this.state();
+    },
+    startBossFromShopForVerify() {
+      startBossFromBetaShop();
+      return this.state();
+    },
+    toggleDeveloperModeForVerify() {
+      toggleDeveloperMode();
+      return this.state();
+    },
+    setDeveloperModeForVerify(active = true) {
+      setDeveloperMode(Boolean(active), false);
+      return this.state();
+    },
+    setBattleSecondsForVerify(seconds = 0) {
+      game.elapsed = Math.max(0, Number(seconds) || 0) * 1000;
       updateHud();
       return this.state();
     },
@@ -7009,20 +8074,44 @@
       if (kind === "cauchy") startBossDomain(boss, bossCoreById("cauchy"));
       if (kind === "descartes") startBossDomain(boss, bossCoreById("descartes"));
       if (kind === "gauss") startBossDomain(boss, bossCoreById("gauss"));
+      if (kind === "cauchyHighlight") highlightRandomCauchyCandidate(boss);
       if (kind === "gaussZones") createGaussZones(bossCoreById("gauss"));
+      if (kind === "cauchyAttack") {
+        const core = bossCoreById("cauchy");
+        if (core) fireCauchySquares(corePosition(core), core);
+      }
+      if (kind === "descartesAttack") {
+        const core = bossCoreById("descartes");
+        if (core) fireDescartesCross(corePosition(core), core);
+      }
       return this.state();
     },
     state: () => ({
       mode,
+      versionChannel: game.versionChannel || "alpha",
+      credits: game.credits || 0,
+      betaBossShopEntered: Boolean(game.betaBossShop?.entered),
+      betaBossShopRefreshCost: game.betaBossShop?.refreshCost || 1,
+      betaBossShopMessage: game.betaBossShop?.message || "",
+      betaBossShopStock: (game.betaBossShop?.stock || []).map((item) => ({
+        type: item.type,
+        id: item.id,
+        name: betaShopItemName(item),
+        purchased: Boolean(item.purchased),
+      })),
+      developerMode: Boolean(game.developerMode),
+      developerModeUsed: Boolean(game.developerModeUsed),
       activeRoom: game.activeRoom,
       activeRoomKey: game.activeRoomKey,
       battleSeconds: Math.round(game.elapsed / 1000),
       hp: game.player?.hp,
+      maxHp: game.player?.maxHp,
       shield: game.player?.shield || 0,
       blockCharges: game.player?.blockCharges || 0,
       blockTimer: game.player?.blockTimer || 0,
       mistakeBoostTimer: game.player?.mistakeBoostTimer || 0,
       weaponSealTimer: game.player?.weaponSealTimer || 0,
+      weaponSealSourceId: game.player?.weaponSealSourceId || "",
       enemySlowTimer: game.player?.enemySlowTimer || 0,
       cauchyDotTimer: game.player?.cauchyDotTimer || 0,
       gpaGuardUsed: Boolean(game.player?.gpaGuardUsed),
@@ -7031,10 +8120,18 @@
       currentWeaponAmmo: game.player?.weapon && !game.player.weapon.infiniteAmmo ? game.player.weapon.ammo : null,
       currentWeaponMagazine: game.player?.weapon && !game.player.weapon.infiniteAmmo ? game.player.weapon.magazine : null,
       currentWeaponReloading: Boolean(game.player?.weapon?.reloading),
+      currentWeaponReloadTimer: game.player?.weapon?.reloading ? Number((game.player.weapon.reloadTimer || 0).toFixed(3)) : 0,
       weaponIndex: game.player?.weaponIndex || 0,
       ammo: game.player?.weapon ? ammoLabel(game.player.weapon) : "",
       weaponLevel: game.player?.weapon?.level || 0,
       weaponDamage: game.player?.weapon ? game.player.weapon.damage * weaponDamageScale(game.player.weapon) : 0,
+      effectiveWeaponDamage: game.player?.weapon ? game.player.weapon.damage * weaponDamageScale(game.player.weapon) * playerDamageBuffMultiplier(game.player) : 0,
+      damageBuffMultiplier: game.player ? playerDamageBuffMultiplier(game.player) : 1,
+      incomingDamageMultiplier: game.player ? incomingDamageMultiplier(game.player) : 1,
+      attackCooldownMultiplier: game.player ? playerAttackCooldownMultiplier(game.player) : 1,
+      weaponCooldown: game.player?.weapon ? game.player.weapon.cooldown * playerAttackCooldownMultiplier(game.player) : 0,
+      effectiveReloadTime: game.player?.weapon ? weaponReloadTime(game.player.weapon, game.player) : 0,
+      chickenBuffReady: Boolean(game.player && hasBuff(game.player, "鸡煲") && game.elapsed >= chickenHotpotDelayMs),
       weaponSlashRadius: game.player?.weapon?.slashRadius || swordSlashRadius,
       weaponSlashReach: game.player?.weapon?.slashReach || swordSlashReach,
       directBossSwordAwakened: Boolean(game.player?.weapons?.some((weapon) => weapon.id === "sword" && weapon.directBossAwakened)),
@@ -7049,8 +8146,14 @@
       leaderboardBoards: Object.fromEntries(Object.entries(leaderboardRankings()).map(([kind, rows]) => [kind, rows.length])),
       pendingWeaponChoice: Boolean(game.pendingWeaponChoice),
       pendingWeaponId: game.pendingWeaponChoice?.weaponId || "",
-      pendingAltBuff: game.pendingWeaponChoice?.altBuff || "",
-      pendingWeaponName: game.pendingWeaponChoice ? weaponChoiceName(game.pendingWeaponChoice.weaponId) : "",
+      pendingAltBuff: rewardChoiceBuffIds(game.pendingWeaponChoice)[0] || "",
+      pendingBuffIds: rewardChoiceBuffIds(game.pendingWeaponChoice),
+      pendingAllowWeaponBuff: Boolean(game.pendingWeaponChoice?.allowWeaponWithBuff),
+      pendingSelectedWeapon: game.pendingWeaponChoice ? rewardSelection(game.pendingWeaponChoice).weapon : false,
+      pendingSelectedBuffIndex: game.pendingWeaponChoice ? rewardSelection(game.pendingWeaponChoice).buffIndex : null,
+      pendingSelectedBuffIndexes: game.pendingWeaponChoice ? rewardSelection(game.pendingWeaponChoice).buffIndexes : [],
+      pendingCanConfirmReward: game.pendingWeaponChoice ? Boolean(rewardSelection(game.pendingWeaponChoice).weapon || rewardSelection(game.pendingWeaponChoice).buffIndexes.length) : false,
+      pendingWeaponName: game.pendingWeaponChoice?.weaponId ? weaponChoiceName(game.pendingWeaponChoice.weaponId) : "",
       pendingLeaderboardEntry: Boolean(game.pendingLeaderboardEntry),
       leaderboardNameFormHidden: Boolean(ui.leaderboardNameForm?.hidden),
       usedNonSwordWeapon: game.usedNonSwordWeapon,
@@ -7058,6 +8161,7 @@
       swordOnlyRun: game.player ? isSwordOnlyRun() : false,
       kills: game.kills,
       completed: { ...game.completed },
+      randomRooms: { ...game.randomRooms },
       pendingChallenge: Boolean(game.pendingChallenge),
       challengeCount: game.challengeCount,
       defeatedInRoom: game.defeatedInRoom,
@@ -7065,14 +8169,30 @@
       enemyCount: game.enemies.length,
       enemyMechanics: game.enemies.map((enemy) => ({
         id: enemy.id,
+        name: enemy.name || "",
         kind: enemy.kind,
         pattern: enemy.pattern,
         mechanics: [...(enemy.mechanics || [])],
+        splitChild: Boolean(enemy.splitChild),
+        randomDrift: Boolean(enemy.randomDrift),
+        fireEvery: Number((enemy.fireEvery || 0).toFixed(3)),
+        fireTimer: Number((enemy.fireTimer || 0).toFixed(3)),
+        driftTimer: Number((enemy.driftTimer || 0).toFixed(3)),
+        driftIntervalMultiplier: enemy.driftIntervalMultiplier || 1,
+        dashTimer: Number((enemy.dashTimer || 0).toFixed(3)),
+        dashIntervalMultiplier: enemy.dashIntervalMultiplier || 1,
         hp: Math.max(0, Math.ceil(enemy.hp)),
-        missShieldTimer: enemy.missShieldTimer || 0,
+        maxHp: Math.max(1, Math.ceil(enemy.maxHp || enemy.hp || 1)),
+        lhopitalInvincibleTimer: enemy.lhopitalInvincibleTimer || 0,
+        lhopitalRestTimer: enemy.lhopitalRestTimer || 0,
+        lhopitalSlashRemaining: enemy.lhopitalSlashRemaining || 0,
         quadrantWarn: enemy.quadrantWarnTimer || 0,
         dashWarn: enemy.dashWarnTimer || 0,
         dashActive: enemy.dashActiveTimer || 0,
+        dashSequenceRemaining: enemy.dashSequenceRemaining || 0,
+        archimedesDashWarn: enemy.archimedesDashWarnTimer || 0,
+        archimedesDashActive: enemy.archimedesDashActiveTimer || 0,
+        archimedesWallDashCount: enemy.archimedesWallDashCount || 0,
         taylorDashWarn: enemy.taylorDashWarnTimer || 0,
         taylorDashActive: enemy.taylorDashActiveTimer || 0,
         taylorRest: enemy.taylorRestTimer || 0,
@@ -7092,30 +8212,53 @@
         area: Math.round(obstacleVisualArea(obstacle)),
         broken: Boolean(obstacle.broken),
         marked: Boolean(obstacle.marked),
+        cauchyDomain: Boolean(obstacle.cauchyDomain),
+        cauchyCoreWall: Boolean(obstacle.cauchyCoreWall),
+        cauchyCandidate: Boolean(obstacle.cauchyCandidate),
       })),
       bossAttackTypes: game.boss?.cores.map((core) => core.attack) || [],
       bossPhase: game.boss?.phaseName || "",
       bossX: game.boss?.x || 0,
+      bossY: game.boss?.y || 0,
       bossMoveBaseX: game.boss?.moveBaseX || 0,
       bossMoveOffset: game.boss ? game.boss.x - game.boss.moveBaseX : 0,
       bossMoveT: game.boss?.moveT || 0,
       bossRotationSteps: game.boss?.rotationSteps || 0,
       bossRotateTimer: game.boss?.rotateTimer || 0,
+      bossInitialDomainCoreId: game.boss?.initialDomainCoreId || "",
+      bossTopCoreId: game.boss ? bossTopCore(game.boss)?.id || "" : "",
       bossDomainCoreId: game.boss?.domainCoreId || "",
       bossDomainName: game.boss?.domainName || "",
       bossDomainElapsed: game.boss?.domainElapsed || 0,
       bossDomainCycleSeconds,
+      bossGaussZoneBaseCount: gaussZoneBaseCount,
+      bossGaussZoneMaxCount: gaussZoneMaxCount,
+      bossGaussZoneDebuffDuration: gaussZoneDebuffDuration,
       bossGaussZoneCount: game.boss?.gaussZones?.length || 0,
       bossGaussZoneBonus: game.boss?.gaussZoneBonus || 0,
-      bossGaussPendingPlayerHit: Boolean(game.boss?.gaussPendingPlayerHit),
+      bossGaussNextZoneCount: game.boss?.gaussNextZoneCount || 0,
+      bossGaussDomainKillHealCount: game.boss?.gaussDomainKillHealCount || 0,
+      bossGaussBoostedCoreIds: game.boss ? game.boss.cores.filter((core) => (core.domainShieldBonus || 0) > 0 || (core.domainDamageMultiplier || 1) > 1).map((core) => core.id) : [],
+      bossInvisibleCoreIds: game.boss ? game.boss.cores.filter((core) => isBossCoreHidden(core)).map((core) => core.id) : [],
+      bossRevealedCoreIds: game.boss ? game.boss.cores.filter((core) => core.hp > 0 && isBossCoreRevealed(core)).map((core) => core.id) : [],
+      bossCoreRevealTimers: game.boss?.cores.map((core) => Math.max(0, Number((core.revealTimer || 0).toFixed(2)))) || [],
+      bossFullPowerCoreId: game.boss?.fullPowerCoreId || "",
       bossDescartesQuadrant: game.boss?.descartesQuadrant || "",
+      bossDescartesQuadrantChanges: game.boss?.descartesQuadrantChanges || 0,
+      bossDescartesQuadrantProjectionCount: game.boss?.descartesQuadrantProjectionCount || 0,
       bossProjectionCount: game.enemies.filter((enemy) => enemy.bossProjection).length,
+      bossCauchyDomainWallCount: game.obstacles.filter((obstacle) => obstacle.cauchyDomain).length,
+      bossCauchyCoreWallCount: game.obstacles.filter((obstacle) => obstacle.cauchyCoreWall).length,
+      bossCauchyCandidateCount: game.obstacles.filter((obstacle) => obstacle.cauchyCandidate && !obstacle.cauchyDomain).length,
+      bossCauchyExplosionBulletCount: cauchyExplosionBulletCount,
+      bossCauchyBombCount: game.boss?.cauchyBombs?.length || 0,
       bossLaserCount: game.boss?.laserCount || 0,
       bossShotPatternCounts: game.boss?.shotPatternCounts ? { ...game.boss.shotPatternCounts } : {},
       bossWeaponDamage: game.boss?.weaponDamage ? { ...game.boss.weaponDamage } : {},
       bossTopDamageWeapon: topBossDamageWeapon(),
       bossDefeatedCount: game.boss?.defeatedCount || 0,
       bossCoreHp: game.boss?.cores.map((core) => Math.max(0, Math.ceil(core.hp))) || [],
+      bossCoreMaxHp: game.boss?.cores.map((core) => Math.max(1, Math.ceil(core.maxHp))) || [],
       bossCoreShield: game.boss?.cores.map((core) => Math.max(0, Math.ceil(core.shield || 0))) || [],
       bossFrontCoreIds: game.boss ? bossFrontCoreIds(game.boss) : [],
       bossInvulnerableCoreIds: game.boss ? game.boss.cores.filter((core) => core.hp > 0 && !isBossCoreFront(core, game.boss)).map((core) => core.id) : [],

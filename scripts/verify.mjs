@@ -120,7 +120,12 @@ async function evaluate(cdp, expression) {
     returnByValue: true,
   });
   if (result.exceptionDetails) {
-    throw new Error(result.exceptionDetails.text || "Runtime evaluation failed");
+    const details = result.exceptionDetails;
+    const stack = details.stackTrace?.callFrames
+      ?.map((frame) => `${frame.functionName || "<anonymous>"} (${frame.url || "inline"}:${frame.lineNumber + 1}:${frame.columnNumber + 1})`)
+      .join("\n");
+    const description = details.exception?.description || details.exception?.value || details.text || "Runtime evaluation failed";
+    throw new Error([description, stack].filter(Boolean).join("\n"));
   }
   return result.result?.value;
 }
@@ -151,9 +156,12 @@ async function resolvePendingWeapon(cdp, accept = true) {
   if (!before.pendingWeaponChoice) {
     throw new Error("Expected a pending weapon choice");
   }
-  const backDisabled = await evaluate(cdp, "document.getElementById('backToMapBtn').disabled");
-  if (!backDisabled) {
-    throw new Error("Back-to-map button should wait for the weapon choice");
+  const leaveButtonState = await evaluate(cdp, `({
+    disabled: document.getElementById('backToMapBtn').disabled,
+    text: document.getElementById('backToMapBtn').textContent
+  })`);
+  if (leaveButtonState.disabled || !leaveButtonState.text.includes("确认离开")) {
+    throw new Error(`Confirm-leave button should be available while rewards are pending: ${JSON.stringify(leaveButtonState)}`);
   }
   const method = accept ? "acceptPendingWeaponForVerify" : "skipPendingWeaponForVerify";
   const after = await evaluate(cdp, `window.__examGame.${method}()`);
@@ -161,6 +169,88 @@ async function resolvePendingWeapon(cdp, accept = true) {
     throw new Error("Pending weapon choice did not resolve");
   }
   return after;
+}
+
+async function confirmPendingRewardSelection(cdp, { weapon = false, buffIndex = null, buffIndexes = null } = {}) {
+  const before = await evaluate(cdp, "window.__examGame.state()");
+  if (!before.pendingWeaponChoice) {
+    throw new Error(`Expected a pending reward selection: ${JSON.stringify(before)}`);
+  }
+  const expectedBuffIndexes = Array.isArray(buffIndexes)
+    ? buffIndexes
+    : Number.isInteger(buffIndex)
+      ? [buffIndex]
+      : [];
+  if (weapon) {
+    await evaluate(cdp, "document.getElementById('acceptWeaponBtn').click()");
+    await wait(40);
+  }
+  for (const index of expectedBuffIndexes) {
+    const buttonId = index === 0 ? "skipWeaponBtn" : "secondBuffRewardBtn";
+    await evaluate(cdp, `document.getElementById('${buttonId}').click()`);
+    await wait(40);
+  }
+  const selected = await evaluate(cdp, `({
+    ...window.__examGame.state(),
+    confirmHidden: document.getElementById('confirmRewardBtn').hidden,
+    confirmDisabled: document.getElementById('confirmRewardBtn').disabled,
+    weaponSelectedClass: document.getElementById('acceptWeaponBtn').classList.contains('selected'),
+    firstBuffSelectedClass: document.getElementById('skipWeaponBtn').classList.contains('selected'),
+    secondBuffSelectedClass: document.getElementById('secondBuffRewardBtn').classList.contains('selected')
+  })`);
+  const actualBuffIndexes = selected.pendingSelectedBuffIndexes || (Number.isInteger(selected.pendingSelectedBuffIndex) ? [selected.pendingSelectedBuffIndex] : []);
+  const sameBuffIndexes = JSON.stringify(actualBuffIndexes) === JSON.stringify(expectedBuffIndexes);
+  if (
+    selected.confirmHidden ||
+    selected.confirmDisabled ||
+    selected.pendingSelectedWeapon !== weapon ||
+    !sameBuffIndexes ||
+    selected.weaponSelectedClass !== weapon ||
+    selected.firstBuffSelectedClass !== expectedBuffIndexes.includes(0) ||
+    selected.secondBuffSelectedClass !== expectedBuffIndexes.includes(1)
+  ) {
+    throw new Error(`Pending reward selection did not match before confirm: ${JSON.stringify(selected)}`);
+  }
+  await evaluate(cdp, "document.getElementById('confirmRewardBtn').click()");
+  await wait(80);
+  const after = await evaluate(cdp, "window.__examGame.state()");
+  if (after.pendingWeaponChoice) {
+    throw new Error("Pending reward selection did not resolve after confirmation");
+  }
+  return { before, selected, after };
+}
+
+async function chooseSinglePendingBuff(cdp, index) {
+  const before = await evaluate(cdp, "window.__examGame.state()");
+  if (!before.pendingWeaponChoice || before.pendingBuffIds.length < index + 1) {
+    throw new Error(`Expected a pending reward with selectable buffs: ${JSON.stringify(before)}`);
+  }
+  const buttonId = index === 0 ? "skipWeaponBtn" : "secondBuffRewardBtn";
+  const buttonState = await evaluate(cdp, `({
+    hidden: document.getElementById('${buttonId}').hidden,
+    text: document.getElementById('${buttonId}').textContent
+  })`);
+  if (buttonState.hidden || !buttonState.text.includes(before.pendingBuffIds[index])) {
+    throw new Error(`Single-buff reward button was not visible for index ${index}: ${JSON.stringify({ buttonState, before })}`);
+  }
+  await evaluate(cdp, `document.getElementById('${buttonId}').click()`);
+  await wait(40);
+  const selected = await evaluate(cdp, `({
+    ...window.__examGame.state(),
+    confirmHidden: document.getElementById('confirmRewardBtn').hidden,
+    confirmDisabled: document.getElementById('confirmRewardBtn').disabled
+  })`);
+  const selectedBuffIndexes = selected.pendingSelectedBuffIndexes || (Number.isInteger(selected.pendingSelectedBuffIndex) ? [selected.pendingSelectedBuffIndex] : []);
+  if (selected.pendingSelectedWeapon || JSON.stringify(selectedBuffIndexes) !== JSON.stringify([index]) || selected.confirmHidden || selected.confirmDisabled) {
+    throw new Error(`Single-buff reward was not selected correctly before confirm: ${JSON.stringify(selected)}`);
+  }
+  await evaluate(cdp, "document.getElementById('confirmRewardBtn').click()");
+  await wait(80);
+  const after = await evaluate(cdp, "window.__examGame.state()");
+  if (after.pendingWeaponChoice) {
+    throw new Error("Pending single-buff reward choice did not resolve after confirmation");
+  }
+  return { before, after };
 }
 
 async function main() {
@@ -232,10 +322,23 @@ async function main() {
 
     await evaluate(cdp, "document.getElementById('weaponStatsBtn').click()");
     await wait(150);
-    const weaponRowCount = await evaluate(cdp, "document.querySelectorAll('.weapon-table tbody tr').length");
-    const weaponModalWide = await evaluate(cdp, "document.getElementById('modalPanel').classList.contains('modal-panel-wide')");
-    if (weaponRowCount < 10 || !weaponModalWide) {
-      throw new Error("Weapon stats table did not render correctly");
+    const weaponInfoState = await evaluate(cdp, `({
+      title: document.getElementById('modalTitle').textContent,
+      pageTitle: document.querySelector('.weapon-info-page-head strong')?.textContent || '',
+      rows: document.querySelectorAll('.weapon-table tbody tr').length,
+      wide: document.getElementById('modalPanel').classList.contains('modal-panel-wide'),
+      pager: document.querySelector('.weapon-info-pager')?.textContent || '',
+      nextCount: document.querySelectorAll('[data-weapon-info-page="1"]').length
+    })`);
+    if (
+      weaponInfoState.title !== "武器与增益" ||
+      weaponInfoState.pageTitle !== "武器数据" ||
+      weaponInfoState.rows < 10 ||
+      !weaponInfoState.wide ||
+      !weaponInfoState.pager.includes("1 / 2") ||
+      weaponInfoState.nextCount !== 1
+    ) {
+      throw new Error(`Weapon info first page did not render correctly: ${JSON.stringify(weaponInfoState)}`);
     }
     const weaponBalance = await evaluate(cdp, "window.__examGame.weaponBalanceForVerify()");
     const fullWeaponIds = [
@@ -251,8 +354,50 @@ async function main() {
       "determinantLaser",
     ];
     const fullBalanceScores = fullWeaponIds.map((id) => weaponBalance[id]?.balanceScore || 0);
-    if (Math.max(...fullBalanceScores) > 34 || Math.min(...fullBalanceScores) < 15) {
+    if (Math.max(...fullBalanceScores) > 65 || Math.min(...fullBalanceScores) < 19) {
       throw new Error(`Weapon balance scores drifted too far: ${JSON.stringify(weaponBalance)}`);
+    }
+    await evaluate(cdp, "document.querySelector('[data-weapon-info-page=\"1\"]').click()");
+    await wait(100);
+    const weaponBuffPageState = await evaluate(cdp, `({
+      pageTitle: document.querySelector('.weapon-info-page-head strong')?.textContent || '',
+      buffCards: document.querySelectorAll('.buff-catalog .buff-card').length,
+      body: document.querySelector('.modal-body')?.textContent || '',
+      pager: document.querySelector('.weapon-info-pager')?.textContent || ''
+    })`);
+    if (
+      weaponBuffPageState.pageTitle !== "增益简介" ||
+      weaponBuffPageState.buffCards < 8 ||
+      !weaponBuffPageState.body.includes("鸡煲") ||
+      !weaponBuffPageState.body.includes("草稿纸") ||
+      !weaponBuffPageState.body.includes("换弹时间减少一半") ||
+      !weaponBuffPageState.pager.includes("2 / 2")
+    ) {
+      throw new Error(`Weapon info buff page did not render correctly: ${JSON.stringify(weaponBuffPageState)}`);
+    }
+    await evaluate(cdp, "document.getElementById('modalCloseBtn').click()");
+    await wait(100);
+
+    await evaluate(cdp, "document.getElementById('enemyCodexBtn').click()");
+    await wait(100);
+    const enemyCodexState = await evaluate(cdp, `({
+      hidden: document.getElementById('modal').hidden,
+      title: document.getElementById('modalTitle').textContent,
+      wide: document.getElementById('modalPanel').classList.contains('modal-panel-wide'),
+      sections: document.querySelectorAll('.codex-section').length,
+      cards: document.querySelectorAll('.codex-card').length,
+      body: document.querySelector('.enemy-codex')?.textContent || ''
+    })`);
+    if (
+      enemyCodexState.hidden ||
+      enemyCodexState.title !== "名人堂" ||
+      !enemyCodexState.wide ||
+      enemyCodexState.sections < 2 ||
+      enemyCodexState.cards < 14 ||
+      !enemyCodexState.body.includes("Boss 投影") ||
+      !enemyCodexState.body.includes("高斯核心")
+    ) {
+      throw new Error(`Enemy codex did not render correctly: ${JSON.stringify(enemyCodexState)}`);
     }
     await evaluate(cdp, "document.getElementById('modalCloseBtn').click()");
     await wait(100);
@@ -330,12 +475,124 @@ async function main() {
 
     await evaluate(cdp, "document.getElementById('startBtn').click()");
     await wait(200);
+    const versionSelectState = await evaluate(cdp, `({
+      mode: window.__examGame.state().mode,
+      hidden: document.getElementById('versionSelectScreen').hidden,
+      alpha: document.getElementById('versionAlphaBtn')?.textContent || '',
+      beta: document.getElementById('versionBetaBtn')?.textContent || ''
+    })`);
+    if (
+      versionSelectState.mode !== "version" ||
+      versionSelectState.hidden ||
+      !versionSelectState.alpha.includes("α") ||
+      !versionSelectState.beta.includes("β")
+    ) {
+      throw new Error(`Version selection screen did not render after Start: ${JSON.stringify(versionSelectState)}`);
+    }
+    await evaluate(cdp, "document.getElementById('versionBetaBtn').click()");
+    await wait(200);
+    const betaMapState = await evaluate(cdp, "window.__examGame.state()");
+    if (betaMapState.mode !== "map" || betaMapState.versionChannel !== "beta") {
+      throw new Error(`Beta version entry did not start correctly: ${JSON.stringify(betaMapState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.openChallengeSelect('monster'); window.__examGame.beginMonsterChallenge(3)");
+    await wait(100);
+    const betaKnowledgeCombatState = await evaluate(cdp, "window.__examGame.state()");
+    if (
+      betaKnowledgeCombatState.mode !== "combat" ||
+      betaKnowledgeCombatState.activeRoomKey !== "monster" ||
+      betaKnowledgeCombatState.challengeCount !== 3 ||
+      betaKnowledgeCombatState.credits !== 0
+    ) {
+      throw new Error(`Beta knowledge room did not start correctly before credit award: ${JSON.stringify(betaKnowledgeCombatState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.completeActiveRoom()");
+    await wait(120);
+    const betaCreditState = await evaluate(cdp, "window.__examGame.state()");
+    if (betaCreditState.credits !== 3 || !betaCreditState.completed.monster || !betaCreditState.pendingWeaponChoice) {
+      throw new Error(`Beta knowledge rooms should award one credit per challenged enemy, capped at three: ${JSON.stringify(betaCreditState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.declinePendingRewardForVerify(); document.getElementById('backToMapBtn').click()");
+    await wait(100);
+    await evaluate(cdp, "window.__examGame.startRandomRoom('chest')");
+    await wait(120);
+    const betaRandomPaidState = await evaluate(cdp, "window.__examGame.state()");
+    if (betaRandomPaidState.credits !== 1 || !betaRandomPaidState.randomRooms.chest) {
+      throw new Error(`Beta right-side random room should cost two credits on first reveal: ${JSON.stringify(betaRandomPaidState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.startVersion('beta'); window.__examGame.setCreditsForVerify(1); window.__examGame.startRandomRoom('chest')");
+    await wait(100);
+    const betaRandomBlockedState = await evaluate(cdp, "window.__examGame.state()");
+    if (betaRandomBlockedState.credits !== 1 || betaRandomBlockedState.randomRooms.chest || betaRandomBlockedState.mode !== "map") {
+      throw new Error(`Beta random room should stay closed when credits are insufficient: ${JSON.stringify(betaRandomBlockedState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.startVersion('beta'); window.__examGame.setCreditsForVerify(3); window.__examGame.setPlayerHp(40); window.__examGame.startBossRoom()");
+    await wait(120);
+    const betaShopOpenState = await evaluate(cdp, `({
+      ...window.__examGame.state(),
+      modalHidden: document.getElementById('modal').hidden,
+      modalKind: document.getElementById('modal').dataset.kind,
+      title: document.getElementById('modalTitle').textContent,
+      shopCards: document.querySelectorAll('.beta-shop-card').length,
+      shopBuyButtons: document.querySelectorAll('[data-beta-shop-buy]').length
+    })`);
+    if (
+      betaShopOpenState.mode !== "map" ||
+      betaShopOpenState.activeRoom ||
+      !betaShopOpenState.betaBossShopEntered ||
+      Math.abs(betaShopOpenState.hp - 70) > 0.001 ||
+      betaShopOpenState.betaBossShopStock.length !== 4 ||
+      betaShopOpenState.betaBossShopRefreshCost !== 1 ||
+      betaShopOpenState.modalHidden ||
+      betaShopOpenState.modalKind !== "betaShop" ||
+      betaShopOpenState.title !== "β 学分商店" ||
+      betaShopOpenState.shopCards !== 4 ||
+      betaShopOpenState.shopBuyButtons !== 4
+    ) {
+      throw new Error(`Beta boss entry should open the credit shop after one room-enter heal: ${JSON.stringify(betaShopOpenState)}`);
+    }
+    const betaShopShot = await screenshot(cdp, "beta-shop.png");
+    const betaShopBuyState = await evaluate(cdp, "window.__examGame.buyBetaShopItemForVerify(0)");
+    if (
+      Math.abs(betaShopBuyState.hp - 40) > 0.001 ||
+      !betaShopBuyState.betaBossShopStock[0]?.purchased ||
+      betaShopBuyState.betaBossShopStock.slice(1).some((item) => item.purchased)
+    ) {
+      throw new Error(`Beta shop purchases should cost 30 HP and mark only the bought item: ${JSON.stringify(betaShopBuyState)}`);
+    }
+    const betaShopRefreshOne = await evaluate(cdp, "window.__examGame.refreshBetaShopForVerify()");
+    if (
+      betaShopRefreshOne.credits !== 2 ||
+      betaShopRefreshOne.betaBossShopRefreshCost !== 2 ||
+      betaShopRefreshOne.betaBossShopStock.some((item) => item.purchased)
+    ) {
+      throw new Error(`First beta shop refresh should cost one credit and reset stock: ${JSON.stringify(betaShopRefreshOne)}`);
+    }
+    const betaShopRefreshTwo = await evaluate(cdp, "window.__examGame.refreshBetaShopForVerify()");
+    if (betaShopRefreshTwo.credits !== 0 || betaShopRefreshTwo.betaBossShopRefreshCost !== 3) {
+      throw new Error(`Second beta shop refresh should cost two credits and raise the next price: ${JSON.stringify(betaShopRefreshTwo)}`);
+    }
+    const betaShopRefreshBlocked = await evaluate(cdp, "window.__examGame.refreshBetaShopForVerify()");
+    if (betaShopRefreshBlocked.credits !== 0 || betaShopRefreshBlocked.betaBossShopRefreshCost !== 3 || !betaShopRefreshBlocked.betaBossShopMessage.includes("学分不足")) {
+      throw new Error(`Beta shop refresh should be blocked when credits are insufficient: ${JSON.stringify(betaShopRefreshBlocked)}`);
+    }
+    const betaBossFromShopState = await evaluate(cdp, "window.__examGame.startBossFromShopForVerify()");
+    if (
+      betaBossFromShopState.mode !== "combat" ||
+      betaBossFromShopState.activeRoom !== "boss" ||
+      Math.abs(betaBossFromShopState.hp - 40) > 0.001 ||
+      !betaBossFromShopState.bossIntroActive
+    ) {
+      throw new Error(`Starting beta boss from shop should not trigger a second room-enter heal: ${JSON.stringify(betaBossFromShopState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.openVersionSelect(); document.getElementById('versionAlphaBtn').click()");
+    await wait(200);
     const mapState = await evaluate(cdp, "window.__examGame.state()");
-    if (mapState.mode !== "map") {
+    if (mapState.mode !== "map" || mapState.versionChannel !== "alpha") {
       throw new Error(`Expected map mode, got ${mapState.mode}`);
     }
-    if (!String(mapState.weapon).includes("圣剑") || mapState.weaponDamage !== 15) {
-      throw new Error(`Sword damage should be restored to 15: ${JSON.stringify({ weapon: mapState.weapon, damage: mapState.weaponDamage })}`);
+    if (!String(mapState.weapon).includes("圣剑") || mapState.weaponDamage !== 10) {
+      throw new Error(`Sword damage should be restored to 10: ${JSON.stringify({ weapon: mapState.weapon, damage: mapState.weaponDamage })}`);
     }
     const hasRoomMap = await evaluate(cdp, "Boolean(document.querySelector('.straight-map'))");
     if (!hasRoomMap) {
@@ -343,6 +600,7 @@ async function main() {
     }
     const mapShot = await screenshot(cdp, "corridor.png");
 
+    await evaluate(cdp, "window.__examGame.setPlayerHp(40)");
     await evaluate(cdp, "window.__examGame.startBossRoom()");
     await wait(250);
     const directBossSwordState = await evaluate(cdp, "window.__examGame.state()");
@@ -350,44 +608,185 @@ async function main() {
       directBossSwordState.mode !== "combat" ||
       !directBossSwordState.bossDirect ||
       !directBossSwordState.directBossSwordAwakened ||
-      directBossSwordState.weaponDamage !== 20 ||
+      directBossSwordState.weaponDamage !== 15 ||
       directBossSwordState.weaponSlashReach !== 42 ||
       directBossSwordState.weaponSlashRadius !== 56 ||
       !String(directBossSwordState.weapon).includes("觉醒")
     ) {
       throw new Error(`Direct boss sword awakening failed: ${JSON.stringify(directBossSwordState)}`);
     }
+    if (Math.abs(directBossSwordState.hp - 70) > 0.001) {
+      throw new Error(`Entering a room should restore 50% of missing HP: ${JSON.stringify({ hp: directBossSwordState.hp })}`);
+    }
     await evaluate(cdp, "window.__examGame.resetGame()");
     await wait(200);
     const resetMapState = await evaluate(cdp, "window.__examGame.state()");
-    if (resetMapState.mode !== "map" || resetMapState.weaponDamage !== 15 || resetMapState.directBossSwordAwakened) {
+    if (resetMapState.mode !== "map" || resetMapState.weaponDamage !== 10 || resetMapState.directBossSwordAwakened) {
       throw new Error(`Direct boss sword awakening leaked after reset: ${JSON.stringify(resetMapState)}`);
     }
 
-    const draftShieldInitial = await evaluate(cdp, "window.__examGame.grantBuffForVerify('草稿纸护盾')");
-    if (draftShieldInitial.blockCharges !== 1 || draftShieldInitial.blockTimer <= 0) {
-      throw new Error("Draft shield buff did not grant an initial block charge");
-    }
-    const draftShieldRepeat = await evaluate(cdp, "window.__examGame.grantBuffForVerify('草稿纸护盾')");
-    if (draftShieldRepeat.blockCharges !== 1) {
-      throw new Error("Draft shield should never store more than one block charge");
-    }
-    const draftShieldBlock = await evaluate(cdp, "window.__examGame.damagePlayerForVerify(999)");
-    if (draftShieldBlock.after.hp !== draftShieldBlock.before.hp || draftShieldBlock.after.blockCharges !== 0) {
-      throw new Error("Draft shield did not block one full incoming hit");
-    }
-    const draftShieldCharging = await evaluate(cdp, "window.__examGame.tickPassiveForVerify(9.9)");
-    if (draftShieldCharging.blockCharges !== 0) {
-      throw new Error("Draft shield recharged too early");
-    }
-    const draftShieldRecharged = await evaluate(cdp, "window.__examGame.tickPassiveForVerify(0.2)");
-    if (draftShieldRecharged.blockCharges !== 1) {
-      throw new Error("Draft shield did not recharge after ten seconds");
+    const cramState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('临时抱佛脚')");
+    if (cramState.maxHp !== 125 || cramState.hp !== 125) {
+      throw new Error(`Temporary cramming should raise max HP by 25% and fill the bonus HP: ${JSON.stringify(cramState)}`);
     }
     const coffeeState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('熬夜咖啡')");
-    if (coffeeState.movementSpeedMultiplier !== 2) {
-      throw new Error("Overnight coffee should raise movement speed by 100%");
+    if (Math.abs(coffeeState.movementSpeedMultiplier - 1.5) > 0.001) {
+      throw new Error("Overnight coffee should raise movement speed by 50%");
     }
+    const beforeFormulaState = await evaluate(cdp, "window.__examGame.state()");
+    const formulaState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('公式大全')");
+    if (
+      Math.abs(formulaState.weaponDamage - beforeFormulaState.weaponDamage) > 0.001 ||
+      Math.abs(formulaState.attackCooldownMultiplier - (1 / 1.2)) > 0.001 ||
+      formulaState.weaponCooldown >= beforeFormulaState.weaponCooldown
+    ) {
+      throw new Error(`Formula compendium should increase attack speed by 20% without changing damage: ${JSON.stringify({ beforeFormulaState, formulaState })}`);
+    }
+    const noteState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('学霸笔记')");
+    if (Math.abs(noteState.damageBuffMultiplier - 1.2) > 0.001 || Math.abs(noteState.effectiveWeaponDamage - noteState.weaponDamage * 1.2) > 0.001) {
+      throw new Error(`Academic notes should raise outgoing damage by 20%: ${JSON.stringify(noteState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.grantBuffForVerify('草稿纸'); window.__examGame.addWeaponForVerify('matrixRpg')");
+    const draftPaperReload = await evaluate(cdp, "window.__examGame.drainCurrentWeapon()");
+    if (
+      draftPaperReload.currentWeaponId !== "matrixRpg" ||
+      !draftPaperReload.currentWeaponReloading ||
+      Math.abs(draftPaperReload.currentWeaponReloadTimer - draftPaperReload.effectiveReloadTime) > 0.001 ||
+      Math.abs(draftPaperReload.effectiveReloadTime - 1.2) > 0.001
+    ) {
+      throw new Error(`Draft paper should halve reload time: ${JSON.stringify(draftPaperReload)}`);
+    }
+    const chickenPreState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('鸡煲'); window.__examGame.setBattleSecondsForVerify(19)");
+    if (chickenPreState.chickenBuffReady || Math.abs(chickenPreState.damageBuffMultiplier - 1.2) > 0.001) {
+      throw new Error(`Chicken hotpot should not activate before 20 combat seconds: ${JSON.stringify(chickenPreState)}`);
+    }
+    const chickenReadyState = await evaluate(cdp, "window.__examGame.setBattleSecondsForVerify(20)");
+    if (!chickenReadyState.chickenBuffReady || Math.abs(chickenReadyState.damageBuffMultiplier - 2.4) > 0.001) {
+      throw new Error(`Chicken hotpot should double outgoing damage after 20 combat seconds: ${JSON.stringify(chickenReadyState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.setPlayerHp(100)");
+    const mistakeBookState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('错题本')");
+    if (Math.abs(mistakeBookState.incomingDamageMultiplier - 0.75) > 0.001) {
+      throw new Error(`Mistake book should reduce incoming damage by 25%: ${JSON.stringify(mistakeBookState)}`);
+    }
+    const mistakeBookDamage = await evaluate(cdp, "window.__examGame.damagePlayerForVerify(40)");
+    if (Math.abs(mistakeBookDamage.after.hp - (mistakeBookDamage.before.hp - 30)) > 0.001 || mistakeBookDamage.after.mistakeBoostTimer <= 0) {
+      throw new Error(`Mistake book should reduce damage and trigger counterattack boost: ${JSON.stringify(mistakeBookDamage)}`);
+    }
+    await evaluate(cdp, "window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyI', shiftKey: true }))");
+    await wait(100);
+    const developerOpenState = await evaluate(cdp, `({
+      ...window.__examGame.state(),
+      modalHidden: document.getElementById('modal').hidden,
+      modalKind: document.getElementById('modal').dataset.kind,
+      title: document.getElementById('modalTitle').textContent,
+      weaponControls: document.querySelectorAll('[data-dev-action="weapon-add"]').length,
+      buffControls: document.querySelectorAll('[data-dev-action="buff-add"]').length
+    })`);
+    if (
+      !developerOpenState.developerMode ||
+      !developerOpenState.developerModeUsed ||
+      developerOpenState.modalHidden ||
+      developerOpenState.modalKind !== "developer" ||
+      developerOpenState.title !== "开发者模式" ||
+      developerOpenState.weaponControls < 10 ||
+      developerOpenState.buffControls < 8
+    ) {
+      throw new Error(`Developer mode did not open correctly: ${JSON.stringify(developerOpenState)}`);
+    }
+    const developerDamage = await evaluate(cdp, "window.__examGame.damagePlayerForVerify(999)");
+    if (developerDamage.after.hp !== developerDamage.before.hp || developerDamage.after.blockCharges !== developerDamage.before.blockCharges) {
+      throw new Error(`Developer mode should ignore incoming damage without consuming shields: ${JSON.stringify(developerDamage)}`);
+    }
+    await evaluate(cdp, "document.getElementById('modalCloseBtn').click(); window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyI', shiftKey: true }))");
+    await wait(100);
+    const developerReopenState = await evaluate(cdp, `({
+      developerMode: window.__examGame.state().developerMode,
+      modalHidden: document.getElementById('modal').hidden,
+      modalKind: document.getElementById('modal').dataset.kind,
+      title: document.getElementById('modalTitle').textContent
+    })`);
+    if (
+      !developerReopenState.developerMode ||
+      developerReopenState.modalHidden ||
+      developerReopenState.modalKind !== "developer" ||
+      developerReopenState.title !== "开发者模式"
+    ) {
+      throw new Error(`Pressing Shift+I again should reopen developer panel without disabling developer mode: ${JSON.stringify(developerReopenState)}`);
+    }
+    await evaluate(cdp, "document.querySelector('[data-dev-action=\"weapon-add\"][data-weapon-id=\"functionGun\"]').click()");
+    await wait(50);
+    const developerWeaponAdded = await evaluate(cdp, "window.__examGame.state()");
+    if (!developerWeaponAdded.weaponIds.includes("functionGun")) {
+      throw new Error(`Developer mode failed to add a weapon: ${JSON.stringify(developerWeaponAdded)}`);
+    }
+    await evaluate(cdp, "document.querySelector('[data-dev-action=\"weapon-remove\"][data-weapon-id=\"functionGun\"]').click()");
+    await wait(50);
+    const developerWeaponRemoved = await evaluate(cdp, "window.__examGame.state()");
+    if (developerWeaponRemoved.weaponIds.includes("functionGun")) {
+      throw new Error(`Developer mode failed to remove a weapon: ${JSON.stringify(developerWeaponRemoved)}`);
+    }
+    const developerBuffCountBefore = await evaluate(cdp, "window.__examGame.state().buffs.length");
+    await evaluate(cdp, "document.querySelector('.developer-section:nth-of-type(2) [data-dev-action=\"buff-add\"]').click()");
+    await wait(50);
+    const developerBuffAdded = await evaluate(cdp, "window.__examGame.state().buffs.length");
+    await evaluate(cdp, "document.querySelector('.developer-section:nth-of-type(2) [data-dev-action=\"buff-remove\"]:not(:disabled)').click()");
+    await wait(50);
+    const developerBuffRemoved = await evaluate(cdp, "window.__examGame.state().buffs.length");
+    if (developerBuffAdded !== developerBuffCountBefore + 1 || developerBuffRemoved !== developerBuffCountBefore) {
+      throw new Error(`Developer mode failed to add/remove buffs: ${JSON.stringify({ developerBuffCountBefore, developerBuffAdded, developerBuffRemoved })}`);
+    }
+    const developerCustomUi = await evaluate(cdp, `({
+      controls: document.querySelectorAll('[data-custom-enemy-count]').length,
+      startButtons: document.querySelectorAll('[data-dev-action="custom-room-start"]').length,
+      body: document.querySelector('.developer-custom-room')?.textContent || ''
+    })`);
+    if (
+      developerCustomUi.controls < 9 ||
+      developerCustomUi.startButtons !== 1 ||
+      !developerCustomUi.body.includes("自定义房间") ||
+      !developerCustomUi.body.includes("拉格朗日投影") ||
+      !developerCustomUi.body.includes("若尔当投影")
+    ) {
+      throw new Error(`Developer custom room controls did not render correctly: ${JSON.stringify(developerCustomUi)}`);
+    }
+    await evaluate(cdp, `(() => {
+      const inputs = Array.from(document.querySelectorAll('[data-custom-enemy-count]'));
+      inputs.forEach((input) => { input.value = 0; });
+      inputs[0].value = 2;
+      inputs[1].value = 1;
+      document.querySelector('[data-dev-action="custom-room-start"]').click();
+    })()`);
+    await wait(120);
+    const developerCustomRoomState = await evaluate(cdp, "window.__examGame.state()");
+    if (
+      developerCustomRoomState.mode !== "combat" ||
+      developerCustomRoomState.activeRoom !== "monster" ||
+      developerCustomRoomState.activeRoomKey !== "__developerCustom" ||
+      developerCustomRoomState.enemyCount !== 3 ||
+      !developerCustomRoomState.developerMode ||
+      !developerCustomRoomState.developerModeUsed
+    ) {
+      throw new Error(`Developer custom room did not start with selected enemies: ${JSON.stringify(developerCustomRoomState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.completeActiveRoom()");
+    await wait(120);
+    const developerCustomClearState = await evaluate(cdp, `({
+      ...window.__examGame.state(),
+      clearTitle: document.getElementById('clearTitle').textContent,
+      clearText: document.getElementById('clearText').textContent
+    })`);
+    if (
+      developerCustomClearState.mode !== "clear" ||
+      developerCustomClearState.pendingWeaponChoice ||
+      developerCustomClearState.clearTitle !== "自定义房间测试完成" ||
+      !developerCustomClearState.clearText.includes("不会记录排行榜")
+    ) {
+      throw new Error(`Developer custom room should end without normal rewards: ${JSON.stringify(developerCustomClearState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.resetGame()");
+    await wait(100);
+
     const scoreBalance = await evaluate(cdp, `(() => {
       const allRooms = ['monster', 'chest', 'geometry', 'linear', 'randomB', 'randomC'];
       return {
@@ -524,8 +923,13 @@ async function main() {
     if (initialDropModel.chestBuffCandidates.length < 7) {
       throw new Error(`Chest buff pool is incomplete: ${JSON.stringify(initialDropModel)}`);
     }
-    if (initialDropModel.randomRewardFamilies.length !== 8 || initialDropModel.randomFamilyEntryCounts.functionGun !== 2) {
-      throw new Error(`Random monster rewards should be grouped by weapon family: ${JSON.stringify(initialDropModel)}`);
+    if (
+      JSON.stringify(initialDropModel.randomRewardFamilies.sort()) !== JSON.stringify(["functionGun", "matrixRpg", "polarShotgun"].sort()) ||
+      initialDropModel.randomFamilyEntryCounts.functionGun !== 1 ||
+      initialDropModel.randomFamilyEntryCounts.polarShotgun !== 1 ||
+      initialDropModel.randomFamilyEntryCounts.matrixRpg !== 1
+    ) {
+      throw new Error(`Random monster rooms should mirror the three knowledge classrooms: ${JSON.stringify(initialDropModel)}`);
     }
     if (
       Math.abs(initialDropModel.randomRoomChances.monster - 1 / 3) > 0.001 ||
@@ -542,6 +946,7 @@ async function main() {
       !skipChestPromptState.pendingWeaponChoice ||
       !skipChestPromptState.pendingWeaponId ||
       !skipChestPromptState.pendingAltBuff ||
+      skipChestPromptState.pendingAllowWeaponBuff ||
       skipChestPromptState.weapons.length !== 1 ||
       !skipChestPromptState.swordOnlyRun
     ) {
@@ -552,10 +957,27 @@ async function main() {
       throw new Error("Choosing the chest buff added a weapon, lost sword-only eligibility, or remembered a weapon family");
     }
 
+    await evaluate(cdp, "window.__examGame.openChestRoom('__verifyDeclineChest')");
+    await wait(200);
+    const declineChestPromptState = await evaluate(cdp, "window.__examGame.state()");
+    if (!declineChestPromptState.pendingWeaponChoice || !declineChestPromptState.pendingWeaponId || !declineChestPromptState.pendingBuffIds.length || declineChestPromptState.pendingAllowWeaponBuff) {
+      throw new Error("Chest did not expose weapon, buff, and decline reward options");
+    }
+    const declineChestState = await evaluate(cdp, "window.__examGame.declinePendingRewardForVerify()");
+    if (
+      declineChestState.pendingWeaponChoice ||
+      declineChestState.weapons.length !== declineChestPromptState.weapons.length ||
+      declineChestState.buffs.length !== declineChestPromptState.buffs.length ||
+      declineChestState.recentRewardFamilies.length !== declineChestPromptState.recentRewardFamilies.length ||
+      !declineChestState.swordOnlyRun
+    ) {
+      throw new Error("Declining the chest reward should leave weapons, buffs, reward memory, and sword-only eligibility unchanged");
+    }
+
     await evaluate(cdp, "window.__examGame.openChestRoom('__verifyChest')");
     await wait(200);
     const chestPromptState = await evaluate(cdp, "window.__examGame.state()");
-    if (!chestPromptState.completed.__verifyChest || !chestPromptState.pendingWeaponChoice || !chestPromptState.pendingAltBuff || chestPromptState.weapons.length !== 1 || !chestPromptState.swordOnlyRun) {
+    if (!chestPromptState.completed.__verifyChest || !chestPromptState.pendingWeaponChoice || !chestPromptState.pendingAltBuff || chestPromptState.pendingAllowWeaponBuff || chestPromptState.weapons.length !== 1 || !chestPromptState.swordOnlyRun) {
       throw new Error("Debug chest reward choice did not open correctly");
     }
     const chestRewardId = chestPromptState.pendingWeaponId;
@@ -637,10 +1059,32 @@ async function main() {
     if (calculusFightState.enemyMechanics.some((enemy) => enemy.kind !== "calculus")) {
       throw new Error(`Calculus room should only spawn calculus enemies: ${JSON.stringify(calculusFightState.enemyMechanics)}`);
     }
+    const lagrangeParent = calculusFightState.enemyMechanics.find((enemy) => enemy.mechanics.includes("splitOnDeath"));
+    if (!lagrangeParent) {
+      throw new Error(`Calculus room should include a Lagrange split enemy: ${JSON.stringify(calculusFightState.enemyMechanics)}`);
+    }
+    const lagrangeSplitPreview = await evaluate(cdp, "window.__examGame.previewSplitEnemyForVerify(0)");
+    const expectedLagrangeChildFireEvery = Number(lagrangeParent.fireEvery.toFixed(3));
+    const expectedLagrangeChildHp = Math.max(18, Math.round(lagrangeParent.maxHp * 0.4));
+    if (
+      !lagrangeSplitPreview.didSplit ||
+      lagrangeSplitPreview.children.length !== 2 ||
+      lagrangeSplitPreview.children.some((child) =>
+        !child.splitChild ||
+        !child.randomDrift ||
+        child.mechanics.includes("splitOnDeath") ||
+        Math.abs(child.fireEvery - expectedLagrangeChildFireEvery) > 0.01 ||
+        child.maxHp !== expectedLagrangeChildHp ||
+        child.driftIntervalMultiplier !== 0.78 ||
+        child.dashIntervalMultiplier !== 1
+      )
+    ) {
+      throw new Error(`Lagrange split children should have 2/5 HP, two fast shots, and random movement: ${JSON.stringify({ lagrangeParent, lagrangeSplitPreview })}`);
+    }
     await evaluate(cdp, "window.__examGame.completeActiveRoom()");
     await wait(150);
     const calculusPromptState = await evaluate(cdp, "window.__examGame.state()");
-    if (!calculusPromptState.completed.monster || !calculusPromptState.pendingWeaponChoice) {
+    if (!calculusPromptState.completed.monster || !calculusPromptState.pendingWeaponChoice || !calculusPromptState.pendingAllowWeaponBuff) {
       throw new Error("Calculus room did not complete correctly");
     }
     const calculusClearState = await resolvePendingWeapon(cdp, true);
@@ -667,12 +1111,19 @@ async function main() {
     await evaluate(cdp, "window.__examGame.completeActiveRoom()");
     await wait(150);
     const geometryPromptState = await evaluate(cdp, "window.__examGame.state()");
-    if (!geometryPromptState.completed.geometry || !geometryPromptState.pendingWeaponChoice) {
+    if (!geometryPromptState.completed.geometry || !geometryPromptState.pendingWeaponChoice || !geometryPromptState.pendingAllowWeaponBuff) {
       throw new Error("Geometry room did not complete correctly");
     }
-    const geometryClearState = await resolvePendingWeapon(cdp, true);
-    if (geometryClearState.challengeCount !== 3 || geometryClearState.defeatedInRoom !== 3 || geometryClearState.buffs.length < calculusClearState.buffs.length + 2) {
-      throw new Error("Three-person challenge did not grant the expected rewards");
+    const geometrySelection = await confirmPendingRewardSelection(cdp, { weapon: true, buffIndexes: [0, 1] });
+    const geometryClearState = geometrySelection.after;
+    if (
+      geometryClearState.challengeCount !== 3 ||
+      geometryClearState.defeatedInRoom !== 3 ||
+      geometryClearState.buffs.length !== geometrySelection.before.buffs.length + 2 ||
+      !geometryClearState.buffs.includes(geometrySelection.before.pendingBuffIds[0]) ||
+      !geometryClearState.buffs.includes(geometrySelection.before.pendingBuffIds[1])
+    ) {
+      throw new Error("Three-person challenge did not grant the selected weapon plus both selected buffs");
     }
     const hadGeometryWeapon = geometryBeforeState.weaponIds.includes("polarShotgun");
     const expectedGeometryWeaponCount = geometryBeforeState.weapons.length + (hadGeometryWeapon ? 0 : 1);
@@ -693,7 +1144,7 @@ async function main() {
     if (linearEntryState.mode !== "challenge" || !linearEntryState.pendingChallenge) {
       throw new Error("Linear room did not open challenge selection");
     }
-    const linearFightState = await chooseChallenge(cdp, 1);
+    const linearFightState = await chooseChallenge(cdp, 3);
     if (linearFightState.activeRoomKey !== "linear") {
       throw new Error("Linear challenge did not start correctly");
     }
@@ -703,10 +1154,17 @@ async function main() {
     await evaluate(cdp, "window.__examGame.completeActiveRoom()");
     await wait(150);
     const linearPromptState = await evaluate(cdp, "window.__examGame.state()");
-    if (!linearPromptState.completed.linear || !linearPromptState.pendingWeaponChoice) {
+    if (!linearPromptState.completed.linear || !linearPromptState.pendingWeaponChoice || !linearPromptState.pendingAllowWeaponBuff || linearPromptState.pendingBuffIds.length !== 2) {
       throw new Error("Linear room did not complete correctly");
     }
-    await resolvePendingWeapon(cdp, true);
+    const singleBuffChoice = await chooseSinglePendingBuff(cdp, 1);
+    if (
+      singleBuffChoice.after.weapons.length !== singleBuffChoice.before.weapons.length ||
+      singleBuffChoice.after.buffs.length !== singleBuffChoice.before.buffs.length + 1 ||
+      !singleBuffChoice.after.buffs.includes(singleBuffChoice.before.pendingBuffIds[1])
+    ) {
+      throw new Error(`Choosing one of two buffs should grant exactly that buff and no weapon: ${JSON.stringify(singleBuffChoice)}`);
+    }
     await evaluate(cdp, "document.getElementById('backToMapBtn').click()");
     await wait(100);
 
@@ -736,7 +1194,10 @@ async function main() {
     await wait(1150);
     const bossIntroState = await evaluate(cdp, "window.__examGame.state()");
     if (!bossIntroState.bossIntroActive || bossIntroState.bossIntroElapsed < 1) {
-      throw new Error("Boss intro title phase did not start correctly");
+      const introErrors = cdp.events
+        .filter((event) => event.method === "Runtime.exceptionThrown")
+        .map((event) => event.params?.exceptionDetails?.exception?.description || event.params?.exceptionDetails?.text || "Runtime exception");
+      throw new Error(`Boss intro title phase did not start correctly: ${JSON.stringify(bossIntroState)} Errors=${introErrors.join(" | ")}`);
     }
     const bossIntroShot = await screenshot(cdp, "boss-intro.png");
     await wait(11200);
@@ -763,22 +1224,25 @@ async function main() {
       throw new Error(`Combat canvas was not maximized: ${JSON.stringify(combatCanvasRect)}`);
     }
     if (bossState.bossMoveT <= 0 || Math.abs(bossState.bossMoveOffset) < 4) {
-      throw new Error("Boss horizontal movement did not start");
+      throw new Error("Boss triangular movement did not start");
     }
     if (bossState.bossDomainCycleSeconds !== 20) {
       throw new Error(`Boss domain cycle should be 20 seconds: ${JSON.stringify(bossState)}`);
     }
-    if (bossState.bossDomainCoreId !== "cauchy") {
-      throw new Error(`Initial boss domain should belong to the top Cauchy core: ${JSON.stringify(bossState)}`);
+    if (!["cauchy", "descartes", "gauss"].includes(bossState.bossDomainCoreId)) {
+      throw new Error(`Initial boss domain should be chosen from one of the three cores: ${JSON.stringify(bossState)}`);
+    }
+    if (bossState.bossTopCoreId !== bossState.bossDomainCoreId) {
+      throw new Error(`Initial random domain core should be placed at the top: ${JSON.stringify(bossState)}`);
     }
     if (bossState.bossRotationSteps !== 0 || bossState.bossRotateTimer > 20 || bossState.bossRotateTimer < 12) {
       throw new Error(`Boss should not rotate before the 20 second domain cycle: ${JSON.stringify(bossState)}`);
     }
-    if (bossState.bossActiveCoreCount !== 2 || !bossState.bossInvulnerableCoreIds.includes("cauchy")) {
+    if (bossState.bossActiveCoreCount !== 2 || !bossState.bossInvulnerableCoreIds.includes(bossState.bossDomainCoreId)) {
       throw new Error(`Only the non-domain cores should attack while the domain core is HP-invulnerable: ${JSON.stringify(bossState)}`);
     }
-    if (bossState.obstacleRects.length < 5 || !bossState.obstacleRects.some((rect) => rect.shape !== "rect")) {
-      throw new Error(`Cauchy domain should create highlighted wall cover: ${JSON.stringify(bossState.obstacleRects)}`);
+    if (bossState.obstacleRects.length < 7 || !bossState.obstacleRects.some((rect) => rect.shape !== "rect")) {
+      throw new Error(`Boss room should start with seven thin random wall obstacles: ${JSON.stringify(bossState.obstacleRects)}`);
     }
     if (bossState.obstacleRects.some((rect) => rect.thickness > 12)) {
       throw new Error(`Boss domain obstacles should stay thin: ${JSON.stringify(bossState.obstacleRects)}`);
@@ -788,10 +1252,111 @@ async function main() {
         throw new Error(`Boss attack type ${attackType} was not configured`);
       }
     }
-    if (!bossState.bossShotPatternCounts.curve || bossState.bossGaussZoneCount < 1) {
-      throw new Error(`Gauss random-point curve zones did not spawn: ${JSON.stringify(bossState)}`);
+    await evaluate(cdp, "window.__examGame.setDeveloperModeForVerify(true)");
+
+    await evaluate(cdp, "window.__examGame.forceBossMechanic('cauchy')");
+    await wait(150);
+    const cauchyState = await evaluate(cdp, "window.__examGame.state()");
+    if (cauchyState.bossDomainCoreId !== "cauchy" || cauchyState.bossCauchyCoreWallCount !== 3 || cauchyState.bossCauchyCandidateCount < 5) {
+      throw new Error(`Cauchy domain should have five normal walls and three highlighted core walls: ${JSON.stringify(cauchyState)}`);
     }
-    if (bossState.bossLaserCount < 1) {
+    await evaluate(cdp, "window.__examGame.forceBossMechanic('cauchyHighlight')");
+    await wait(80);
+    const cauchyHighlightState = await evaluate(cdp, "window.__examGame.state()");
+    if (cauchyHighlightState.bossCauchyDomainWallCount < cauchyState.bossCauchyDomainWallCount + 1) {
+      throw new Error(`Cauchy domain should periodically highlight one of the five normal walls: ${JSON.stringify(cauchyHighlightState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.forceBossMechanic('cauchyAttack')");
+    await wait(80);
+    const cauchyAttackState = await evaluate(cdp, "window.__examGame.state()");
+    if (cauchyAttackState.bossCauchyBombCount < 1) {
+      throw new Error(`Cauchy attack should create visible bomb ranges: ${JSON.stringify(cauchyAttackState)}`);
+    }
+
+    await evaluate(cdp, "window.__examGame.forceBossMechanic('gauss')");
+    const gaussDomainState = await evaluate(cdp, "window.__examGame.state()");
+    if (
+      gaussDomainState.bossDomainCoreId !== "gauss" ||
+      gaussDomainState.bossGaussBoostedCoreIds.length !== 2 ||
+      gaussDomainState.bossGaussZoneBonus !== 0 ||
+      gaussDomainState.bossGaussNextZoneCount !== 3 ||
+      gaussDomainState.bossInvisibleCoreIds.length !== 3
+    ) {
+      throw new Error(`Gauss domain should shield and damage-boost the other two cores and reset zone count: ${JSON.stringify(gaussDomainState)}`);
+    }
+    if (
+      gaussDomainState.bossGaussZoneBaseCount !== 4 ||
+      gaussDomainState.bossGaussZoneMaxCount !== 7 ||
+      gaussDomainState.bossGaussZoneDebuffDuration !== 5 ||
+      gaussDomainState.bossCauchyExplosionBulletCount !== 10
+    ) {
+      throw new Error(`Boss document constants should match the latest design: ${JSON.stringify(gaussDomainState)}`);
+    }
+    const gaussRevealHit = await evaluate(cdp, "window.__examGame.damageBossCoreForVerify('gauss', 10, 'sword').state");
+    if (
+      !gaussRevealHit.bossRevealedCoreIds.includes("gauss") ||
+      gaussRevealHit.bossInvisibleCoreIds.includes("gauss") ||
+      gaussRevealHit.bossCoreRevealTimers[2] <= 1.8
+    ) {
+      throw new Error(`Hitting an invisible boss core should reveal it for two seconds: ${JSON.stringify(gaussRevealHit)}`);
+    }
+    await wait(2200);
+    const gaussRehiddenState = await evaluate(cdp, "window.__examGame.state()");
+    if (
+      gaussRehiddenState.bossRevealedCoreIds.includes("gauss") ||
+      !gaussRehiddenState.bossInvisibleCoreIds.includes("gauss")
+    ) {
+      throw new Error(`Revealed boss core should return to invisibility after two seconds: ${JSON.stringify(gaussRehiddenState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.forceBossMechanic('gauss')");
+    await wait(80);
+    await evaluate(cdp, "window.__examGame.forceBossMechanic('gaussZones')");
+    await wait(400);
+    const gaussAttackState = await evaluate(cdp, "window.__examGame.state()");
+    if (!gaussAttackState.bossShotPatternCounts.curve || gaussAttackState.bossGaussZoneCount !== 3) {
+      throw new Error(`Gauss random-point curve zones should start from three zones: ${JSON.stringify(gaussAttackState)}`);
+    }
+
+    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(120, 120)");
+    await wait(80);
+    await evaluate(cdp, "window.__examGame.forceBossMechanic('descartes')");
+    await wait(100);
+    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(820, 120)");
+    await wait(250);
+    const descartesDomainState = await evaluate(cdp, "window.__examGame.state()");
+    if (
+      descartesDomainState.bossDomainCoreId !== "descartes" ||
+      descartesDomainState.bossDescartesQuadrant !== "q2" ||
+      descartesDomainState.bossDescartesQuadrantChanges !== 1 ||
+      descartesDomainState.bossDescartesQuadrantProjectionCount !== 2 ||
+      descartesDomainState.bossProjectionCount !== 2
+    ) {
+      throw new Error(`Descartes domain should track quadrant changes and summon two projections in the old quadrant: ${JSON.stringify(descartesDomainState)}`);
+    }
+    if (descartesDomainState.enemyMechanics.filter((enemy) => enemy.pattern === "projection").some((enemy) => enemy.hp !== 20)) {
+      throw new Error(`Boss projections should spawn with 20 HP: ${JSON.stringify(descartesDomainState.enemyMechanics)}`);
+    }
+    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(120, 460)");
+    await wait(180);
+    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(820, 460)");
+    await wait(180);
+    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(120, 120)");
+    await wait(180);
+    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(820, 120)");
+    await wait(180);
+    const descartesMultiSwitchState = await evaluate(cdp, "window.__examGame.state()");
+    if (descartesMultiSwitchState.bossDescartesQuadrantProjectionCount !== 10 || descartesMultiSwitchState.bossProjectionCount !== 10) {
+      throw new Error(`Descartes quadrant switches should summon two projections each under the latest document rules: ${JSON.stringify(descartesMultiSwitchState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.forceBossMechanic('cauchy')");
+    const descartesExitState = await evaluate(cdp, "window.__examGame.state()");
+    if (descartesExitState.bossProjectionCount !== descartesMultiSwitchState.bossProjectionCount) {
+      throw new Error(`Descartes domain should summon 0 exit projections after four or more quadrant changes: ${JSON.stringify(descartesExitState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.forceBossMechanic('descartesAttack')");
+    await wait(100);
+    const descartesAttackState = await evaluate(cdp, "window.__examGame.state()");
+    if (descartesAttackState.bossLaserCount < 1) {
       throw new Error("Descartes cross laser attack did not spawn");
     }
     const cauchyWrongHit = await evaluate(cdp, "window.__examGame.damageBossCoreForVerify('cauchy', 80, 'polarShotgun')");
@@ -802,7 +1367,7 @@ async function main() {
     if (!cauchySwordHit.domain || cauchySwordHit.afterShield >= cauchySwordHit.beforeShield || cauchySwordHit.after !== cauchySwordHit.before) {
       throw new Error(`The domain core shield should be damageable while HP stays invulnerable: ${JSON.stringify(cauchySwordHit)}`);
     }
-    const trackingCoreId = bossState.bossFrontCoreIds.includes("descartes") ? "descartes" : bossState.bossFrontCoreIds[0];
+    const trackingCoreId = cauchySwordHit.state.bossFrontCoreIds.includes("descartes") ? "descartes" : cauchySwordHit.state.bossFrontCoreIds[0];
     const trackingWeapon = trackingCoreId === "gauss" ? "matrixRpg" : trackingCoreId === "descartes" ? "coordinateBlade" : "functionGun";
     await evaluate(cdp, `window.__examGame.damageBossCoreForVerify('${trackingCoreId}', 30, '${trackingWeapon}')`);
     const bossDamageTrackState = await evaluate(cdp, `window.__examGame.damageBossCoreForVerify('${trackingCoreId}', 80, 'sword').state`);
@@ -816,25 +1381,23 @@ async function main() {
     await evaluate(cdp, "window.__examGame.setPlayerHp(999); window.__examGame.forceBossMechanic('rotate')");
     await wait(950);
     const rotatedBossState = await evaluate(cdp, "window.__examGame.state()");
-    if (rotatedBossState.bossRotationSteps < 1 || rotatedBossState.bossDomainCoreId === bossState.bossDomainCoreId || rotatedBossState.bossRotateTimer > 20 || rotatedBossState.bossRotateTimer < 18.8) {
+    if (rotatedBossState.bossRotationSteps < 1 || !rotatedBossState.bossDomainCoreId || rotatedBossState.bossRotateTimer > 20 || rotatedBossState.bossRotateTimer < 18.8) {
       throw new Error(`Boss should rotate into a new 20 second domain: ${JSON.stringify(rotatedBossState)}`);
     }
-    if (rotatedBossState.bossObstacleBoomCount <= bossState.bossObstacleBoomCount) {
+    if (rotatedBossState.bossObstacleBoomCount <= cauchyHighlightState.bossObstacleBoomCount) {
       throw new Error("Cauchy domain walls should explode when the domain ends");
     }
 
-    await evaluate(cdp, "window.__examGame.forceBossMechanic('descartes')");
-    await wait(100);
-    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(120, 120)");
-    await wait(100);
-    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(820, 120)");
-    await wait(250);
-    const descartesDomainState = await evaluate(cdp, "window.__examGame.state()");
-    if (descartesDomainState.bossDomainCoreId !== "descartes" || descartesDomainState.bossDescartesQuadrant !== "q2" || descartesDomainState.bossProjectionCount < 1) {
-      throw new Error(`Descartes domain should track quadrants and summon projections: ${JSON.stringify(descartesDomainState)}`);
-    }
-
     const bossShot = await screenshot(cdp, "boss.png");
+
+    await evaluate(cdp, "window.__examGame.setBossCoreHp('gauss', 60); window.__examGame.forceBossMechanic('gauss')");
+    await wait(100);
+    await evaluate(cdp, "window.__examGame.setBossCoreHp('cauchy', 0)");
+    await wait(150);
+    const gaussHealState = await evaluate(cdp, "window.__examGame.state()");
+    if (gaussHealState.bossGaussDomainKillHealCount < 1 || gaussHealState.bossCoreHp[2] !== gaussHealState.bossCoreMaxHp[2]) {
+      throw new Error(`Gauss should fully heal if another core dies during Gauss domain: ${JSON.stringify(gaussHealState)}`);
+    }
 
     await evaluate(cdp, "window.__examGame.setBossCoreHp('cauchy', 0)");
     await wait(700);
@@ -848,6 +1411,18 @@ async function main() {
       if (oldField in bossDefeatState) {
         throw new Error(`Old boss mechanic state should not be exported anymore: ${oldField}`);
       }
+    }
+    if (
+      !bossDefeatState.bossFrontCoreIds.includes("gauss") ||
+      bossDefeatState.bossInvulnerableCoreIds.includes("gauss") ||
+      bossDefeatState.bossActiveCoreCount !== 1 ||
+      bossDefeatState.bossFullPowerCoreId !== "gauss"
+    ) {
+      throw new Error(`The last remaining Gauss core should stay front-facing and damageable: ${JSON.stringify(bossDefeatState)}`);
+    }
+    const soloGaussHit = await evaluate(cdp, "window.__examGame.damageBossCoreForVerify('gauss', 80, 'sword')");
+    if (soloGaussHit.after >= soloGaussHit.before) {
+      throw new Error(`The last remaining Gauss core did not take HP damage: ${JSON.stringify(soloGaussHit)}`);
     }
 
     await evaluate(cdp, "window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyB' }))");
@@ -973,7 +1548,7 @@ async function main() {
         {
           ok: true,
           url: `http://127.0.0.1:${port}/`,
-          screenshots: [menuShot, mapShot, bossIntroShot, bossShot],
+          screenshots: [menuShot, betaShopShot, mapShot, bossIntroShot, bossShot],
           state: bossState,
         },
         null,

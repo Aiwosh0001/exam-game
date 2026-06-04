@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>今天你挂科了吗？</title>
-    <link rel="stylesheet" href="/static/css/styles.css?v=20260530-close-outside">
+    <link rel="stylesheet" href="/static/css/styles.css?v=20260604-beta-shop">
   </head>
   <body>
     <main class="game-shell" aria-label="今天你挂科了吗基础版">
@@ -46,11 +46,29 @@
         </div>
         <div class="menu-actions" aria-label="主菜单">
           <button id="startBtn" class="primary-action" type="button">开始复习</button>
-          <button id="guideBtn" type="button">游戏说明</button>
-          <button id="weaponStatsBtn" type="button">武器数据</button>
+          <button id="weaponStatsBtn" type="button">武器与增益</button>
+          <button id="enemyCodexBtn" type="button">名人堂</button>
           <button id="funFactsBtn" type="button">趣味知识</button>
           <button id="leaderboardBtn" type="button">排行榜</button>
           <button id="settingsBtn" type="button">设置</button>
+        </div>
+      </section>
+
+      <section id="versionSelectScreen" class="screen version-select-screen" hidden>
+        <div class="version-select-panel">
+          <p class="eyebrow">版本选择</p>
+          <h2>选择入口</h2>
+          <div class="version-options" aria-label="版本入口">
+            <button id="versionAlphaBtn" class="version-card alpha-version" type="button">
+              <strong>α</strong>
+              <span>当前版本</span>
+            </button>
+            <button id="versionBetaBtn" class="version-card beta-version" type="button">
+              <strong>β</strong>
+              <span>测试服</span>
+            </button>
+          </div>
+          <button id="versionBackBtn" type="button">返回主菜单</button>
         </div>
       </section>
 
@@ -121,12 +139,15 @@
         <p id="clearText">你获得了新的武器。</p>
         <div id="weaponChoice" class="weapon-choice" hidden>
           <strong id="weaponChoiceName">发现武器</strong>
+          <p id="weaponChoiceBuffText" class="weapon-choice-description"></p>
           <div class="weapon-choice-actions">
-            <button id="acceptWeaponBtn" class="primary-action" type="button">加入背包</button>
+            <button id="acceptWeaponBtn" type="button">加入背包</button>
             <button id="skipWeaponBtn" type="button">不加入</button>
+            <button id="secondBuffRewardBtn" type="button">选择增益</button>
+            <button id="confirmRewardBtn" type="button">确认领取</button>
           </div>
         </div>
-        <button id="backToMapBtn" class="primary-action" type="button">返回地图</button>
+        <button id="backToMapBtn" class="primary-action" type="button">确认离开</button>
       </section>
 
       <section id="challengeScreen" class="screen challenge-screen" hidden>
@@ -184,7 +205,7 @@
       <section id="modal" class="modal-backdrop" hidden>
         <div id="modalPanel" class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
           <button id="modalCloseBtn" class="icon-button" type="button" aria-label="关闭">×</button>
-          <h2 id="modalTitle">游戏说明</h2>
+          <h2 id="modalTitle">信息</h2>
           <div id="modalBody" class="modal-body"></div>
         </div>
       </section>
@@ -197,7 +218,7 @@
         baseStats: {
           hp: 100,
           speed: 3.5,
-          swordDamage: 15,
+          swordDamage: 10,
           swordCooldown: 0.5,
           enemyHp: 60,
           enemyBulletDamage: 10,
@@ -206,6 +227,11 @@
         }
       };
     </script>
-    <script src="/static/js/game.js?v=20260530-geometry-shield-cap"></script>
+    <script src="/static/js/core/constants.js?v=20260604-doc9-mechanics"></script>
+    <script src="/static/js/utils/math.js?v=20260603-modules"></script>
+    <script src="/static/js/data/weapons.js?v=20260603-modules"></script>
+    <script src="/static/js/data/buffs.js?v=20260604-buffs"></script>
+    <script src="/static/js/data/enemies.js?v=20260604-doc9-mechanics"></script>
+    <script src="/static/js/game.js?v=20260604-beta-shop"></script>
   </body>
 </html>
