@@ -27,7 +27,7 @@
     versionAlpha: document.getElementById("versionAlphaBtn"),
     versionBeta: document.getElementById("versionBetaBtn"),
     versionBack: document.getElementById("versionBackBtn"),
-    weaponStats: document.getElementById("weaponStatsBtn"),
+    ingameHelp: document.getElementById("ingameHelpBtn"),
     enemyCodex: document.getElementById("enemyCodexBtn"),
     funFacts: document.getElementById("funFactsBtn"),
     leaderboard: document.getElementById("leaderboardBtn"),
@@ -81,11 +81,18 @@
   const W = canvas.width;
   const H = canvas.height;
   const arenaInset = 10;
-  const arena = {
+  const baseArena = {
     left: arenaInset,
     top: arenaInset,
-    right: W - arenaInset,
-    bottom: H - arenaInset,
+    width: W - arenaInset * 2,
+    height: H - arenaInset * 2,
+  };
+  const bossArenaScale = 2;
+  const arena = {
+    left: baseArena.left,
+    top: baseArena.top,
+    right: baseArena.left + baseArena.width,
+    bottom: baseArena.top + baseArena.height,
   };
   arena.width = arena.right - arena.left;
   arena.height = arena.bottom - arena.top;
@@ -103,7 +110,6 @@
     randomRoomChestChance,
     completedRoomKeys,
     characterSizeScale,
-    playerDamageScale,
     bossDamageScale,
     bossSizeScale,
     bossCoreOrbitRadius,
@@ -129,6 +135,8 @@
     gaussFullPowerStealthEvery,
     gaussFullPowerStealthDuration,
     descartesFullPowerSpawnEvery,
+    descartesQuadrantProjectionLimit,
+    descartesExitProjectionLimit,
     backHitMultiplier,
     backHitHalfAngle,
     swordSlashReach,
@@ -167,6 +175,38 @@
   }
   const keys = new Set();
   const mouse = { x: W / 2, y: H / 2, down: false };
+
+  function setCombatArena(kind = "normal") {
+    const scale = kind === "boss" ? bossArenaScale : 1;
+    arena.left = baseArena.left;
+    arena.top = baseArena.top;
+    arena.right = arena.left + baseArena.width * scale;
+    arena.bottom = arena.top + baseArena.height * scale;
+    arena.width = arena.right - arena.left;
+    arena.height = arena.bottom - arena.top;
+    game.arenaKind = kind === "boss" ? "boss" : "normal";
+  }
+
+  function arenaCenterX() {
+    return (arena.left + arena.right) / 2;
+  }
+
+  function arenaCenterY() {
+    return (arena.top + arena.bottom) / 2;
+  }
+
+  function combatCamera() {
+    if (game.activeRoom !== "boss" || !game.player) return { x: 0, y: 0 };
+    return {
+      x: clamp(game.player.x - W / 2, 0, Math.max(0, arena.right - W)),
+      y: clamp(game.player.y - H / 2, 0, Math.max(0, arena.bottom - H)),
+    };
+  }
+
+  function screenToWorld(point) {
+    const camera = combatCamera();
+    return { x: point.x + camera.x, y: point.y + camera.y };
+  }
   let mode = "menu";
   let lastTime = performance.now();
   let attackHeld = false;
@@ -190,30 +230,26 @@
   const jordanSlashRadiusScale = 2 / 3;
   const jordanSlashDamage = 14;
 
-  function weaponDamageScale(weapon) {
-    return weapon?.id === "sword" ? 1 : playerDamageScale;
-  }
-
   function playerAttackCooldownMultiplier(player = game.player) {
-    const formulaMultiplier = hasBuff(player, "公式大全") ? 1 / 1.2 : 1;
+    const formulaMultiplier = Math.pow(1 / 1.2, buffCount(player, "公式大全"));
     return bossDomainAttackCooldownMultiplier() * formulaMultiplier;
   }
 
   function playerDamageBuffMultiplier(player = game.player) {
     return (
-      (hasBuff(player, "学霸笔记") ? 1.2 : 1) *
-      (player?.mistakeBoostTimer > 0 ? 1.25 : 1) *
-      (hasBuff(player, "鸡煲") && game.elapsed >= chickenHotpotDelayMs ? 2 : 1)
+      Math.pow(1.2, buffCount(player, "学霸笔记")) *
+      (player?.mistakeBoostTimer > 0 ? Math.pow(1.25, buffCount(player, "错题本")) : 1) *
+      (game.elapsed >= chickenHotpotDelayMs ? Math.pow(2, buffCount(player, "鸡煲")) : 1)
     );
   }
 
   function incomingDamageMultiplier(player = game.player) {
-    return hasBuff(player, "错题本") ? 0.75 : 1;
+    return Math.pow(0.75, buffCount(player, "错题本"));
   }
 
   function weaponReloadTime(weapon, player = game.player) {
     const baseReloadTime = Number(weapon?.reloadTime || 0);
-    return hasBuff(player, "草稿纸") ? baseReloadTime * 0.5 : baseReloadTime;
+    return baseReloadTime * Math.pow(0.5, buffCount(player, "草稿纸"));
   }
 
   const game = {
@@ -245,6 +281,7 @@
     nearbyDoor: null,
     activeRoom: null,
     activeRoomKey: null,
+    arenaKind: "normal",
     roomTitle: "",
     roomReward: null,
     pendingChallenge: null,
@@ -695,7 +732,12 @@
   }
 
   function hasBuff(player, name) {
-    return Boolean(player?.buffs?.includes(name));
+    return buffCount(player, name) > 0;
+  }
+
+  function buffCount(player, name) {
+    if (!player?.buffs?.length || !name) return 0;
+    return player.buffs.reduce((count, buff) => count + (buff === name ? 1 : 0), 0);
   }
 
   function addWeapon(player, weaponId, equip = true) {
@@ -1133,6 +1175,7 @@
     const versionChannel = game.versionChannel || "alpha";
     mode = "map";
     game.versionChannel = versionChannel;
+    setCombatArena("normal");
     game.startedAt = performance.now();
     game.elapsed = 0;
     game.kills = 0;
@@ -1190,9 +1233,11 @@
     Object.entries(screens).forEach(([key, element]) => {
       element.hidden = key !== name;
     });
+    const isInGameScreen = ["map", "combat", "clear", "challenge", "pause"].includes(name);
     document.body.classList.toggle("combat-active", name === "combat");
     if (hud.root) hud.root.hidden = name !== "combat";
     if (hud.hints) hud.hints.hidden = name !== "combat";
+    if (ui.ingameHelp) ui.ingameHelp.hidden = !isInGameScreen;
     if (name === "menu") refreshFunFacts();
   }
 
@@ -1607,6 +1652,7 @@
 
     mode = "combat";
     game.activeRoom = "monster";
+    setCombatArena("normal");
     game.activeRoomKey = room.completedKey;
     game.roomTitle = room.label;
     game.challengeCount = challengeCount;
@@ -1653,12 +1699,22 @@
     });
 
     while (selected.length < count) {
-      const unused = pool.filter((enemy) => !selected.some((picked) => picked.id === enemy.id));
+      const unused = pool.filter((enemy) => !selected.some((picked) => sameChallengeEnemy(picked, enemy, Boolean(lockedKind))));
       const source = unused.length ? unused : pool;
       const next = source[Math.floor(Math.random() * source.length)] || primary;
       selected.push(next);
     }
     return selected;
+  }
+
+  function challengeEnemyKey(enemy) {
+    return String(enemy?.name || enemy?.id || "");
+  }
+
+  function sameChallengeEnemy(a, b, strictName = false) {
+    if (!a || !b) return false;
+    if (a.id && b.id && a.id === b.id) return true;
+    return strictName && challengeEnemyKey(a) === challengeEnemyKey(b);
   }
 
   function createChallengeEnemy(enemyDef, index, count) {
@@ -1780,6 +1836,7 @@
     game.developerModeUsed = true;
     game.developerCustomMessage = `已进入自定义房间：共 ${total} 个测试目标。`;
     game.activeRoom = "monster";
+    setCombatArena("normal");
     game.activeRoomKey = "__developerCustom";
     game.roomTitle = "自定义房间";
     game.roomReward = null;
@@ -1893,11 +1950,11 @@
   }
 
   function bossShieldForCore(coreId, direct) {
-    return direct ? 72 : 60;
+    return direct ? 58 : 48;
   }
 
   function bossInitialCoreHp(direct) {
-    return Number(baseStats.bossCoreHp || 300);
+    return Number(baseStats.bossCoreHp || 240);
   }
 
   function ensureObstacleId(obstacle, prefix = "obstacle") {
@@ -1946,13 +2003,18 @@
     }
     mode = "combat";
     game.activeRoom = "boss";
+    setCombatArena("boss");
     game.pendingChallenge = null;
     game.challengeCount = 1;
     game.defeatedInRoom = 0;
     game.monsterClearDelay = 0;
     if (!bossOptions.skipRestore) restoreMissingHpOnRoomEnter(game.player);
-    game.player.x = W * 0.5;
-    game.player.y = H * 0.78;
+    const centerX = arenaCenterX();
+    const centerY = arenaCenterY();
+    game.player.x = centerX;
+    game.player.y = arena.top + arena.height * 0.58;
+    mouse.x = game.player.x;
+    mouse.y = game.player.y - 140;
     game.playerShots = [];
     game.enemyShots = [];
     game.enemyLasers = [];
@@ -1964,20 +2026,23 @@
     const direct = !completedRoomKeys.some((key) => game.completed[key]);
     awakenDirectBossSword(game.player, direct);
     const coreHp = bossInitialCoreHp(direct);
+    const bossPathTopY = centerY - arena.height * 0.14;
+    const bossPathBottomY = centerY + arena.height * 0.07;
+    const bossPathSideX = arena.width * 0.14;
     game.boss = {
       name: "三位一体",
-      x: W * 0.5,
-      y: H * 0.31,
-      moveBaseX: W * 0.5,
-      moveBaseY: H * 0.31,
+      x: centerX,
+      y: bossPathTopY,
+      moveBaseX: centerX,
+      moveBaseY: bossPathTopY,
       moveT: 0,
       moveAmp: direct ? 82 : 68,
       moveSpeed: direct ? 0.72 : 0.56,
       moveCycle: direct ? 8.8 : 10.2,
       movePath: [
-        { x: W * 0.5, y: H * 0.24 },
-        { x: W * 0.36, y: H * 0.39 },
-        { x: W * 0.64, y: H * 0.39 },
+        { x: centerX, y: bossPathTopY },
+        { x: centerX - bossPathSideX, y: bossPathBottomY },
+        { x: centerX + bossPathSideX, y: bossPathBottomY },
       ],
       angle: 0,
       rotateFrom: 0,
@@ -2849,7 +2914,7 @@
   }
 
   function movementSpeedMultiplier(player) {
-    let multiplier = hasBuff(player, "熬夜咖啡") ? 1.5 : 1;
+    let multiplier = Math.pow(1.5, buffCount(player, "熬夜咖啡"));
     if ((player.enemySlowTimer || 0) > 0) {
       multiplier *= player.enemySlowMultiplier || enemySlowMultiplier;
     }
@@ -2927,7 +2992,7 @@
     }
     player.attackTimer = weapon.cooldown * playerAttackCooldownMultiplier(player);
     const attackKind = weapon.kind;
-    const damageMultiplier = weaponDamageScale(weapon) * playerDamageBuffMultiplier(player);
+    const damageMultiplier = playerDamageBuffMultiplier(player);
     const sourceWeaponId = weapon.id;
     const sourceWeaponName = displayWeaponName(weapon);
 
@@ -4020,9 +4085,16 @@
     const creditText = creditGain
       ? `获得 ${creditGain} 学分，当前 ${game.credits} 学分。`
       : "";
+    const selectableLabels = [
+      weaponName ? "武器" : "",
+      ...rewardBuffs.map((_, index) => rewardBuffs.length > 1 ? `增益${index === 0 ? "A" : "B"}` : "增益"),
+    ].filter(Boolean);
+    const rewardPickText = selectableLabels.length
+      ? `可以勾选${selectableLabels.join("、")}，确认后领取；也可以直接离开。`
+      : "勾选后确认领取，也可以直接离开。";
     const clearText = rewardBuffs.length
-      ? `挑战 ${count} 人完成，${weaponText}${buffText}。${creditText}可以勾选武器和一个增益，确认后领取。`
-      : `挑战 ${count} 人完成，${weaponText}。${creditText}勾选后确认领取，也可以直接离开。`;
+      ? `挑战 ${count} 人完成，${weaponText}${buffText}。${creditText}${rewardPickText}`
+      : `挑战 ${count} 人完成，${weaponText}。${creditText}${rewardPickText}`;
     showClear(
       reward.clearEyebrow || "怪物房",
       reward.clearTitle || "知识投影被击败",
@@ -4513,12 +4585,14 @@
   }
 
   function spawnBossProjectionsInQuadrant(quadrant, count, source = "descartes") {
+    let spawnCount = Math.max(0, Math.floor(count || 0));
     if (source === "descartes-quadrant") {
       const boss = game.boss;
       const spawned = boss?.descartesQuadrantProjectionCount || 0;
-      if (boss) boss.descartesQuadrantProjectionCount = spawned + count;
+      spawnCount = Math.min(spawnCount, Math.max(0, descartesQuadrantProjectionLimit - spawned));
+      if (boss) boss.descartesQuadrantProjectionCount = spawned + spawnCount;
     }
-    for (let i = 0; i < count; i += 1) {
+    for (let i = 0; i < spawnCount; i += 1) {
       const point = randomPointInBossQuadrant(quadrant);
       spawnBossProjection(point.x, point.y, source);
     }
@@ -4526,7 +4600,7 @@
 
   function spawnDescartesExitProjections(boss) {
     const changes = Math.max(0, Math.min(4, boss.descartesQuadrantChanges || 0));
-    const count = changes <= 0 ? 6 : Math.max(0, 8 - changes * 2);
+    const count = Math.min(descartesExitProjectionLimit, changes <= 0 ? 6 : Math.max(0, 8 - changes * 2));
     for (let i = 0; i < count; i += 1) {
       const point = randomArenaPoint(48);
       spawnBossProjection(point.x, point.y, "descartes-exit");
@@ -4548,7 +4622,7 @@
       const previousQuadrant = boss.descartesQuadrant;
       boss.descartesQuadrant = quadrant;
       boss.descartesQuadrantChanges = (boss.descartesQuadrantChanges || 0) + 1;
-      spawnBossProjectionsInQuadrant(previousQuadrant, 2, "descartes-quadrant");
+      spawnBossProjectionsInQuadrant(previousQuadrant, 1, "descartes-quadrant");
       return;
     }
   }
@@ -5455,7 +5529,8 @@
       burst(player.x, player.y, color || colors.danger, 16);
     }
 
-    if (player.hp <= 0 && hasBuff(player, "绩点守护") && !player.gpaGuardUsed) {
+    if (player.hp <= 0 && hasBuff(player, "绩点守护")) {
+      removeBuff(player, "绩点守护");
       player.gpaGuardUsed = true;
       player.hp = Math.ceil(player.maxHp * 0.45);
       player.invuln = Math.max(player.invuln, 1.4);
@@ -5737,25 +5812,41 @@
     ctx.fillStyle = "#151718";
     ctx.fillRect(0, 0, W, H);
 
+    const camera = mode === "combat" ? combatCamera() : { x: 0, y: 0 };
+    ctx.save();
+    ctx.translate(-camera.x, -camera.y);
     ctx.strokeStyle = "rgba(255,255,255,0.045)";
     ctx.lineWidth = 1;
-    for (let x = 0; x <= W; x += 40) {
+    const gridLeft = mode === "combat" ? arena.left : 0;
+    const gridRight = mode === "combat" ? arena.right : W;
+    const gridTop = mode === "combat" ? arena.top : 0;
+    const gridBottom = mode === "combat" ? arena.bottom : H;
+    const displayArena = mode === "combat"
+      ? arena
+      : {
+        left: baseArena.left,
+        top: baseArena.top,
+        width: baseArena.width,
+        height: baseArena.height,
+      };
+    for (let x = gridLeft; x <= gridRight; x += 40) {
       ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, H);
+      ctx.moveTo(x, gridTop);
+      ctx.lineTo(x, gridBottom);
       ctx.stroke();
     }
-    for (let y = 0; y <= H; y += 40) {
+    for (let y = gridTop; y <= gridBottom; y += 40) {
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(W, y);
+      ctx.moveTo(gridLeft, y);
+      ctx.lineTo(gridRight, y);
       ctx.stroke();
     }
 
     ctx.fillStyle = "rgba(244,240,230,0.035)";
-    ctx.fillRect(arena.left, arena.top, arena.width, arena.height);
+    ctx.fillRect(displayArena.left, displayArena.top, displayArena.width, displayArena.height);
     ctx.strokeStyle = "rgba(244,240,230,0.08)";
-    ctx.strokeRect(arena.left, arena.top, arena.width, arena.height);
+    ctx.strokeRect(displayArena.left, displayArena.top, displayArena.width, displayArena.height);
+    ctx.restore();
   }
 
   function drawAmbientMath() {
@@ -5771,6 +5862,9 @@
   }
 
   function drawCombat() {
+    const camera = combatCamera();
+    ctx.save();
+    ctx.translate(-camera.x, -camera.y);
     if (game.activeRoom === "monster") {
       drawMonsterRoom();
     } else if (game.activeRoom === "boss") {
@@ -5783,6 +5877,7 @@
     drawParticles();
     drawPlayer();
     drawAimLine();
+    ctx.restore();
   }
 
   function drawMonsterMechanicFloor() {
@@ -6626,7 +6721,7 @@
         source: "房间奖励。",
       };
       const repeated = count > 1 ? `<span class="buff-count">x${count}</span>` : "";
-      const repeatNote = count > 1 ? `<p class="buff-repeat">重复获得会记录次数；持续型战斗增益按有/无生效，即时型增益会在获得时立即触发。</p>` : "";
+      const repeatNote = count > 1 ? `<p class="buff-repeat">重复获得会按乘算方式叠加；绩点守护按层数作为复活次数。</p>` : "";
       return `
         <article class="buff-card">
           <header>
@@ -6689,7 +6784,7 @@
 
   function weaponDamageLabel(weapon) {
     const pellets = weapon.pellets || 1;
-    const damage = weapon.damage * weaponDamageScale(weapon);
+    const damage = weapon.damage;
     if (pellets > 1) {
       return `${fixedNumber(damage, 1)} x ${pellets} = ${fixedNumber(damage * pellets, 1)}`;
     }
@@ -6697,7 +6792,7 @@
   }
 
   function weaponTheory(weapon) {
-    const damage = weapon.damage * weaponDamageScale(weapon);
+    const damage = weapon.damage;
     let attackValue = damage * (weapon.pellets || 1);
     if (weapon.special === "crossSlash") attackValue = damage * 2.2;
     if (weapon.special === "shieldPulse") attackValue = damage * 1.35;
@@ -7525,10 +7620,11 @@
     const rect = canvas.getBoundingClientRect();
     const scaleX = W / rect.width;
     const scaleY = H / rect.height;
-    return {
+    const screenPoint = {
       x: (event.clientX - rect.left) * scaleX,
       y: (event.clientY - rect.top) * scaleY,
     };
+    return mode === "combat" ? screenToWorld(screenPoint) : screenPoint;
   }
 
   function shouldIgnoreCombatPointer(event) {
@@ -7601,6 +7697,9 @@
   }
 
   function inBounds(x, y, margin) {
+    if (mode === "combat") {
+      return x > arena.left - margin && x < arena.right + margin && y > arena.top - margin && y < arena.bottom + margin;
+    }
     return x > -margin && x < W + margin && y > -margin && y < H + margin;
   }
 
@@ -7619,7 +7718,7 @@
     showScreen("menu");
   });
   hud.inventory?.addEventListener("click", () => openModal("inventory"));
-  ui.weaponStats.addEventListener("click", () => openModal("weapons"));
+  ui.ingameHelp?.addEventListener("click", () => openModal("weapons"));
   ui.enemyCodex?.addEventListener("click", () => openModal("enemyCodex"));
   ui.funFacts?.addEventListener("click", () => openModal("funFacts"));
   ui.leaderboard?.addEventListener("click", () => openModal("leaderboard"));
@@ -8103,6 +8202,14 @@
       developerModeUsed: Boolean(game.developerModeUsed),
       activeRoom: game.activeRoom,
       activeRoomKey: game.activeRoomKey,
+      arenaKind: game.arenaKind || "normal",
+      arenaWidth: arena.width,
+      arenaHeight: arena.height,
+      arenaAreaScale: Number(((arena.width * arena.height) / (baseArena.width * baseArena.height)).toFixed(3)),
+      cameraX: Number(combatCamera().x.toFixed(2)),
+      cameraY: Number(combatCamera().y.toFixed(2)),
+      playerX: Number((game.player?.x || 0).toFixed(2)),
+      playerY: Number((game.player?.y || 0).toFixed(2)),
       battleSeconds: Math.round(game.elapsed / 1000),
       hp: game.player?.hp,
       maxHp: game.player?.maxHp,
@@ -8124,8 +8231,8 @@
       weaponIndex: game.player?.weaponIndex || 0,
       ammo: game.player?.weapon ? ammoLabel(game.player.weapon) : "",
       weaponLevel: game.player?.weapon?.level || 0,
-      weaponDamage: game.player?.weapon ? game.player.weapon.damage * weaponDamageScale(game.player.weapon) : 0,
-      effectiveWeaponDamage: game.player?.weapon ? game.player.weapon.damage * weaponDamageScale(game.player.weapon) * playerDamageBuffMultiplier(game.player) : 0,
+      weaponDamage: game.player?.weapon ? game.player.weapon.damage : 0,
+      effectiveWeaponDamage: game.player?.weapon ? game.player.weapon.damage * playerDamageBuffMultiplier(game.player) : 0,
       damageBuffMultiplier: game.player ? playerDamageBuffMultiplier(game.player) : 1,
       incomingDamageMultiplier: game.player ? incomingDamageMultiplier(game.player) : 1,
       attackCooldownMultiplier: game.player ? playerAttackCooldownMultiplier(game.player) : 1,
@@ -8135,7 +8242,6 @@
       weaponSlashRadius: game.player?.weapon?.slashRadius || swordSlashRadius,
       weaponSlashReach: game.player?.weapon?.slashReach || swordSlashReach,
       directBossSwordAwakened: Boolean(game.player?.weapons?.some((weapon) => weapon.id === "sword" && weapon.directBossAwakened)),
-      playerDamageScale,
       movementSpeedMultiplier: game.player ? movementSpeedMultiplier(game.player) : 1,
       bossDamageScale,
       weapons: game.player?.weapons.map((weapon) => displayWeaponName(weapon)) || [],

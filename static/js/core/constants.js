@@ -19,7 +19,6 @@
   const randomRoomChestChance = 2 / 3;
   const completedRoomKeys = ["monster", "chest", "geometry", "linear", "randomB", "randomC"];
   const characterSizeScale = 0.65;
-  const playerDamageScale = 0.9;
   const bossDamageScale = 0.85;
   const bossSizeScale = 0.65;
   const bossCoreOrbitRadius = 92 * bossSizeScale;
@@ -45,6 +44,8 @@
   const gaussFullPowerStealthEvery = 5;
   const gaussFullPowerStealthDuration = 7;
   const descartesFullPowerSpawnEvery = 5;
+  const descartesQuadrantProjectionLimit = 4;
+  const descartesExitProjectionLimit = 4;
   const backHitMultiplier = 1.45;
   const backHitHalfAngle = Math.PI * 0.38;
   const swordSlashReach = 38;
@@ -76,7 +77,6 @@
       randomRoomChestChance,
       completedRoomKeys,
       characterSizeScale,
-      playerDamageScale,
       bossDamageScale,
       bossSizeScale,
       bossCoreOrbitRadius,
@@ -102,6 +102,8 @@
       gaussFullPowerStealthEvery,
       gaussFullPowerStealthDuration,
       descartesFullPowerSpawnEvery,
+      descartesQuadrantProjectionLimit,
+      descartesExitProjectionLimit,
       backHitMultiplier,
       backHitHalfAngle,
       swordSlashReach,

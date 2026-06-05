@@ -4,14 +4,14 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>今天你挂科了吗？</title>
-    <link rel="stylesheet" href="/static/css/styles.css?v=20260604-beta-shop">
+    <link rel="stylesheet" href="/static/css/styles.css?v=20260605-ingame-help">
   </head>
   <body>
     <main class="game-shell" aria-label="今天你挂科了吗基础版">
       <canvas id="gameCanvas" width="960" height="540" aria-label="游戏画面"></canvas>
 
       <section id="hud" class="hud combat-hud" hidden aria-live="polite">
-        <div class="hud-group">
+        <div class="hud-group hud-health-group">
           <span class="hud-label">生命值</span>
           <strong id="hudHp">100 / 100</strong>
         </div>
@@ -40,13 +40,14 @@
         <span>Esc 暂停</span>
       </section>
 
+      <button id="ingameHelpBtn" class="ingame-help-button" type="button" title="武器与增益" aria-label="打开武器与增益说明" hidden>?</button>
+
       <section id="mainMenu" class="screen screen-menu">
         <div class="menu-copy">
           <h1>今天你挂科了吗？</h1>
         </div>
         <div class="menu-actions" aria-label="主菜单">
           <button id="startBtn" class="primary-action" type="button">开始复习</button>
-          <button id="weaponStatsBtn" type="button">武器与增益</button>
           <button id="enemyCodexBtn" type="button">名人堂</button>
           <button id="funFactsBtn" type="button">趣味知识</button>
           <button id="leaderboardBtn" type="button">排行榜</button>
@@ -222,16 +223,16 @@
           swordCooldown: 0.5,
           enemyHp: 60,
           enemyBulletDamage: 10,
-          bossCoreHp: 300,
+          bossCoreHp: 240,
           eliteWeaponMultiplier: 1.25
         }
       };
     </script>
-    <script src="/static/js/core/constants.js?v=20260604-doc9-mechanics"></script>
+    <script src="/static/js/core/constants.js?v=20260605-boss-large-arena"></script>
     <script src="/static/js/utils/math.js?v=20260603-modules"></script>
     <script src="/static/js/data/weapons.js?v=20260603-modules"></script>
-    <script src="/static/js/data/buffs.js?v=20260604-buffs"></script>
+    <script src="/static/js/data/buffs.js?v=20260605-buff-stacking"></script>
     <script src="/static/js/data/enemies.js?v=20260604-doc9-mechanics"></script>
-    <script src="/static/js/game.js?v=20260604-beta-shop"></script>
+    <script src="/static/js/game.js?v=20260605-ingame-help"></script>
   </body>
 </html>

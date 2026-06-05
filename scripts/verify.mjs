@@ -320,63 +320,13 @@ async function main() {
     }
     const menuShot = await screenshot(cdp, "menu.png");
 
-    await evaluate(cdp, "document.getElementById('weaponStatsBtn').click()");
-    await wait(150);
-    const weaponInfoState = await evaluate(cdp, `({
-      title: document.getElementById('modalTitle').textContent,
-      pageTitle: document.querySelector('.weapon-info-page-head strong')?.textContent || '',
-      rows: document.querySelectorAll('.weapon-table tbody tr').length,
-      wide: document.getElementById('modalPanel').classList.contains('modal-panel-wide'),
-      pager: document.querySelector('.weapon-info-pager')?.textContent || '',
-      nextCount: document.querySelectorAll('[data-weapon-info-page="1"]').length
+    const menuWeaponInfoState = await evaluate(cdp, `({
+      hasHomepageButton: Boolean(document.getElementById('weaponStatsBtn')),
+      helpHidden: document.getElementById('ingameHelpBtn').hidden
     })`);
-    if (
-      weaponInfoState.title !== "武器与增益" ||
-      weaponInfoState.pageTitle !== "武器数据" ||
-      weaponInfoState.rows < 10 ||
-      !weaponInfoState.wide ||
-      !weaponInfoState.pager.includes("1 / 2") ||
-      weaponInfoState.nextCount !== 1
-    ) {
-      throw new Error(`Weapon info first page did not render correctly: ${JSON.stringify(weaponInfoState)}`);
+    if (menuWeaponInfoState.hasHomepageButton || !menuWeaponInfoState.helpHidden) {
+      throw new Error(`Weapon info should move from homepage to hidden in-game help button: ${JSON.stringify(menuWeaponInfoState)}`);
     }
-    const weaponBalance = await evaluate(cdp, "window.__examGame.weaponBalanceForVerify()");
-    const fullWeaponIds = [
-      "sword",
-      "functionGun",
-      "integralSniper",
-      "taylorCannon",
-      "coordinateBlade",
-      "polarShotgun",
-      "geometryShield",
-      "matrixRpg",
-      "luStaff",
-      "determinantLaser",
-    ];
-    const fullBalanceScores = fullWeaponIds.map((id) => weaponBalance[id]?.balanceScore || 0);
-    if (Math.max(...fullBalanceScores) > 65 || Math.min(...fullBalanceScores) < 19) {
-      throw new Error(`Weapon balance scores drifted too far: ${JSON.stringify(weaponBalance)}`);
-    }
-    await evaluate(cdp, "document.querySelector('[data-weapon-info-page=\"1\"]').click()");
-    await wait(100);
-    const weaponBuffPageState = await evaluate(cdp, `({
-      pageTitle: document.querySelector('.weapon-info-page-head strong')?.textContent || '',
-      buffCards: document.querySelectorAll('.buff-catalog .buff-card').length,
-      body: document.querySelector('.modal-body')?.textContent || '',
-      pager: document.querySelector('.weapon-info-pager')?.textContent || ''
-    })`);
-    if (
-      weaponBuffPageState.pageTitle !== "增益简介" ||
-      weaponBuffPageState.buffCards < 8 ||
-      !weaponBuffPageState.body.includes("鸡煲") ||
-      !weaponBuffPageState.body.includes("草稿纸") ||
-      !weaponBuffPageState.body.includes("换弹时间减少一半") ||
-      !weaponBuffPageState.pager.includes("2 / 2")
-    ) {
-      throw new Error(`Weapon info buff page did not render correctly: ${JSON.stringify(weaponBuffPageState)}`);
-    }
-    await evaluate(cdp, "document.getElementById('modalCloseBtn').click()");
-    await wait(100);
 
     await evaluate(cdp, "document.getElementById('enemyCodexBtn').click()");
     await wait(100);
@@ -600,6 +550,71 @@ async function main() {
     }
     const mapShot = await screenshot(cdp, "corridor.png");
 
+    const ingameHelpState = await evaluate(cdp, `({
+      hidden: document.getElementById('ingameHelpBtn').hidden,
+      text: document.getElementById('ingameHelpBtn').textContent
+    })`);
+    if (ingameHelpState.hidden || ingameHelpState.text.trim() !== "?") {
+      throw new Error(`In-game weapon info help button should be visible on the map: ${JSON.stringify(ingameHelpState)}`);
+    }
+    await evaluate(cdp, "document.getElementById('ingameHelpBtn').click()");
+    await wait(150);
+    const weaponInfoState = await evaluate(cdp, `({
+      title: document.getElementById('modalTitle').textContent,
+      pageTitle: document.querySelector('.weapon-info-page-head strong')?.textContent || '',
+      rows: document.querySelectorAll('.weapon-table tbody tr').length,
+      wide: document.getElementById('modalPanel').classList.contains('modal-panel-wide'),
+      pager: document.querySelector('.weapon-info-pager')?.textContent || '',
+      nextCount: document.querySelectorAll('[data-weapon-info-page="1"]').length
+    })`);
+    if (
+      weaponInfoState.title !== "武器与增益" ||
+      weaponInfoState.pageTitle !== "武器数据" ||
+      weaponInfoState.rows < 10 ||
+      !weaponInfoState.wide ||
+      !weaponInfoState.pager.includes("1 / 2") ||
+      weaponInfoState.nextCount !== 1
+    ) {
+      throw new Error(`Weapon info first page did not render correctly: ${JSON.stringify(weaponInfoState)}`);
+    }
+    const weaponBalance = await evaluate(cdp, "window.__examGame.weaponBalanceForVerify()");
+    const fullWeaponIds = [
+      "sword",
+      "functionGun",
+      "integralSniper",
+      "taylorCannon",
+      "coordinateBlade",
+      "polarShotgun",
+      "geometryShield",
+      "matrixRpg",
+      "luStaff",
+      "determinantLaser",
+    ];
+    const fullBalanceScores = fullWeaponIds.map((id) => weaponBalance[id]?.balanceScore || 0);
+    if (Math.max(...fullBalanceScores) > 65 || Math.min(...fullBalanceScores) < 19) {
+      throw new Error(`Weapon balance scores drifted too far: ${JSON.stringify(weaponBalance)}`);
+    }
+    await evaluate(cdp, "document.querySelector('[data-weapon-info-page=\"1\"]').click()");
+    await wait(100);
+    const weaponBuffPageState = await evaluate(cdp, `({
+      pageTitle: document.querySelector('.weapon-info-page-head strong')?.textContent || '',
+      buffCards: document.querySelectorAll('.buff-catalog .buff-card').length,
+      body: document.querySelector('.modal-body')?.textContent || '',
+      pager: document.querySelector('.weapon-info-pager')?.textContent || ''
+    })`);
+    if (
+      weaponBuffPageState.pageTitle !== "增益简介" ||
+      weaponBuffPageState.buffCards < 8 ||
+      !weaponBuffPageState.body.includes("鸡煲") ||
+      !weaponBuffPageState.body.includes("草稿纸") ||
+      !weaponBuffPageState.body.includes("换弹时间减少一半") ||
+      !weaponBuffPageState.pager.includes("2 / 2")
+    ) {
+      throw new Error(`Weapon info buff page did not render correctly: ${JSON.stringify(weaponBuffPageState)}`);
+    }
+    await evaluate(cdp, "document.getElementById('modalCloseBtn').click()");
+    await wait(100);
+
     await evaluate(cdp, "window.__examGame.setPlayerHp(40)");
     await evaluate(cdp, "window.__examGame.startBossRoom()");
     await wait(250);
@@ -615,13 +630,22 @@ async function main() {
     ) {
       throw new Error(`Direct boss sword awakening failed: ${JSON.stringify(directBossSwordState)}`);
     }
+    if (directBossSwordState.arenaKind !== "boss" || directBossSwordState.arenaAreaScale !== 4 || directBossSwordState.arenaWidth < 1800 || directBossSwordState.arenaHeight < 1000) {
+      throw new Error(`Direct boss room should use a 4x large arena: ${JSON.stringify(directBossSwordState)}`);
+    }
+    if (
+      directBossSwordState.bossCoreMaxHp.some((hp) => hp !== 240) ||
+      directBossSwordState.bossCoreShield.some((shield) => shield !== 58)
+    ) {
+      throw new Error(`Direct boss HP/shield should be tuned down to 240/58: ${JSON.stringify(directBossSwordState)}`);
+    }
     if (Math.abs(directBossSwordState.hp - 70) > 0.001) {
       throw new Error(`Entering a room should restore 50% of missing HP: ${JSON.stringify({ hp: directBossSwordState.hp })}`);
     }
     await evaluate(cdp, "window.__examGame.resetGame()");
     await wait(200);
     const resetMapState = await evaluate(cdp, "window.__examGame.state()");
-    if (resetMapState.mode !== "map" || resetMapState.weaponDamage !== 10 || resetMapState.directBossSwordAwakened) {
+    if (resetMapState.mode !== "map" || resetMapState.weaponDamage !== 10 || resetMapState.directBossSwordAwakened || resetMapState.arenaKind !== "normal" || resetMapState.arenaAreaScale !== 1) {
       throw new Error(`Direct boss sword awakening leaked after reset: ${JSON.stringify(resetMapState)}`);
     }
 
@@ -633,6 +657,10 @@ async function main() {
     if (Math.abs(coffeeState.movementSpeedMultiplier - 1.5) > 0.001) {
       throw new Error("Overnight coffee should raise movement speed by 50%");
     }
+    const coffeeStackState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('熬夜咖啡')");
+    if (Math.abs(coffeeStackState.movementSpeedMultiplier - 2.25) > 0.001) {
+      throw new Error(`Duplicate coffee should stack multiplicatively: ${JSON.stringify(coffeeStackState)}`);
+    }
     const beforeFormulaState = await evaluate(cdp, "window.__examGame.state()");
     const formulaState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('公式大全')");
     if (
@@ -642,36 +670,48 @@ async function main() {
     ) {
       throw new Error(`Formula compendium should increase attack speed by 20% without changing damage: ${JSON.stringify({ beforeFormulaState, formulaState })}`);
     }
+    const formulaStackState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('公式大全')");
+    if (Math.abs(formulaStackState.attackCooldownMultiplier - (1 / (1.2 ** 2))) > 0.001) {
+      throw new Error(`Duplicate formula compendium should stack multiplicatively: ${JSON.stringify(formulaStackState)}`);
+    }
     const noteState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('学霸笔记')");
     if (Math.abs(noteState.damageBuffMultiplier - 1.2) > 0.001 || Math.abs(noteState.effectiveWeaponDamage - noteState.weaponDamage * 1.2) > 0.001) {
       throw new Error(`Academic notes should raise outgoing damage by 20%: ${JSON.stringify(noteState)}`);
     }
-    await evaluate(cdp, "window.__examGame.grantBuffForVerify('草稿纸'); window.__examGame.addWeaponForVerify('matrixRpg')");
+    const noteStackState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('学霸笔记')");
+    if (Math.abs(noteStackState.damageBuffMultiplier - (1.2 ** 2)) > 0.001 || Math.abs(noteStackState.effectiveWeaponDamage - noteStackState.weaponDamage * (1.2 ** 2)) > 0.001) {
+      throw new Error(`Duplicate academic notes should stack multiplicatively: ${JSON.stringify(noteStackState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.grantBuffForVerify('草稿纸'); window.__examGame.grantBuffForVerify('草稿纸'); window.__examGame.addWeaponForVerify('matrixRpg')");
     const draftPaperReload = await evaluate(cdp, "window.__examGame.drainCurrentWeapon()");
     if (
       draftPaperReload.currentWeaponId !== "matrixRpg" ||
       !draftPaperReload.currentWeaponReloading ||
       Math.abs(draftPaperReload.currentWeaponReloadTimer - draftPaperReload.effectiveReloadTime) > 0.001 ||
-      Math.abs(draftPaperReload.effectiveReloadTime - 1.2) > 0.001
+      Math.abs(draftPaperReload.effectiveReloadTime - 0.6) > 0.001
     ) {
-      throw new Error(`Draft paper should halve reload time: ${JSON.stringify(draftPaperReload)}`);
+      throw new Error(`Duplicate draft paper should stack reload reduction multiplicatively: ${JSON.stringify(draftPaperReload)}`);
     }
-    const chickenPreState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('鸡煲'); window.__examGame.setBattleSecondsForVerify(19)");
-    if (chickenPreState.chickenBuffReady || Math.abs(chickenPreState.damageBuffMultiplier - 1.2) > 0.001) {
+    const chickenPreState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('鸡煲'); window.__examGame.grantBuffForVerify('鸡煲'); window.__examGame.setBattleSecondsForVerify(19)");
+    if (chickenPreState.chickenBuffReady || Math.abs(chickenPreState.damageBuffMultiplier - (1.2 ** 2)) > 0.001) {
       throw new Error(`Chicken hotpot should not activate before 20 combat seconds: ${JSON.stringify(chickenPreState)}`);
     }
     const chickenReadyState = await evaluate(cdp, "window.__examGame.setBattleSecondsForVerify(20)");
-    if (!chickenReadyState.chickenBuffReady || Math.abs(chickenReadyState.damageBuffMultiplier - 2.4) > 0.001) {
-      throw new Error(`Chicken hotpot should double outgoing damage after 20 combat seconds: ${JSON.stringify(chickenReadyState)}`);
+    if (!chickenReadyState.chickenBuffReady || Math.abs(chickenReadyState.damageBuffMultiplier - ((1.2 ** 2) * (2 ** 2))) > 0.001) {
+      throw new Error(`Duplicate chicken hotpot should stack multiplicatively after 20 combat seconds: ${JSON.stringify(chickenReadyState)}`);
     }
     await evaluate(cdp, "window.__examGame.setPlayerHp(100)");
-    const mistakeBookState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('错题本')");
-    if (Math.abs(mistakeBookState.incomingDamageMultiplier - 0.75) > 0.001) {
-      throw new Error(`Mistake book should reduce incoming damage by 25%: ${JSON.stringify(mistakeBookState)}`);
+    const mistakeBookState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('错题本'); window.__examGame.grantBuffForVerify('错题本')");
+    if (Math.abs(mistakeBookState.incomingDamageMultiplier - (0.75 ** 2)) > 0.001) {
+      throw new Error(`Duplicate mistake book should stack incoming damage reduction multiplicatively: ${JSON.stringify(mistakeBookState)}`);
     }
     const mistakeBookDamage = await evaluate(cdp, "window.__examGame.damagePlayerForVerify(40)");
-    if (Math.abs(mistakeBookDamage.after.hp - (mistakeBookDamage.before.hp - 30)) > 0.001 || mistakeBookDamage.after.mistakeBoostTimer <= 0) {
-      throw new Error(`Mistake book should reduce damage and trigger counterattack boost: ${JSON.stringify(mistakeBookDamage)}`);
+    if (
+      Math.abs(mistakeBookDamage.after.hp - (mistakeBookDamage.before.hp - 40 * (0.75 ** 2))) > 0.001 ||
+      mistakeBookDamage.after.mistakeBoostTimer <= 0 ||
+      Math.abs(mistakeBookDamage.after.damageBuffMultiplier - ((1.2 ** 2) * (2 ** 2) * (1.25 ** 2))) > 0.001
+    ) {
+      throw new Error(`Duplicate mistake book should reduce damage and stack counterattack boost: ${JSON.stringify(mistakeBookDamage)}`);
     }
     await evaluate(cdp, "window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyI', shiftKey: true }))");
     await wait(100);
@@ -1059,6 +1099,10 @@ async function main() {
     if (calculusFightState.enemyMechanics.some((enemy) => enemy.kind !== "calculus")) {
       throw new Error(`Calculus room should only spawn calculus enemies: ${JSON.stringify(calculusFightState.enemyMechanics)}`);
     }
+    const calculusEnemyNames = calculusFightState.enemyMechanics.map((enemy) => enemy.name);
+    if (new Set(calculusEnemyNames).size !== calculusEnemyNames.length) {
+      throw new Error(`Calculus room should not duplicate enemy names: ${JSON.stringify(calculusFightState.enemyMechanics)}`);
+    }
     const lagrangeParent = calculusFightState.enemyMechanics.find((enemy) => enemy.mechanics.includes("splitOnDeath"));
     if (!lagrangeParent) {
       throw new Error(`Calculus room should include a Lagrange split enemy: ${JSON.stringify(calculusFightState.enemyMechanics)}`);
@@ -1108,11 +1152,19 @@ async function main() {
     if (geometryFightState.enemyMechanics.some((enemy) => enemy.kind !== "geometry")) {
       throw new Error(`Geometry room should only spawn geometry enemies: ${JSON.stringify(geometryFightState.enemyMechanics)}`);
     }
+    const geometryEnemyNames = geometryFightState.enemyMechanics.map((enemy) => enemy.name);
+    if (new Set(geometryEnemyNames).size !== geometryEnemyNames.length) {
+      throw new Error(`Geometry room should not duplicate enemy names: ${JSON.stringify(geometryFightState.enemyMechanics)}`);
+    }
     await evaluate(cdp, "window.__examGame.completeActiveRoom()");
     await wait(150);
     const geometryPromptState = await evaluate(cdp, "window.__examGame.state()");
     if (!geometryPromptState.completed.geometry || !geometryPromptState.pendingWeaponChoice || !geometryPromptState.pendingAllowWeaponBuff) {
       throw new Error("Geometry room did not complete correctly");
+    }
+    const geometryRewardText = await evaluate(cdp, "document.getElementById('clearText').textContent");
+    if (!geometryRewardText.includes("增益A") || !geometryRewardText.includes("增益B") || geometryRewardText.includes("一个增益")) {
+      throw new Error(`Three-person reward text should describe both buff choices: ${geometryRewardText}`);
     }
     const geometrySelection = await confirmPendingRewardSelection(cdp, { weapon: true, buffIndexes: [0, 1] });
     const geometryClearState = geometrySelection.after;
@@ -1150,6 +1202,10 @@ async function main() {
     }
     if (linearFightState.enemyMechanics.some((enemy) => enemy.kind !== "linear")) {
       throw new Error(`Linear room should only spawn linear enemies: ${JSON.stringify(linearFightState.enemyMechanics)}`);
+    }
+    const linearEnemyNames = linearFightState.enemyMechanics.map((enemy) => enemy.name);
+    if (new Set(linearEnemyNames).size !== linearEnemyNames.length) {
+      throw new Error(`Linear room should not duplicate enemy names: ${JSON.stringify(linearFightState.enemyMechanics)}`);
     }
     await evaluate(cdp, "window.__examGame.completeActiveRoom()");
     await wait(150);
@@ -1204,6 +1260,15 @@ async function main() {
     const bossState = await evaluate(cdp, "window.__examGame.state()");
     if (bossState.mode !== "combat" || bossState.activeRoom !== "boss") {
       throw new Error("Boss room did not start correctly");
+    }
+    if (bossState.arenaKind !== "boss" || bossState.arenaAreaScale !== 4 || bossState.cameraX <= 0 || bossState.cameraY <= 0) {
+      throw new Error(`Boss room should use a 4x arena with player-follow camera: ${JSON.stringify(bossState)}`);
+    }
+    if (
+      bossState.bossCoreMaxHp.some((hp) => hp !== 240) ||
+      bossState.bossCoreShield.some((shield) => shield < 48 || shield % 48 !== 0)
+    ) {
+      throw new Error(`Boss HP/shield should use 240 HP and 48-point shield layers: ${JSON.stringify(bossState)}`);
     }
     const swordBossMultipliers = await evaluate(cdp, `Object.fromEntries(
       ['cauchy', 'descartes', 'gauss'].map((id) => [id, window.__examGame.bossKindMultiplierForVerify('sword', id)])
@@ -1321,37 +1386,45 @@ async function main() {
     await wait(80);
     await evaluate(cdp, "window.__examGame.forceBossMechanic('descartes')");
     await wait(100);
-    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(820, 120)");
+    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(1780, 120)");
     await wait(250);
     const descartesDomainState = await evaluate(cdp, "window.__examGame.state()");
     if (
       descartesDomainState.bossDomainCoreId !== "descartes" ||
       descartesDomainState.bossDescartesQuadrant !== "q2" ||
       descartesDomainState.bossDescartesQuadrantChanges !== 1 ||
-      descartesDomainState.bossDescartesQuadrantProjectionCount !== 2 ||
-      descartesDomainState.bossProjectionCount !== 2
+      descartesDomainState.bossDescartesQuadrantProjectionCount !== 1 ||
+      descartesDomainState.bossProjectionCount !== 1
     ) {
-      throw new Error(`Descartes domain should track quadrant changes and summon two projections in the old quadrant: ${JSON.stringify(descartesDomainState)}`);
+      throw new Error(`Descartes domain should track quadrant changes and summon one projection in the old quadrant: ${JSON.stringify(descartesDomainState)}`);
     }
     if (descartesDomainState.enemyMechanics.filter((enemy) => enemy.pattern === "projection").some((enemy) => enemy.hp !== 20)) {
       throw new Error(`Boss projections should spawn with 20 HP: ${JSON.stringify(descartesDomainState.enemyMechanics)}`);
     }
-    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(120, 460)");
+    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(120, 940)");
     await wait(180);
-    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(820, 460)");
+    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(1780, 940)");
     await wait(180);
     await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(120, 120)");
     await wait(180);
-    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(820, 120)");
+    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(1780, 120)");
     await wait(180);
     const descartesMultiSwitchState = await evaluate(cdp, "window.__examGame.state()");
-    if (descartesMultiSwitchState.bossDescartesQuadrantProjectionCount !== 10 || descartesMultiSwitchState.bossProjectionCount !== 10) {
-      throw new Error(`Descartes quadrant switches should summon two projections each under the latest document rules: ${JSON.stringify(descartesMultiSwitchState)}`);
+    if (descartesMultiSwitchState.bossDescartesQuadrantProjectionCount !== 4 || descartesMultiSwitchState.bossProjectionCount !== 4) {
+      throw new Error(`Descartes quadrant switches should summon one projection each, capped at four: ${JSON.stringify(descartesMultiSwitchState)}`);
     }
     await evaluate(cdp, "window.__examGame.forceBossMechanic('cauchy')");
     const descartesExitState = await evaluate(cdp, "window.__examGame.state()");
     if (descartesExitState.bossProjectionCount !== descartesMultiSwitchState.bossProjectionCount) {
       throw new Error(`Descartes domain should summon 0 exit projections after four or more quadrant changes: ${JSON.stringify(descartesExitState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(120, 120); window.__examGame.forceBossMechanic('descartes')");
+    await wait(100);
+    const descartesNoSwitchState = await evaluate(cdp, "window.__examGame.state()");
+    await evaluate(cdp, "window.__examGame.forceBossMechanic('gauss')");
+    const descartesExitCapState = await evaluate(cdp, "window.__examGame.state()");
+    if (descartesExitCapState.bossProjectionCount - descartesNoSwitchState.bossProjectionCount > 4) {
+      throw new Error(`Descartes domain exit should summon no more than four projections: ${JSON.stringify({ descartesNoSwitchState, descartesExitCapState })}`);
     }
     await evaluate(cdp, "window.__examGame.forceBossMechanic('descartesAttack')");
     await wait(100);
@@ -1359,6 +1432,7 @@ async function main() {
     if (descartesAttackState.bossLaserCount < 1) {
       throw new Error("Descartes cross laser attack did not spawn");
     }
+    await evaluate(cdp, "window.__examGame.forceBossMechanic('cauchy')");
     const cauchyWrongHit = await evaluate(cdp, "window.__examGame.damageBossCoreForVerify('cauchy', 80, 'polarShotgun')");
     if (cauchyWrongHit.afterShield !== cauchyWrongHit.beforeShield || cauchyWrongHit.after !== cauchyWrongHit.before) {
       throw new Error(`Non-matching weapons should not damage boss shields: ${JSON.stringify(cauchyWrongHit)}`);
