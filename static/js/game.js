@@ -32,6 +32,7 @@
     funFacts: document.getElementById("funFactsBtn"),
     leaderboard: document.getElementById("leaderboardBtn"),
     settings: document.getElementById("settingsBtn"),
+    guideToast: document.getElementById("guideToast"),
     monsterRoom: document.getElementById("monsterRoomBtn"),
     chestRoom: document.getElementById("chestRoomBtn"),
     geometryRoom: document.getElementById("geometryRoomBtn"),
@@ -39,6 +40,7 @@
     randomRoomB: document.getElementById("randomRoomBBtn"),
     randomRoomC: document.getElementById("randomRoomCBtn"),
     bossRoom: document.getElementById("bossRoomBtn"),
+    bossDoorPrep: document.getElementById("bossDoorPrep"),
     mapBoard: document.querySelector(".corridor-board"),
     mapPlayer: document.getElementById("mapPlayer"),
     mapPrompt: document.getElementById("mapPrompt"),
@@ -46,12 +48,24 @@
     clearEyebrow: document.getElementById("clearEyebrow"),
     clearTitle: document.getElementById("clearTitle"),
     clearText: document.getElementById("clearText"),
+    passiveChoice: document.getElementById("passiveChoice"),
+    passiveChoiceName: document.getElementById("passiveChoiceName"),
+    passiveChoiceText: document.getElementById("passiveChoiceText"),
+    passiveOptions: [
+      document.getElementById("passiveOptionA"),
+      document.getElementById("passiveOptionB"),
+      document.getElementById("passiveOptionC"),
+    ],
+    confirmPassive: document.getElementById("confirmPassiveBtn"),
+    skipPassive: document.getElementById("skipPassiveBtn"),
     weaponChoice: document.getElementById("weaponChoice"),
     weaponChoiceName: document.getElementById("weaponChoiceName"),
     weaponChoiceBuffText: document.getElementById("weaponChoiceBuffText"),
+    weaponChoiceActions: document.querySelector(".weapon-choice-actions"),
     acceptWeapon: document.getElementById("acceptWeaponBtn"),
     skipWeapon: document.getElementById("skipWeaponBtn"),
     secondBuffReward: document.getElementById("secondBuffRewardBtn"),
+    thirdReward: document.getElementById("thirdRewardBtn"),
     confirmReward: document.getElementById("confirmRewardBtn"),
     backToMap: document.getElementById("backToMapBtn"),
     challengeEyebrow: document.getElementById("challengeEyebrow"),
@@ -124,6 +138,7 @@
     cauchyFullPowerWallCount,
     cauchyFullPowerCycle,
     bossProjectionHp,
+    bossProjectionLimit,
     gaussZoneBaseCount,
     gaussZoneResetCount,
     gaussZoneMaxCount,
@@ -224,11 +239,145 @@
   const archimedesDashWarning = 1.7;
   const archimedesPlayerLockWarning = 1;
   const archimedesWallDashLimit = 2;
+  const lhopitalSlashWarning = 0.42;
+  const taylorDashWarning = 0.42;
+  const jacobiBlinkWarning = 0.58;
+  const axisLaserWarning = 0.65;
+  const gaussDeathBeamWarning = 0.68;
+  const swordFocusDuration = 1.1;
+  const swordFocusMultiplier = 1.35;
+  const tacticalFocusDuration = 1.6;
+  const tacticalFocusMultiplier = 1.15;
+  const encounterPressureDecay = 1.45;
+  const encounterRetryDelay = 0.16;
+  const staggerDuration = 1.05;
+  const staggerDamageMultiplier = 1.28;
+  const counterWindowStaggerMultiplier = 1.55;
+  const bossPressureDecay = 1.18;
+  const bossCounterWindowBase = 0.86;
+  const bossCounterSuppressionBase = 0.62;
+  const guideToastDefaultDuration = 3.4;
   const betaRandomRoomCost = 2;
   const betaShopItemHpCost = 30;
+  const betaShopRefreshCosts = [1, 3, 5];
   const jordanSlashWarnDuration = 0.7;
   const jordanSlashRadiusScale = 2 / 3;
   const jordanSlashDamage = 14;
+  const roomModifiers = [
+    {
+      id: "openBook",
+      name: "开卷考场",
+      text: "敌人血量略低，攻势稍慢，适合稳扎稳打。",
+      hpScale: 0.92,
+      fireEveryScale: 1.08,
+      obstacleBonus: 0,
+      pressureScale: 0.88,
+      staggerScale: 0.92,
+    },
+    {
+      id: "draftMaze",
+      name: "草稿纸满地",
+      text: "障碍物更多，弹幕能被挡住，也更考验走位。",
+      hpScale: 1,
+      fireEveryScale: 1,
+      obstacleBonus: 2,
+      pressureScale: 1,
+      staggerScale: 0.95,
+    },
+    {
+      id: "quietRoom",
+      name: "安静考场",
+      text: "敌人更耐打，但攻击节奏放慢。",
+      hpScale: 1.12,
+      fireEveryScale: 1.18,
+      obstacleBonus: 0,
+      pressureScale: 0.82,
+      staggerScale: 1.08,
+    },
+    {
+      id: "popQuiz",
+      name: "突击测验",
+      text: "敌人先手更快，但整体血量略低。",
+      hpScale: 0.95,
+      fireEveryScale: 1,
+      firstFireScale: 0.45,
+      obstacleBonus: 0,
+      pressureScale: 1.15,
+      staggerScale: 0.9,
+    },
+    {
+      id: "weakPoint",
+      name: "弱点暴露",
+      text: "敌人攻势正常，但背击和破绽更容易打出硬直。",
+      hpScale: 1,
+      fireEveryScale: 1,
+      obstacleBonus: 0,
+      pressureScale: 1,
+      staggerScale: 0.78,
+    },
+  ];
+
+  const challengePassiveDefs = [
+    {
+      id: "vitality",
+      name: "心算体质",
+      icon: "HP",
+      type: "生存",
+      effect: (level) => `生命上限 +${level * 10}，获得时回复新增上限的一半。`,
+      detail: "适合稳扎稳打，也能提高容错。",
+    },
+    {
+      id: "damage",
+      name: "破题直觉",
+      icon: "ATK",
+      type: "输出",
+      effect: (level) => `造成伤害 +${level * 5}%。`,
+      detail: "对所有武器生效，适合加快清房和压 Boss。",
+    },
+    {
+      id: "guard",
+      name: "应试防线",
+      icon: "DEF",
+      type: "防守",
+      effect: (level) => `受到伤害 -${level * 4}%。`,
+      detail: "和错题本可叠加，越往后越稳。",
+    },
+    {
+      id: "reload",
+      name: "速记弹匣",
+      icon: "RLD",
+      type: "武器",
+      effect: (level) => `换弹时间 -${level * 8}%。`,
+      detail: "慢射速和大威力武器会更顺手。",
+    },
+    {
+      id: "stagger",
+      name: "破防理解",
+      icon: "BRK",
+      type: "压制",
+      effect: (level) => `破防积累 +${level * 6}%。`,
+      detail: "更容易打出硬直和 Boss 核心压制窗口。",
+    },
+    {
+      id: "dash",
+      name: "几何步法",
+      icon: "MOV",
+      type: "身法",
+      effect: (level) => `闪避冷却 -${level * 6}%。`,
+      detail: "更适合靠走位解决弹幕压力。",
+    },
+  ];
+
+  const challengePassiveMap = Object.fromEntries(challengePassiveDefs.map((passive) => [passive.id, passive]));
+
+  function passiveLevel(player = game.player, id) {
+    if (!player?.passives?.length || !id) return 0;
+    return player.passives.reduce((sum, passive) => sum + (passive.id === id ? passive.level || 0 : 0), 0);
+  }
+
+  function passiveMultiplier(player, id, perLevel, min = 0) {
+    return Math.max(min, 1 + passiveLevel(player, id) * perLevel);
+  }
 
   function playerAttackCooldownMultiplier(player = game.player) {
     const formulaMultiplier = Math.pow(1 / 1.2, buffCount(player, "公式大全"));
@@ -239,17 +388,115 @@
     return (
       Math.pow(1.2, buffCount(player, "学霸笔记")) *
       (player?.mistakeBoostTimer > 0 ? Math.pow(1.25, buffCount(player, "错题本")) : 1) *
-      (game.elapsed >= chickenHotpotDelayMs ? Math.pow(2, buffCount(player, "鸡煲")) : 1)
+      (game.elapsed >= chickenHotpotDelayMs ? Math.pow(2, buffCount(player, "鸡煲")) : 1) *
+      passiveMultiplier(player, "damage", 0.05, 1)
     );
   }
 
   function incomingDamageMultiplier(player = game.player) {
-    return Math.pow(0.75, buffCount(player, "错题本"));
+    return Math.pow(0.75, buffCount(player, "错题本")) * passiveMultiplier(player, "guard", -0.04, 0.55);
   }
 
   function weaponReloadTime(weapon, player = game.player) {
     const baseReloadTime = Number(weapon?.reloadTime || 0);
-    return baseReloadTime * Math.pow(0.5, buffCount(player, "草稿纸"));
+    return baseReloadTime * Math.pow(0.5, buffCount(player, "草稿纸")) * passiveMultiplier(player, "reload", -0.08, 0.45);
+  }
+
+  function playerWeaponById(weaponId, player = game.player) {
+    if (!weaponId || !player?.weapons?.length) return null;
+    return player.weapons.find((weapon) => weapon.id === weaponId) || null;
+  }
+
+  function weaponTraitLabels(weapon) {
+    if (!weapon) return [];
+    const traits = [];
+    if ((weapon.pierce || 0) > (weapon.basePierce || 0)) traits.push("穿透强化");
+    if ((weapon.staggerBonus || 1) > 1) traits.push("破防强化");
+    if ((weapon.bossCounterBonus || 1) > 1) traits.push("核心压制");
+    if (weapon.special === "crossSlash" && (weapon.level || 1) >= 2) traits.push("十字扩展");
+    if (weapon.special === "shieldPulse" && (weapon.level || 1) >= 3) traits.push("护盾反击");
+    if ((weapon.pellets || 0) > (weapon.basePellets || 0)) traits.push("弹幕扩容");
+    if ((weapon.blastRadius || 0) > (weapon.baseBlastRadius || 0)) traits.push("爆风扩张");
+    if ((weapon.beamLength || 0) > (weapon.baseBeamLength || 0)) traits.push("光束延展");
+    return traits;
+  }
+
+  function weaponStaggerMultiplier(weaponId, player = game.player) {
+    const weapon = playerWeaponById(weaponId, player);
+    return Number(weapon?.staggerBonus || 1);
+  }
+
+  function weaponBossCounterMultiplier(weaponId, player = game.player) {
+    const weapon = playerWeaponById(weaponId, player);
+    return Number(weapon?.bossCounterBonus || 1);
+  }
+
+  function buffStaggerMultiplier(player = game.player) {
+    if (!player) return 1;
+    let multiplier = Math.pow(1.1, buffCount(player, "公式大全"));
+    if ((player.mistakeBoostTimer || 0) > 0) {
+      multiplier *= Math.pow(1.15, buffCount(player, "错题本"));
+    }
+    if (game.elapsed >= chickenHotpotDelayMs) {
+      multiplier *= Math.pow(1.08, buffCount(player, "鸡煲"));
+    }
+    multiplier *= passiveMultiplier(player, "stagger", 0.06, 1);
+    return multiplier;
+  }
+
+  function tacticalFocusDurationForPlayer(player = game.player) {
+    return tacticalFocusDuration * Math.pow(1.15, buffCount(player, "熬夜咖啡"));
+  }
+
+  function tacticalFocusDamageMultiplier(player = game.player) {
+    let multiplier = tacticalFocusMultiplier * Math.pow(1.06, buffCount(player, "熬夜咖啡"));
+    if (player && player.hp <= player.maxHp * 0.35) {
+      multiplier *= Math.pow(1.08, buffCount(player, "临时抱佛脚"));
+    }
+    if (game.elapsed >= chickenHotpotDelayMs) {
+      multiplier *= Math.pow(1.05, buffCount(player, "鸡煲"));
+    }
+    return multiplier;
+  }
+
+  function bossCounterSuppressionMultiplier(player = game.player) {
+    if (!player) return 1;
+    return (
+      Math.pow(1.08, buffCount(player, "学霸笔记")) *
+      Math.pow(1.05, buffCount(player, "公式大全")) *
+      (game.elapsed >= chickenHotpotDelayMs ? Math.pow(1.08, buffCount(player, "鸡煲")) : 1)
+    );
+  }
+
+  function showGuideOnce(key, text, duration = guideToastDefaultDuration) {
+    if (!ui.guideToast || !key || !text) return false;
+    game.guidesSeen ||= {};
+    if (game.guidesSeen[key]) return false;
+    game.guidesSeen[key] = true;
+    game.guideToast = {
+      text,
+      timer: Math.max(1.2, Number(duration) || guideToastDefaultDuration),
+    };
+    ui.guideToast.textContent = text;
+    ui.guideToast.hidden = false;
+    ui.guideToast.classList.add("visible");
+    return true;
+  }
+
+  function hideGuideToast() {
+    if (!ui.guideToast) return;
+    game.guideToast = { text: "", timer: 0 };
+    ui.guideToast.hidden = true;
+    ui.guideToast.classList.remove("visible");
+    ui.guideToast.textContent = "";
+  }
+
+  function updateGuideToast(dt) {
+    if (!ui.guideToast || !game.guideToast?.timer) return;
+    game.guideToast.timer = Math.max(0, game.guideToast.timer - dt);
+    if (game.guideToast.timer <= 0) {
+      hideGuideToast();
+    }
   }
 
   const game = {
@@ -283,8 +530,12 @@
     activeRoomKey: null,
     arenaKind: "normal",
     roomTitle: "",
+    roomModifier: null,
     roomReward: null,
+    roomWeaponDrops: [],
+    roomChallengeCounts: {},
     pendingChallenge: null,
+    encounter: null,
     challengeCount: 1,
     defeatedInRoom: 0,
     monsterClearDelay: 0,
@@ -298,7 +549,13 @@
     slashes: [],
     particles: [],
     message: "",
+    guidesSeen: {},
+    guideToast: {
+      text: "",
+      timer: 0,
+    },
     lastWeaponReward: null,
+    pendingPassiveChoice: null,
     pendingWeaponChoice: null,
     pendingLeaderboardEntry: null,
     usedNonSwordWeapon: false,
@@ -357,6 +614,19 @@
     weapon.level = 1;
     weapon.baseDamage = weapon.damage;
     weapon.baseCooldown = weapon.cooldown;
+    weapon.basePierce = weapon.pierce || 0;
+    weapon.basePellets = weapon.pellets || 0;
+    weapon.baseSpread = weapon.spread || 0;
+    weapon.baseSplitCount = weapon.splitCount || 0;
+    weapon.baseSplitDamage = weapon.splitDamage || 0;
+    weapon.baseBlastRadius = weapon.blastRadius || 0;
+    weapon.baseSlashReach = weapon.slashReach || 0;
+    weapon.baseSlashRadius = weapon.slashRadius || 0;
+    weapon.basePulseRadius = weapon.pulseRadius || 0;
+    weapon.baseShotClearRadius = weapon.shotClearRadius || 0;
+    weapon.baseBeamLength = weapon.beamLength || 0;
+    weapon.staggerBonus = 1;
+    weapon.bossCounterBonus = 1;
     if (!weapon.infiniteAmmo) {
       weapon.baseMagazine = weapon.magazine;
       weapon.baseReloadTime = weapon.reloadTime;
@@ -376,11 +646,62 @@
 
   function applyWeaponLevelStats(weapon) {
     const bonus = Math.max(0, (weapon.level || 1) - 1);
-    weapon.damage = Math.round(weapon.baseDamage * (1 + bonus * 0.18) * 10) / 10;
-    weapon.cooldown = Math.max(weapon.baseCooldown * 0.72, weapon.baseCooldown * (1 - bonus * 0.04));
+    if (weapon.id === "sword") return;
+    weapon.damage = Math.round(weapon.baseDamage * (1 + bonus * 0.1) * 10) / 10;
+    weapon.cooldown = Math.max(weapon.baseCooldown * 0.84, weapon.baseCooldown * (1 - bonus * 0.025));
+    weapon.pierce = weapon.basePierce || 0;
+    weapon.pellets = weapon.basePellets || weapon.pellets || 0;
+    weapon.spread = weapon.baseSpread || weapon.spread || 0;
+    weapon.splitCount = weapon.baseSplitCount || weapon.splitCount || 0;
+    weapon.splitDamage = weapon.baseSplitDamage || weapon.splitDamage || 0;
+    weapon.blastRadius = weapon.baseBlastRadius || weapon.blastRadius || 0;
+    weapon.slashReach = weapon.baseSlashReach || weapon.slashReach || 0;
+    weapon.slashRadius = weapon.baseSlashRadius || weapon.slashRadius || 0;
+    weapon.pulseRadius = weapon.basePulseRadius || weapon.pulseRadius || 0;
+    weapon.shotClearRadius = weapon.baseShotClearRadius || weapon.shotClearRadius || 0;
+    weapon.beamLength = weapon.baseBeamLength || weapon.beamLength || 0;
+    weapon.staggerBonus = 1 + bonus * 0.02;
+    weapon.bossCounterBonus = 1;
     if (!weapon.infiniteAmmo) {
-      weapon.magazine = weapon.baseMagazine + Math.ceil(weapon.baseMagazine * bonus * 0.22);
-      weapon.reloadTime = Math.max(weapon.baseReloadTime * 0.62, weapon.baseReloadTime * (1 - bonus * 0.08));
+      weapon.magazine = weapon.baseMagazine + Math.ceil(weapon.baseMagazine * bonus * 0.12);
+      weapon.reloadTime = Math.max(weapon.baseReloadTime * 0.78, weapon.baseReloadTime * (1 - bonus * 0.045));
+    }
+    if (weapon.id === "functionGun") {
+      if (weapon.level >= 4) weapon.pierce = Math.max(weapon.pierce || 0, 2);
+      if (weapon.level >= 6) weapon.pierce = Math.max(weapon.pierce || 0, 3);
+      weapon.staggerBonus += bonus * 0.015;
+    } else if (weapon.id === "integralSniper") {
+      weapon.pierce = (weapon.basePierce || 1) + Math.floor(bonus / 3);
+      if (weapon.level >= 3) weapon.bossCounterBonus = 1.1;
+      if (weapon.level >= 4) weapon.staggerBonus += 0.12;
+    } else if (weapon.id === "taylorCannon") {
+      if (weapon.level >= 3) weapon.splitCount = (weapon.baseSplitCount || 5) + 1;
+      if (weapon.level >= 5) weapon.splitDamage = Math.min(0.42, (weapon.baseSplitDamage || 0.34) + 0.03);
+      weapon.staggerBonus += 0.02 * bonus;
+    } else if (weapon.id === "coordinateBlade") {
+      weapon.slashReach = (weapon.baseSlashReach || 32) + bonus * 3;
+      weapon.slashRadius = (weapon.baseSlashRadius || 52) + bonus * 2.5;
+      if (weapon.level >= 4) weapon.staggerBonus += 0.1;
+    } else if (weapon.id === "polarShotgun") {
+      if (weapon.level >= 3) weapon.pellets = (weapon.basePellets || 6) + 1;
+      if (weapon.level >= 6) weapon.pellets = (weapon.basePellets || 6) + 2;
+      weapon.spread = Math.max(0.58, (weapon.baseSpread || 0.72) - bonus * 0.02);
+    } else if (weapon.id === "geometryShield") {
+      weapon.pulseRadius = (weapon.basePulseRadius || 68) + bonus * 3;
+      weapon.shotClearRadius = (weapon.baseShotClearRadius || 84) + bonus * 4;
+      if (weapon.level >= 3) weapon.guardCounter = true;
+      weapon.staggerBonus += bonus * 0.025;
+    } else if (weapon.id === "matrixRpg") {
+      weapon.blastRadius = (weapon.baseBlastRadius || 48) + bonus * 4;
+      if (weapon.level >= 4) weapon.staggerBonus += 0.08;
+    } else if (weapon.id === "luStaff") {
+      if (weapon.level >= 4) weapon.pierce = Math.max(weapon.pierce || 0, 2);
+      weapon.splitDamage = Math.min(0.42, (weapon.baseSplitDamage || 0.34) + bonus * 0.012);
+      weapon.staggerBonus += bonus * 0.02;
+    } else if (weapon.id === "determinantLaser") {
+      weapon.pierce = (weapon.basePierce || 2) + Math.floor((bonus + 1) / 3);
+      weapon.beamLength = (weapon.baseBeamLength || 56) + bonus * 5;
+      if (weapon.level >= 4) weapon.bossCounterBonus = 1.08;
     }
   }
 
@@ -389,6 +710,7 @@
     const oldMagazine = weapon.magazine || 0;
     weapon.level = Math.min((weapon.level || 1) + 1, 6);
     applyWeaponLevelStats(weapon);
+    showGuideOnce("weaponUpgrade", "重复获得同一把武器会升级，部分武器会逐步解锁穿透、破防或范围特性。", 4);
     if (!weapon.infiniteAmmo && !weapon.reloading) {
       const gainedAmmo = Math.max(0, weapon.magazine - oldMagazine);
       weapon.ammo = Math.min(weapon.magazine, (weapon.ammo || 0) + gainedAmmo);
@@ -499,6 +821,17 @@
     };
   }
 
+  function normalizeBetaShopRefreshCost(value = 1) {
+    const requested = Math.max(1, Math.round(Number(value) || 1));
+    return betaShopRefreshCosts.find((cost) => cost >= requested) || betaShopRefreshCosts[betaShopRefreshCosts.length - 1];
+  }
+
+  function nextBetaShopRefreshCost(currentCost = 1) {
+    const normalized = normalizeBetaShopRefreshCost(currentCost);
+    const index = betaShopRefreshCosts.indexOf(normalized);
+    return betaShopRefreshCosts[Math.min(index + 1, betaShopRefreshCosts.length - 1)];
+  }
+
   function createBetaBossShopStock() {
     const shop = game.betaBossShop;
     shop.sequence = (shop.sequence || 0) + 1;
@@ -522,7 +855,7 @@
     if (force || !Array.isArray(game.betaBossShop.stock) || !game.betaBossShop.stock.length) {
       game.betaBossShop.stock = createBetaBossShopStock();
     }
-    game.betaBossShop.refreshCost = Math.max(1, Math.round(Number(game.betaBossShop.refreshCost || 1)));
+    game.betaBossShop.refreshCost = normalizeBetaShopRefreshCost(game.betaBossShop.refreshCost);
     return game.betaBossShop;
   }
 
@@ -602,14 +935,14 @@
 
   function refreshBetaBossShop() {
     const shop = ensureBetaBossShopStock();
-    const cost = Math.max(1, Math.round(Number(shop.refreshCost || 1)));
+    const cost = normalizeBetaShopRefreshCost(shop.refreshCost);
     if ((game.credits || 0) < cost) {
       shop.message = `学分不足：本次刷新需要 ${cost} 学分，当前 ${game.credits || 0} 学分。`;
       rerenderBetaShopModal();
       return false;
     }
     game.credits -= cost;
-    shop.refreshCost = cost + 1;
+    shop.refreshCost = nextBetaShopRefreshCost(cost);
     shop.stock = createBetaBossShopStock();
     shop.message = `已消耗 ${cost} 学分刷新商店；下次刷新需要 ${shop.refreshCost} 学分。`;
     rerenderBetaShopModal();
@@ -630,7 +963,7 @@
 
   function randomMonsterFamilyGroups() {
     return randomMonsterRoomChoices().reduce((groups, room) => {
-      const family = canonicalWeaponFamily(room.rewardWeapon || room.enemy?.rewardWeapon);
+      const family = canonicalWeaponFamily(room.enemy?.rewardWeapon || room.rewardWeapon);
       if (!groups.has(family)) groups.set(family, []);
       groups.get(family).push(room);
       return groups;
@@ -690,6 +1023,7 @@
       weapons: [startingWeapon],
       weaponIndex: 0,
       buffs: [],
+      passives: [],
       shield: 0,
       shieldTimer: 0,
       blockCharges: 0,
@@ -704,6 +1038,10 @@
       cauchyDotTimer: 0,
       cauchyDotTick: 0,
       dashCooldown: 0,
+      swordFocusTimer: 0,
+      swordFocusFlash: 0,
+      tacticalFocusTimer: 0,
+      tacticalFocusFlash: 0,
       invuln: 0,
     };
   }
@@ -720,6 +1058,7 @@
     if (name === "绩点守护") {
       player.gpaGuardUsed = false;
     }
+    showGuideOnce("buffSynergy", "增益可以重复获得并乘算叠加，部分增益还会强化闪避、破防或核心压制。", 4);
   }
 
   function restoreMissingHpOnRoomEnter(player = game.player) {
@@ -764,6 +1103,28 @@
     game.lastWeaponReward = { type: "new", weapon: newWeapon };
     game.weaponsFound = player.weapons.length;
     if (equip) setWeaponIndex(player.weapons.length - 1);
+    return true;
+  }
+
+  function grantRewardWeapon(player, weaponId, bonusLevels = 0, equip = true) {
+    const added = addWeapon(player, weaponId, equip);
+    if (!added) return false;
+    const extraLevels = Math.max(0, Math.round(Number(bonusLevels) || 0));
+    if (extraLevels <= 0) return true;
+    const equivalentIds = weaponFamilyIds(weaponId);
+    const weapon = player.weapons.find((item) => equivalentIds.includes(item.id));
+    for (let i = 0; i < extraLevels && weapon; i += 1) {
+      upgradeWeapon(weapon);
+    }
+    if (weapon && equip) {
+      const index = player.weapons.indexOf(weapon);
+      if (index >= 0) setWeaponIndex(index);
+    }
+    game.lastWeaponReward = {
+      ...(game.lastWeaponReward || { type: "new", weapon }),
+      weapon,
+      bonusLevels: extraLevels,
+    };
     return true;
   }
 
@@ -846,6 +1207,16 @@
     return displayWeaponName(weapons[weaponId]) || weaponId || "未知武器";
   }
 
+  function rewardChoiceWeaponIds(choice) {
+    if (!choice) return [];
+    const ids = Array.isArray(choice.weaponIds)
+      ? choice.weaponIds
+      : choice.weaponId
+        ? [choice.weaponId]
+        : [];
+    return ids.filter(Boolean);
+  }
+
   function rewardChoiceBuffIds(choice) {
     if (!choice) return [];
     const ids = Array.isArray(choice.buffIds)
@@ -870,14 +1241,174 @@
       .join(" / ");
   }
 
-  function grantRewardBuffs(buffIds) {
-    buffIds.forEach((name) => grantBuff(game.player, name));
+  function grantRewardBuffs(buffIds, copies = 1) {
+    const count = Math.max(1, Math.round(Number(copies) || 1));
+    buffIds.forEach((name) => {
+      for (let i = 0; i < count; i += 1) {
+        grantBuff(game.player, name);
+      }
+    });
+  }
+
+  function passiveDisplayName(passiveId, level = 1) {
+    const def = challengePassiveMap[passiveId];
+    return def ? `${def.name} Lv.${level}` : `未知被动 Lv.${level}`;
+  }
+
+  function passiveEffectText(passiveId, level = 1) {
+    const def = challengePassiveMap[passiveId];
+    return def?.effect ? def.effect(level) : "获得一项挑战被动。";
+  }
+
+  function createChallengePassiveChoice(count = 1) {
+    const level = count >= 3 ? 2 : count >= 2 ? 1 : 0;
+    if (level <= 0) return null;
+    return {
+      level,
+      selectedIndex: null,
+      options: sampleUnique(challengePassiveDefs, 3).map((passive) => passive.id),
+    };
+  }
+
+  function grantChallengePassive(player, passiveId, level = 1) {
+    const def = challengePassiveMap[passiveId];
+    const safeLevel = Math.max(1, Math.round(Number(level) || 1));
+    if (!player || !def) return false;
+    player.passives ||= [];
+    player.passives.push({ id: passiveId, level: safeLevel });
+    if (passiveId === "vitality") {
+      const maxHpGain = safeLevel * 10;
+      player.maxHp += maxHpGain;
+      player.hp = Math.min(player.maxHp, player.hp + maxHpGain * 0.5);
+    }
+    showGuideOnce("challengePassive", "挑战 2 人或 3 人会先出现三选一被动，被动不占奖励选择位，会持续到本局结束。", 4);
+    updateHud();
+    return true;
+  }
+
+  function passiveChoiceCardMarkup(passiveId, level, selected) {
+    const def = challengePassiveMap[passiveId] || {};
+    return `
+      <div class="choice-card-art">
+        <span class="choice-card-sigil">${escapeHtml(def.icon || "UP")}</span>
+        <strong>${escapeHtml(passiveDisplayName(passiveId, level))}</strong>
+      </div>
+      <div class="choice-card-body">
+        <p>${escapeHtml(passiveEffectText(passiveId, level))}</p>
+        <span>${escapeHtml(def.detail || def.type || "挑战被动")}</span>
+      </div>
+      <small class="choice-card-select">${selected ? "已选择" : "选择"}</small>
+      <span class="sr-only">${selected ? "已选择" : "未选择"}</span>
+    `;
+  }
+
+  function passiveChoiceIntroText(choice) {
+    return "请从下方选择一项作为奖励。";
+  }
+
+  function updateClearChoiceScene() {
+    const passiveActive = Boolean(game.pendingPassiveChoice);
+    const rewardActive = !passiveActive && Boolean(game.pendingWeaponChoice);
+    const choiceActive = passiveActive || rewardActive;
+    screens.clear?.classList.toggle("choice-scene", choiceActive);
+    screens.clear?.classList.toggle("passive-choice-scene", passiveActive);
+    screens.clear?.classList.toggle("reward-choice-scene", rewardActive);
+  }
+
+  function updatePassiveChoiceUi() {
+    const choice = game.pendingPassiveChoice;
+    updateClearChoiceScene();
+    if (ui.passiveChoice) ui.passiveChoice.hidden = !choice;
+    if (!choice) {
+      ui.passiveOptions?.forEach((button) => {
+        if (button) button.hidden = true;
+      });
+      if (ui.confirmPassive) ui.confirmPassive.disabled = true;
+      if (ui.skipPassive) ui.skipPassive.disabled = true;
+      return;
+    }
+    const level = Math.max(1, Math.round(Number(choice.level || 1)));
+    if (ui.passiveChoiceName) {
+      ui.passiveChoiceName.textContent = level >= 2 ? "挑战被动：强化三选一" : "挑战被动：三选一";
+    }
+    if (ui.passiveChoiceText) {
+      ui.passiveChoiceText.textContent = level >= 2
+        ? "三人挑战完成，先选择一项 Lv.2 被动；也可以不拿。"
+        : "二人挑战完成，先选择一项 Lv.1 被动；也可以不拿。";
+    }
+    if (ui.clearText) {
+      ui.clearText.textContent = passiveChoiceIntroText(choice);
+    }
+    ui.passiveOptions?.forEach((button, index) => {
+      if (!button) return;
+      const passiveId = choice.options?.[index];
+      const selected = choice.selectedIndex === index;
+      button.hidden = !passiveId;
+      button.disabled = !passiveId;
+      button.classList.toggle("selected", selected);
+      button.innerHTML = passiveId ? passiveChoiceCardMarkup(passiveId, level, selected) : "";
+    });
+    if (ui.confirmPassive) {
+      ui.confirmPassive.hidden = false;
+      ui.confirmPassive.disabled = !Number.isInteger(choice.selectedIndex);
+      ui.confirmPassive.textContent = "确认";
+    }
+    if (ui.skipPassive) {
+      ui.skipPassive.hidden = false;
+      ui.skipPassive.disabled = false;
+      ui.skipPassive.textContent = "离开";
+    }
+    if (ui.backToMap) {
+      ui.backToMap.hidden = true;
+    }
+  }
+
+  function selectPassiveChoice(index) {
+    const choice = game.pendingPassiveChoice;
+    const optionIndex = Math.round(Number(index));
+    if (!choice || !choice.options?.[optionIndex]) return false;
+    choice.selectedIndex = choice.selectedIndex === optionIndex ? null : optionIndex;
+    updatePassiveChoiceUi();
+    return true;
+  }
+
+  function resolvePassiveChoice(accept = true) {
+    const choice = game.pendingPassiveChoice;
+    if (!choice) return false;
+    const level = Math.max(1, Math.round(Number(choice.level || 1)));
+    const passiveId = accept && Number.isInteger(choice.selectedIndex)
+      ? choice.options[choice.selectedIndex]
+      : "";
+    game.pendingPassiveChoice = null;
+    if (passiveId && grantChallengePassive(game.player, passiveId, level)) {
+      if (game.pendingWeaponChoice) {
+        game.pendingWeaponChoice.passiveResultText = "";
+      }
+      ui.clearText.textContent = "请从下方选择一项作为奖励。";
+    } else {
+      if (game.pendingWeaponChoice) {
+        game.pendingWeaponChoice.passiveResultText = "";
+      }
+      ui.clearText.textContent = "请从下方选择一项作为奖励。";
+    }
+    updatePassiveChoiceUi();
+    updateWeaponChoiceUi();
+    updateHud();
+    return true;
   }
 
   function rewardSelection(choice) {
-    if (!choice) return { weapon: false, buffIndexes: [], buffIndex: null };
+    if (!choice) return { weapon: false, weaponIndex: null, weaponId: "", buffIndexes: [], buffIndex: null };
+    const weaponIds = rewardChoiceWeaponIds(choice);
     const buffIds = rewardChoiceBuffIds(choice);
-    if (typeof choice.selectedWeapon !== "boolean") choice.selectedWeapon = false;
+    let selectedWeaponIndex = Number.isInteger(choice.selectedWeaponIndex)
+      ? choice.selectedWeaponIndex
+      : choice.selectedWeapon
+        ? 0
+        : null;
+    if (!Number.isInteger(selectedWeaponIndex) || !weaponIds[selectedWeaponIndex]) {
+      selectedWeaponIndex = null;
+    }
     const indexes = Array.isArray(choice.selectedBuffIndexes)
       ? choice.selectedBuffIndexes
       : Number.isInteger(choice.selectedBuffIndex)
@@ -889,11 +1420,17 @@
     if (!choice.allowWeaponWithBuff && normalizedIndexes.length > 1) {
       normalizedIndexes = normalizedIndexes.slice(0, 1);
     }
+    if (selectedWeaponIndex !== null && !choice.allowWeaponWithBuff) {
+      normalizedIndexes = [];
+    }
     choice.selectedBuffIndexes = normalizedIndexes;
     choice.selectedBuffIndex = normalizedIndexes.length ? normalizedIndexes[0] : null;
-    if (!choice.weaponId) choice.selectedWeapon = false;
+    choice.selectedWeaponIndex = selectedWeaponIndex;
+    choice.selectedWeapon = selectedWeaponIndex !== null;
     return {
-      weapon: Boolean(choice.selectedWeapon),
+      weapon: selectedWeaponIndex !== null,
+      weaponIndex: selectedWeaponIndex,
+      weaponId: selectedWeaponIndex !== null ? weaponIds[selectedWeaponIndex] : "",
       buffIndexes: normalizedIndexes,
       buffIndex: choice.selectedBuffIndex,
     };
@@ -905,83 +1442,178 @@
     return selection.buffIndexes.map((index) => buffIds[index]).filter(Boolean);
   }
 
-  function toggleRewardWeaponSelection() {
-    const choice = game.pendingWeaponChoice;
-    if (!choice?.weaponId) return false;
-    const selection = rewardSelection(choice);
-    choice.selectedWeapon = !selection.weapon;
-    if (choice.selectedWeapon && !choice.allowWeaponWithBuff) {
-      choice.selectedBuffIndexes = [];
-      choice.selectedBuffIndex = null;
-    }
-    updateWeaponChoiceUi();
-    return true;
+  function rewardPlusSuffix(levels = 0) {
+    const bonus = Math.max(0, Math.round(Number(levels) || 0));
+    return bonus > 0 ? ` +${bonus}` : "";
   }
 
-  function toggleRewardBuffSelection(index) {
-    const choice = game.pendingWeaponChoice;
+  function rewardWeaponDisplayName(weaponId, bonusLevels = 0) {
+    return `${weaponChoiceName(weaponId)}${rewardPlusSuffix(bonusLevels)}`;
+  }
+
+  function rewardBuffDisplayName(buffId, bonusLevels = 0) {
+    return `${buffId}${rewardPlusSuffix(bonusLevels)}`;
+  }
+
+  function weaponChoiceOptionLabel(weaponId, index, total, bonusLevels = 0) {
+    const prefix = total > 1
+      ? `装备${["A", "B", "C"][index] || index + 1}`
+      : "武器";
+    return `${prefix}：${rewardWeaponDisplayName(weaponId, bonusLevels)}`;
+  }
+
+  function rewardOptionDescription(slot, choice) {
+    if (!slot) return "";
+    const weaponBonus = Math.max(0, Math.round(Number(choice?.weaponBonusLevels || 0)));
+    const buffBonus = Math.max(0, Math.round(Number(choice?.buffBonusLevels || 0)));
+    if (slot.type === "weapon") {
+      const weapon = weapons[slot.id];
+      const plusText = weaponBonus > 0 ? `，领取后额外强化 +${weaponBonus}` : "";
+      if (!weapon) return `加入背包${plusText}`;
+      const typeText = weapon.ranged ? "远程武器" : "近战武器";
+      return `${typeText}，${weaponDamageLabel(weapon)} 伤害，冷却 ${fixedNumber(weapon.cooldown, 2)}s${plusText}`;
+    }
+    return `${buffBriefText(slot.id)}${buffBonus > 0 ? `，本次获得 +${buffBonus} 强化` : ""}`;
+  }
+
+  function rewardOptionIcon(slot) {
+    if (slot?.type === "buff") return "B";
+    if (slot?.type !== "weapon") return "R";
+    const weapon = weapons[slot.id];
+    return weapon?.ranged ? "R" : "M";
+  }
+
+  function rewardChoiceCardMarkup(slot, choice, selected) {
+    const description = rewardOptionDescription(slot, choice);
+    return `
+      <div class="choice-card-art">
+        <span class="choice-card-sigil reward-icon">${escapeHtml(rewardOptionIcon(slot))}</span>
+        <strong>${escapeHtml(slot?.label || "")}</strong>
+      </div>
+      <div class="choice-card-body">
+        <p>${escapeHtml(description)}</p>
+      </div>
+      <small class="choice-card-select">${selected ? "已选择" : "选择"}</small>
+      <span class="sr-only">${selected ? "已选择" : "未选择"}</span>
+    `;
+  }
+
+  function rewardOptionSlots(choice) {
+    const weaponIds = rewardChoiceWeaponIds(choice);
     const buffIds = rewardChoiceBuffIds(choice);
-    if (!choice || !buffIds[index]) return false;
+    const weaponBonus = Math.max(0, Math.round(Number(choice?.weaponBonusLevels || 0)));
+    const buffBonus = Math.max(0, Math.round(Number(choice?.buffBonusLevels || 0)));
+    const weaponSlots = weaponIds.map((id, index) => ({
+      type: "weapon",
+      id,
+      index,
+      label: weaponChoiceOptionLabel(id, index, weaponIds.length, weaponBonus),
+    }));
+    const buffSlots = buffIds.map((id, index) => ({
+      type: "buff",
+      id,
+      index,
+      label: buffIds.length > 1
+        ? `增益${["A", "B", "C"][index] || index + 1}：${rewardBuffDisplayName(id, buffBonus)}`
+        : choice?.buffLabel || choice?.skipLabel || `增益：${rewardBuffDisplayName(id, buffBonus)}`,
+    }));
+    return [...weaponSlots, ...buffSlots].slice(0, 4);
+  }
+
+  function toggleRewardOptionSelection(slotIndex) {
+    const choice = game.pendingWeaponChoice;
+    const slot = rewardOptionSlots(choice)[slotIndex];
+    if (!choice || !slot) return false;
     const selection = rewardSelection(choice);
-    const selected = selection.buffIndexes.includes(index);
-    choice.selectedBuffIndexes = selected
-      ? selection.buffIndexes.filter((item) => item !== index)
-      : choice.allowWeaponWithBuff
-        ? [...selection.buffIndexes, index]
-        : [index];
-    if (choice.selectedBuffIndexes.length && choice.selectedWeapon && !choice.allowWeaponWithBuff) {
-      choice.selectedWeapon = false;
+    if (slot.type === "weapon") {
+      const selected = selection.weaponIndex === slot.index;
+      choice.selectedWeaponIndex = selected ? null : slot.index;
+      choice.selectedWeapon = !selected;
+      if (!selected && !choice.allowWeaponWithBuff) {
+        choice.selectedBuffIndexes = [];
+        choice.selectedBuffIndex = null;
+      }
+    } else if (slot.type === "buff") {
+      const selected = selection.buffIndexes.includes(slot.index);
+      choice.selectedBuffIndexes = selected
+        ? selection.buffIndexes.filter((item) => item !== slot.index)
+        : choice.allowWeaponWithBuff
+          ? [...selection.buffIndexes, slot.index]
+          : [slot.index];
+      if (choice.selectedBuffIndexes.length && !choice.allowWeaponWithBuff) {
+        choice.selectedWeapon = false;
+        choice.selectedWeaponIndex = null;
+      }
     }
     updateWeaponChoiceUi();
     return true;
   }
 
   function updateWeaponChoiceUi() {
-    const choice = game.pendingWeaponChoice;
+    const blockedByPassive = Boolean(game.pendingPassiveChoice);
+    const choice = blockedByPassive ? null : game.pendingWeaponChoice;
+    updateClearChoiceScene();
+    const weaponIds = rewardChoiceWeaponIds(choice);
     const buffIds = rewardChoiceBuffIds(choice);
-    const hasWeapon = Boolean(choice?.weaponId);
+    const hasWeapon = weaponIds.length > 0;
     const hasBuff = buffIds.length > 0;
+    const weaponBonus = Math.max(0, Math.round(Number(choice?.weaponBonusLevels || 0)));
     const selection = rewardSelection(choice);
     const hasSelection = Boolean(selection.weapon || selection.buffIndexes.length);
+    const slots = rewardOptionSlots(choice);
     if (ui.weaponChoice) ui.weaponChoice.hidden = !choice;
+    if (choice?.introText && ui.clearText) {
+      ui.clearText.textContent = choice.introText;
+    }
+    if (ui.weaponChoiceActions) {
+      ui.weaponChoiceActions.classList.remove(
+        "reward-count-0",
+        "reward-count-1",
+        "reward-count-2",
+        "reward-count-3",
+        "reward-count-4",
+      );
+      ui.weaponChoiceActions.classList.add(`reward-count-${slots.length}`);
+    }
     if (ui.weaponChoiceName) {
+      const weaponTitle = weaponIds.length > 1
+        ? `发现${weaponIds.length}件掉落装备：${weaponIds.map((id) => rewardWeaponDisplayName(id, weaponBonus)).join("、")}`
+        : hasWeapon
+          ? `发现武器：${rewardWeaponDisplayName(weaponIds[0], weaponBonus)}`
+          : "发现增益";
       ui.weaponChoiceName.textContent = choice
-        ? choice.title || (hasWeapon ? `发现武器：${weaponChoiceName(choice.weaponId)}` : "发现增益")
+        ? choice.title || weaponTitle
         : "";
     }
     if (ui.weaponChoiceBuffText) {
       ui.weaponChoiceBuffText.hidden = !hasBuff;
       ui.weaponChoiceBuffText.textContent = hasBuff ? buffChoiceText(buffIds) : "";
     }
-    if (ui.acceptWeapon) {
-      ui.acceptWeapon.hidden = !hasWeapon;
-      ui.acceptWeapon.textContent = selection.weapon
-        ? `已选：${choice?.weaponShortLabel || "武器"}`
-        : choice?.acceptLabel || choice?.weaponShortLabel || "武器";
-      ui.acceptWeapon.disabled = !choice || !hasWeapon;
-      ui.acceptWeapon.classList.toggle("selected", selection.weapon);
-    }
-    if (ui.skipWeapon) {
-      ui.skipWeapon.hidden = !hasBuff;
-      const label = buffIds.length > 1 ? `增益A：${buffIds[0]}` : choice?.buffLabel || choice?.skipLabel || `增益：${buffIds[0]}`;
-      ui.skipWeapon.textContent = selection.buffIndexes.includes(0) ? `已选：${label}` : label;
-      ui.skipWeapon.disabled = !choice || !hasBuff;
-      ui.skipWeapon.classList.toggle("selected", selection.buffIndexes.includes(0));
-    }
-    if (ui.secondBuffReward) {
-      ui.secondBuffReward.hidden = buffIds.length < 2;
-      const label = buffIds.length > 1 ? `增益B：${buffIds[1]}` : "增益B";
-      ui.secondBuffReward.textContent = selection.buffIndexes.includes(1) ? `已选：${label}` : label;
-      ui.secondBuffReward.disabled = !choice || buffIds.length < 2;
-      ui.secondBuffReward.classList.toggle("selected", selection.buffIndexes.includes(1));
-    }
+    [ui.acceptWeapon, ui.skipWeapon, ui.secondBuffReward, ui.thirdReward].forEach((button, index) => {
+      if (!button) return;
+      const slot = slots[index];
+      const selected = slot?.type === "weapon"
+        ? selection.weaponIndex === slot.index
+        : slot?.type === "buff"
+          ? selection.buffIndexes.includes(slot.index)
+          : false;
+      button.hidden = !slot;
+      button.innerHTML = slot ? rewardChoiceCardMarkup(slot, choice, selected) : "";
+      button.disabled = !choice || !slot;
+      button.classList.toggle("selected", selected);
+      button.classList.toggle("passive-card", Boolean(slot));
+      button.classList.toggle("reward-card", Boolean(slot));
+      button.dataset.rewardType = slot?.type || "";
+      button.dataset.rewardIndex = slot ? String(index) : "";
+    });
     if (ui.confirmReward) {
       ui.confirmReward.hidden = !choice;
-      ui.confirmReward.textContent = choice?.confirmLabel || "确认领取";
+      ui.confirmReward.textContent = choice?.confirmLabel || "确认";
       ui.confirmReward.disabled = !choice || !hasSelection;
       ui.confirmReward.classList.toggle("primary-action", hasSelection);
     }
     if (ui.backToMap) {
+      ui.backToMap.hidden = blockedByPassive;
       ui.backToMap.disabled = false;
       ui.backToMap.textContent = "确认离开";
     }
@@ -990,48 +1622,54 @@
   function resolveRewardChoice(action, buffIndex = null) {
     const choice = game.pendingWeaponChoice;
     if (!choice) return false;
+    const weaponIds = rewardChoiceWeaponIds(choice);
     const buffIds = rewardChoiceBuffIds(choice);
     const selection = rewardSelection(choice);
-    const grantWeapon = action === "selection"
-      ? Boolean(selection.weapon && choice.weaponId)
-      : action === "weapon" && Boolean(choice.weaponId);
+    const selectedWeaponId = action === "selection"
+      ? selection.weaponId
+      : action === "weapon"
+        ? weaponIds[Number.isInteger(buffIndex) ? buffIndex : 0] || ""
+        : "";
+    const grantWeapon = Boolean(selectedWeaponId);
     const selectedBuffIds = action === "selection"
       ? selectedRewardBuffIds(choice)
       : action === "buff" && Number.isInteger(buffIndex)
       ? [buffIds[buffIndex]].filter(Boolean)
       : [];
-    const weaponName = choice.weaponId ? weaponChoiceName(choice.weaponId) : "";
-    const selectedBuffNames = selectedBuffIds.join("、");
+    const weaponName = selectedWeaponId ? weaponChoiceName(selectedWeaponId) : "";
+    const offeredWeaponNames = weaponIds.map(weaponChoiceName).join("、");
+    const weaponBonusLevels = Math.max(0, Math.round(Number(choice.weaponBonusLevels || 0)));
+    const buffBonusLevels = Math.max(0, Math.round(Number(choice.buffBonusLevels || 0)));
+    const buffCopies = 1 + buffBonusLevels;
+    const selectedBuffDisplayNames = selectedBuffIds
+      .map((name) => rewardBuffDisplayName(name, buffBonusLevels))
+      .join("、");
     game.pendingWeaponChoice = null;
     if (grantWeapon) {
-      const added = addWeapon(game.player, choice.weaponId, true);
-      if (added) rememberRewardFamily(choice.weaponId);
-      const joinedName = displayWeaponName(game.lastWeaponReward?.weapon || weapons[choice.weaponId]);
+      const added = grantRewardWeapon(game.player, selectedWeaponId, weaponBonusLevels, true);
+      if (added) rememberRewardFamily(selectedWeaponId);
+      const joinedName = displayWeaponName(game.lastWeaponReward?.weapon || weapons[selectedWeaponId]);
       const weaponRewardOverridesText = game.lastWeaponReward?.type === "upgrade";
       if (selectedBuffIds.length) {
-        grantRewardBuffs(selectedBuffIds);
+        grantRewardBuffs(selectedBuffIds, buffCopies);
       }
       const defaultText = selectedBuffIds.length
-        ? `已领取：${joinedName}，${selectedBuffNames}。`
-        : choice.acceptText || `已加入背包：${joinedName}。`;
+        ? `已领取：${joinedName}，${selectedBuffDisplayNames}。`
+        : `已加入背包：${joinedName}。`;
       const suffix = selectedBuffIds.length && weaponRewardOverridesText
-        ? ` 增益已获得：${selectedBuffNames}。`
+        ? ` 增益已获得：${selectedBuffDisplayNames}。`
         : choice.rewardSuffix || "";
       ui.clearText.textContent = `${weaponRewardText(defaultText)}${suffix}`;
-    } else if (action === "buff" && selectedBuffIds.length) {
+    } else if (selectedBuffIds.length) {
       game.lastWeaponReward = null;
-      grantRewardBuffs(selectedBuffIds);
-      const defaultBuffText = `已选择增益：${selectedBuffNames}。${weaponName ? `没有加入${weaponName}，本局仍保留圣剑榜资格。` : ""}`;
-      ui.clearText.textContent = Number.isInteger(buffIndex)
-        ? defaultBuffText
-        : choice.buffText || choice.skipText || defaultBuffText;
-    } else if (action === "selection" && selectedBuffIds.length) {
-      game.lastWeaponReward = null;
-      grantRewardBuffs(selectedBuffIds);
-      ui.clearText.textContent = `已领取增益：${selectedBuffNames}。${weaponName ? `没有加入${weaponName}，本局仍保留圣剑榜资格。` : ""}`;
+      grantRewardBuffs(selectedBuffIds, buffCopies);
+      const defaultBuffText = `已领取增益：${selectedBuffDisplayNames}。${offeredWeaponNames ? `没有加入${offeredWeaponNames}，本局仍保留圣剑榜资格。` : ""}`;
+      ui.clearText.textContent = action === "buff" && choice.buffText
+        ? choice.buffText
+        : defaultBuffText;
     } else {
       game.lastWeaponReward = null;
-      ui.clearText.textContent = choice.declineText || `本次奖励没有领取。${weaponName ? `没有加入${weaponName}，本局仍保留圣剑榜资格。` : ""}`;
+      ui.clearText.textContent = choice.declineText || `本次奖励没有领取。${offeredWeaponNames ? `没有加入${offeredWeaponNames}，本局仍保留圣剑榜资格。` : ""}`;
     }
     updateWeaponChoiceUi();
     updateHud();
@@ -1139,6 +1777,12 @@
       if (weapon.reloadTimer <= 0) {
         weapon.reloading = false;
         weapon.ammo = weapon.magazine;
+        const draftStacks = buffCount(player, "草稿纸");
+        if (draftStacks > 0) {
+          player.tacticalFocusTimer = Math.max(player.tacticalFocusTimer || 0, 0.42 + draftStacks * 0.08);
+          player.tacticalFocusFlash = Math.max(player.tacticalFocusFlash || 0, 0.24);
+          showGuideOnce("draftReloadFocus", "草稿纸会缩短换弹；换弹完成后还有一次短暂的输出窗口。");
+        }
       }
     });
   }
@@ -1198,8 +1842,12 @@
     game.activeRoom = null;
     game.activeRoomKey = null;
     game.roomTitle = "";
+    game.roomModifier = null;
     game.roomReward = null;
+    game.roomWeaponDrops = [];
+    game.roomChallengeCounts = {};
     game.pendingChallenge = null;
+    game.encounter = null;
     game.challengeCount = 1;
     game.defeatedInRoom = 0;
     game.monsterClearDelay = 0;
@@ -1212,7 +1860,10 @@
     game.enemyLasers = [];
     game.slashes = [];
     game.particles = [];
+    game.guidesSeen = {};
+    hideGuideToast();
     game.lastWeaponReward = null;
+    game.pendingPassiveChoice = null;
     game.pendingWeaponChoice = null;
     game.pendingLeaderboardEntry = null;
     game.usedNonSwordWeapon = false;
@@ -1238,6 +1889,7 @@
     if (hud.root) hud.root.hidden = name !== "combat";
     if (hud.hints) hud.hints.hidden = name !== "combat";
     if (ui.ingameHelp) ui.ingameHelp.hidden = !isInGameScreen;
+    if (name !== "combat") hideGuideToast();
     if (name === "menu") refreshFunFacts();
   }
 
@@ -1249,9 +1901,13 @@
     game.activeRoom = null;
     game.activeRoomKey = null;
     game.roomTitle = "";
+    game.roomModifier = null;
     game.roomReward = null;
+    game.roomWeaponDrops = [];
+    game.pendingPassiveChoice = null;
     game.pendingWeaponChoice = null;
     game.pendingChallenge = null;
+    game.encounter = null;
     game.challengeCount = 1;
     game.defeatedInRoom = 0;
     game.monsterClearDelay = 0;
@@ -1278,6 +1934,11 @@
 
     const upgraded = completedRoomKeys.some((key) => game.completed[key]);
     ui.bossRoom.classList.toggle("completed", upgraded);
+    if (ui.bossDoorPrep) {
+      const prep = bossPreparationStatus();
+      ui.bossDoorPrep.textContent = `准备：${prep.label}`;
+      ui.bossDoorPrep.dataset.prep = prep.key;
+    }
     ui.mapLog.textContent = isBetaVersion()
       ? `${game.message} | 学分：${game.credits || 0}`
       : game.message;
@@ -1288,6 +1949,52 @@
     if (roomKey === "chest") return "随机教室 A";
     if (roomKey === "randomB") return "随机教室 B";
     return "随机教室 C";
+  }
+
+  function completedPrepRoomCount() {
+    return completedRoomKeys.filter((key) => game.completed[key]).length;
+  }
+
+  function bossPreparationStatus() {
+    const rooms = completedPrepRoomCount();
+    const weaponCount = game.player?.weapons?.length || 1;
+    const buffCountValue = game.player?.buffs?.length || 0;
+    if (rooms <= 0 && weaponCount <= 1 && buffCountValue <= 0) {
+      return {
+        key: "direct",
+        label: "裸考",
+        detail: "圣剑觉醒，积分潜力高，容错极低",
+      };
+    }
+    if (rooms <= 2) {
+      return {
+        key: "light",
+        label: "半成型",
+        detail: `${weaponCount} 把武器 / ${buffCountValue} 个增益，适合稳中求快`,
+      };
+    }
+    if (rooms < completedRoomKeys.length) {
+      return {
+        key: "ready",
+        label: "充分",
+        detail: `${rooms} 个房间已探索，容错更高但战斗用时更长`,
+      };
+    }
+    return {
+      key: "full",
+      label: "全探索",
+      detail: "资源最多，适合稳打 Boss 和刷路线记录",
+    };
+  }
+
+  function roomDoorHint(door) {
+    if (!door) return "";
+    if (door.key === "monster") return "连续输出 / 弹幕压力";
+    if (door.key === "geometry") return "近战防守 / 位置压迫";
+    if (door.key === "linear") return "爆发穿透 / 分裂弹幕";
+    if (["chest", "randomB", "randomC"].includes(door.key)) return "未知事件：可能宝箱，也可能混合投影";
+    if (door.key === "boss") return `当前准备：${bossPreparationStatus().label}\n${bossPreparationStatus().detail}`;
+    return "";
   }
 
   function syncDoor(key, button) {
@@ -1495,7 +2202,10 @@
   }
 
   function generateRoomObstacles(roomType) {
-    const count = roomType === "boss" ? 5 : 3 + Math.floor(Math.random() * 2);
+    const modifierBonus = roomType === "monster" && !isDeveloperCustomRoom()
+      ? Math.max(0, Math.round(game.roomModifier?.obstacleBonus || 0))
+      : 0;
+    const count = roomType === "boss" ? 5 : 3 + Math.floor(Math.random() * 2) + modifierBonus;
     const obstacles = [];
 
     for (let i = 0; i < count; i += 1) {
@@ -1608,13 +2318,15 @@
     if (door.completed) {
       ui.mapPrompt.textContent = "已完成";
     } else if (isBetaVersion() && isBetaRandomRoomKey(door.key) && !game.randomRooms[door.key]) {
+      const hint = roomDoorHint(door);
       ui.mapPrompt.textContent = (game.credits || 0) >= betaRandomRoomCost
-        ? `按 E 消耗 ${betaRandomRoomCost} 学分进入 ${door.label}`
-        : `需要 ${betaRandomRoomCost} 学分开启 ${door.label}`;
+        ? `按 E 消耗 ${betaRandomRoomCost} 学分进入 ${door.label}\n${hint}`
+        : `需要 ${betaRandomRoomCost} 学分开启 ${door.label}\n${hint}`;
     } else if (isBetaVersion() && door.key === "boss") {
-      ui.mapPrompt.textContent = "按 E 打开 Boss 前商店";
+      ui.mapPrompt.textContent = `按 E 打开 Boss 前商店\n${roomDoorHint(door)}`;
     } else {
-      ui.mapPrompt.textContent = `按 E 进入 ${door.label}`;
+      const hint = roomDoorHint(door);
+      ui.mapPrompt.textContent = hint ? `按 E 进入 ${door.label}\n${hint}` : `按 E 进入 ${door.label}`;
     }
   }
 
@@ -1638,7 +2350,10 @@
     if (ui.challengeEyebrow) ui.challengeEyebrow.textContent = room.title || "怪物房";
     if (ui.challengeTitle) ui.challengeTitle.textContent = "选择挑战人数";
     if (ui.challengeText) {
-      ui.challengeText.textContent = `${room.label}。挑战人数越多，战斗压力越大，奖励也越好。`;
+      const routeHint = room.allowMixedEnemies
+        ? "随机教室可能混合出现不同知识投影。"
+        : `${room.label}只会出现本知识点相关投影。`;
+      ui.challengeText.textContent = `${routeHint} 挑战人数越多，战斗压力越大；2 人和 3 人先随机三选一挑战被动，再选择掉落奖励。3 人奖励均为 +1。`;
     }
     showScreen("challenge");
     updateHud();
@@ -1655,15 +2370,18 @@
     setCombatArena("normal");
     game.activeRoomKey = room.completedKey;
     game.roomTitle = room.label;
+    game.roomModifier = pickRoomModifier(room, challengeCount);
+    game.encounter = createEncounterDirector(room, challengeCount);
     game.challengeCount = challengeCount;
     game.defeatedInRoom = 0;
     game.monsterClearDelay = 0;
     game.roomReward = {
-      weapon: room.rewardWeapon || room.enemy.rewardWeapon,
+      weapon: room.enemy.rewardWeapon || room.rewardWeapon,
       clearEyebrow: room.title,
       clearTitle: room.clearTitle || `${room.enemy.name}被击败`,
       clearText: room.clearText || `你击败了${room.enemy.name}，获得了新的武器和增益。`,
     };
+    game.roomWeaponDrops = [];
     restoreMissingHpOnRoomEnter(game.player);
     game.pendingChallenge = null;
     game.player.x = W * 0.5;
@@ -1677,11 +2395,22 @@
     game.enemies = buildChallengeEnemies(room, challengeCount);
     game.obstacles = generateRoomObstacles("monster");
     showScreen("combat");
+    showGuideOnce("combatBasics", "空格闪避，背击和抓住破绽都能更快打出破防。击败敌人后才能离开。", 4.2);
     updateHud();
   }
 
   function buildChallengeEnemies(room, count) {
     return selectChallengeEnemyDefs(room, count).map((enemyDef, index) => createChallengeEnemy(enemyDef, index, count));
+  }
+
+  function pickRoomModifier(room, count) {
+    if (!room || isDeveloperCustomRoom()) return null;
+    if (count <= 1 && !room.allowMixedEnemies) return roomModifiers[0];
+    return roomModifiers[Math.floor(Math.random() * roomModifiers.length)] || null;
+  }
+
+  function roomModifierLine(modifier = game.roomModifier) {
+    return modifier ? `本房间词条：${modifier.name}。${modifier.text}` : "";
   }
 
   function selectChallengeEnemyDefs(room, count) {
@@ -1701,10 +2430,183 @@
     while (selected.length < count) {
       const unused = pool.filter((enemy) => !selected.some((picked) => sameChallengeEnemy(picked, enemy, Boolean(lockedKind))));
       const source = unused.length ? unused : pool;
-      const next = source[Math.floor(Math.random() * source.length)] || primary;
+      const safe = source.filter((enemy) => challengeComboSafe(selected, enemy, count));
+      const candidates = safe.length ? safe : source;
+      const next = weightedChallengeEnemy(candidates, selected) || primary;
       selected.push(next);
     }
     return selected;
+  }
+
+  function enemyRoles(enemy) {
+    if (Array.isArray(enemy?.roles) && enemy.roles.length) return enemy.roles;
+    const mechanics = enemy?.mechanics || [];
+    const roles = [];
+    if (mechanics.includes("lhopitalBlade") || mechanics.includes("taylorTripleDash") || mechanics.includes("dashScatter")) roles.push("chaser");
+    if (mechanics.includes("quadrantBlink") || mechanics.includes("gaussHalfField") || mechanics.includes("jordanDomain") || mechanics.includes("archimedesMarkDash")) roles.push("controller");
+    if (mechanics.includes("splitOnDeath")) roles.push("summoner");
+    if (mechanics.includes("jacobiBackBlink")) roles.push("flanker");
+    if (enemy?.pattern && enemy.pattern !== "none") roles.push("ranged");
+    if (mechanics.includes("jordanDomain")) roles.push("elite");
+    return roles.length ? roles : ["ranged"];
+  }
+
+  function roleCount(selection, role) {
+    return selection.reduce((count, enemy) => count + (enemyRoles(enemy).includes(role) ? 1 : 0), 0);
+  }
+
+  function challengeComboSafe(selection, candidate, targetCount) {
+    const roles = enemyRoles(candidate);
+    if (roles.includes("elite") && selection.length >= 1) return targetCount <= 2;
+    if (roles.includes("chaser") && roleCount(selection, "chaser") >= 1) return false;
+    if (roles.includes("summoner") && roleCount(selection, "summoner") >= 1) return false;
+    if (roles.includes("controller") && roleCount(selection, "controller") >= 2) return false;
+    if (roles.includes("ranged") && roleCount(selection, "ranged") >= 2 && targetCount >= 3) return false;
+    return true;
+  }
+
+  function challengeEnemyScore(candidate, selection) {
+    const roles = enemyRoles(candidate);
+    let score = 10;
+    if (!roles.some((role) => selection.some((enemy) => enemyRoles(enemy).includes(role)))) score += 4;
+    if (roles.includes("chaser") && roleCount(selection, "chaser") === 0) score += 3;
+    if (roles.includes("controller") && roleCount(selection, "controller") === 0) score += 2;
+    if (roles.includes("elite")) score -= selection.length >= 1 ? 7 : 2;
+    if (roles.includes("summoner") && roleCount(selection, "summoner") > 0) score -= 6;
+    return Math.max(1, score);
+  }
+
+  function weightedChallengeEnemy(candidates, selection) {
+    if (!candidates.length) return null;
+    const weights = candidates.map((enemy) => challengeEnemyScore(enemy, selection));
+    const total = weights.reduce((sum, weight) => sum + weight, 0);
+    let roll = Math.random() * total;
+    for (let i = 0; i < candidates.length; i += 1) {
+      roll -= weights[i];
+      if (roll <= 0) return candidates[i];
+    }
+    return candidates[candidates.length - 1];
+  }
+
+  function enemyPressureCost(enemy) {
+    const roles = enemyRoles(enemy);
+    let cost = 0.72;
+    if (roles.includes("controller")) cost += 0.18;
+    if (roles.includes("chaser")) cost += 0.16;
+    if (roles.includes("summoner")) cost += 0.2;
+    if (roles.includes("flanker")) cost += 0.18;
+    if (roles.includes("burst")) cost += 0.18;
+    if (roles.includes("elite")) cost += 0.45;
+    if (enemy?.splitChild || enemy?.bossProjection) cost *= 0.72;
+    return Number(cost.toFixed(2));
+  }
+
+  function createEncounterDirector(room, count) {
+    if (!room || isDeveloperCustomRoom()) return null;
+    const basePressure = 1.45 + count * 0.58 + (room.allowMixedEnemies ? 0.22 : 0);
+    const modifierScale = game.roomModifier?.pressureScale || 1;
+    return {
+      pressure: 0,
+      maxPressure: Math.max(1.8, basePressure * modifierScale),
+      decay: encounterPressureDecay * (0.92 + count * 0.06),
+      attacksFired: 0,
+      attacksDelayed: 0,
+      lastAttackerId: "",
+      focusRole: "",
+    };
+  }
+
+  function updateEncounterDirector(dt) {
+    const encounter = game.encounter;
+    if (!encounter) return;
+    encounter.pressure = Math.max(0, (encounter.pressure || 0) - (encounter.decay || encounterPressureDecay) * dt);
+  }
+
+  function canSpendEncounterPressure(enemy, scale = 1) {
+    const encounter = game.encounter;
+    if (!encounter || game.enemies.filter((item) => !item.defeated).length <= 1) return true;
+    if ((enemy.attackHoldTimer || 0) > 0 || (enemy.staggerTimer || 0) > 0) return false;
+    const cost = enemyPressureCost(enemy) * scale;
+    if ((encounter.pressure || 0) + cost > (encounter.maxPressure || 2.4)) {
+      encounter.attacksDelayed = (encounter.attacksDelayed || 0) + 1;
+      return false;
+    }
+    return true;
+  }
+
+  function spendEncounterPressure(enemy, scale = 1) {
+    const encounter = game.encounter;
+    if (!encounter) return;
+    const cost = enemyPressureCost(enemy) * scale;
+    encounter.pressure = Math.min(encounter.maxPressure || 2.4, (encounter.pressure || 0) + cost);
+    encounter.attacksFired = (encounter.attacksFired || 0) + 1;
+    encounter.lastAttackerId = enemy.id || "";
+    encounter.focusRole = enemyRoles(enemy)[0] || "";
+  }
+
+  function staggerLimitForEnemy(enemyDef, count) {
+    const hp = Math.max(32, Number(enemyDef?.hp || baseStats.enemyHp || 60));
+    const roles = enemyRoles(enemyDef);
+    let limit = 34 + hp * 0.34 + count * 6;
+    if (roles.includes("elite")) limit += 30;
+    if (roles.includes("chaser")) limit -= 6;
+    if (roles.includes("summoner")) limit += 8;
+    if (roles.includes("controller")) limit += 4;
+    limit *= game.roomModifier?.staggerScale || 1;
+    return Math.max(28, Math.round(limit));
+  }
+
+  function isCounterWindow(enemy) {
+    return (
+      (enemy?.counterWindowTimer || 0) > 0 ||
+      (enemy?.lhopitalRestTimer || 0) > 0 ||
+      (enemy?.taylorRestTimer || 0) > 0 ||
+      (enemy?.jacobiLandingTimer || 0) > 0 ||
+      (enemy?.archimedesRecoveryTimer || 0) > 0
+    );
+  }
+
+  function triggerEnemyStagger(enemy, source = {}) {
+    if (!enemy || enemy.defeated || enemy.bossProjection) return false;
+    enemy.stagger = 0;
+    enemy.staggerTimer = staggerDuration * (enemyRoles(enemy).includes("elite") ? 0.78 : 1);
+    enemy.staggerFlash = 0.45;
+    enemy.counterWindowTimer = 0;
+    enemy.fireTimer = Math.max(enemy.fireTimer || 0, 0.62);
+    if ((enemy.lhopitalSlashWarnTimer || 0) > 0) enemy.lhopitalSlashWarnTimer = 0;
+    if ((enemy.taylorDashWarnTimer || 0) > 0) enemy.taylorDashWarnTimer = 0;
+    if ((enemy.archimedesDashWarnTimer || 0) > 0) enemy.archimedesDashWarnTimer = 0;
+    if ((enemy.dashWarnTimer || 0) > 0) enemy.dashWarnTimer = 0;
+    burst(enemy.x, enemy.y, source.backHit ? colors.paper : enemy.color || colors.warning, 22);
+    game.encounter && (game.encounter.staggers = (game.encounter.staggers || 0) + 1);
+    showGuideOnce("stagger", "敌人破防后会短暂硬直，适合贴近集中输出。");
+    return true;
+  }
+
+  function addEnemyStagger(enemy, amount, source = {}) {
+    if (!enemy || enemy.defeated || amount <= 0 || enemy.bossProjection) return;
+    if ((enemy.staggerTimer || 0) > 0) return;
+    const backBonus = source.backHit ? 1.35 : 1;
+    const windowBonus = isCounterWindow(enemy) ? counterWindowStaggerMultiplier : 1;
+    const focusBonus = game.player?.tacticalFocusTimer > 0 ? 1.22 : 1;
+    const weaponBonus = weaponStaggerMultiplier(source.weaponId);
+    const buffBonus = buffStaggerMultiplier(game.player);
+    enemy.stagger = Math.min(enemy.staggerMax || 50, (enemy.stagger || 0) + amount * backBonus * windowBonus * focusBonus * weaponBonus * buffBonus);
+    enemy.staggerFlash = Math.max(enemy.staggerFlash || 0, source.backHit || windowBonus > 1 ? 0.32 : 0.18);
+    if (enemy.stagger >= (enemy.staggerMax || 50)) {
+      triggerEnemyStagger(enemy, source);
+    }
+  }
+
+  function updateEnemyRoomTimers(enemy, dt) {
+    enemy.staggerTimer = Math.max(0, (enemy.staggerTimer || 0) - dt);
+    enemy.staggerFlash = Math.max(0, (enemy.staggerFlash || 0) - dt);
+    enemy.counterWindowTimer = Math.max(0, (enemy.counterWindowTimer || 0) - dt);
+    enemy.attackHoldTimer = Math.max(0, (enemy.attackHoldTimer || 0) - dt);
+    enemy.archimedesRecoveryTimer = Math.max(0, (enemy.archimedesRecoveryTimer || 0) - dt);
+    if ((enemy.staggerTimer || 0) <= 0 && (enemy.stagger || 0) > 0) {
+      enemy.stagger = Math.max(0, enemy.stagger - (enemy.staggerMax || 50) * 0.08 * dt);
+    }
   }
 
   function challengeEnemyKey(enemy) {
@@ -1734,6 +2636,7 @@
     const hpScale = count === 1 ? 1 : count === 2 ? 0.9 : 0.78;
     const fireScale = count === 1 ? 1 : count === 2 ? 1.18 : 1.38;
     const hp = Math.max(42, Math.round(enemyDef.hp * hpScale));
+    const scaledHp = Math.max(32, Math.round(hp * (game.roomModifier?.hpScale || 1)));
 
     return {
       id: `${enemyDef.id}-${game.activeRoomKey}-${index}`,
@@ -1742,23 +2645,31 @@
       kind: enemyDef.kind,
       pattern: enemyDef.pattern,
       mechanics: [...(enemyDef.mechanics || [])],
+      roles: enemyRoles(enemyDef),
+      rewardWeapon: enemyDef.rewardWeapon || "",
       color: enemyDef.color,
       x: position.x,
       y: position.y,
       baseX: position.x,
       baseY: position.y,
       r: enemyDef.radius * characterSizeScale,
-      hp,
-      maxHp: hp,
-      fireTimer: 0.65 + index * 0.32,
+      hp: scaledHp,
+      maxHp: scaledHp,
+      fireTimer: (0.65 + index * 0.32) * (game.roomModifier?.firstFireScale || 1),
       moveT: index * 1.15,
       moveAmp: enemyDef.moveAmp * (count === 1 ? 1 : count === 2 ? 0.88 : 0.74),
       moveSpeed: enemyDef.moveSpeed * (count === 3 ? 0.9 : 1),
-      fireEvery: enemyDef.fireEvery * fireScale,
+      fireEvery: enemyDef.fireEvery * fireScale * (game.roomModifier?.fireEveryScale || 1),
       facingAngle: Math.PI / 2,
       backHitFlash: 0,
       shieldFlash: 0,
       healFlash: 0,
+      stagger: 0,
+      staggerMax: staggerLimitForEnemy(enemyDef, count),
+      staggerTimer: 0,
+      staggerFlash: 0,
+      counterWindowTimer: 0,
+      attackHoldTimer: 0,
       defeated: false,
     };
   }
@@ -1795,6 +2706,8 @@
       kind: enemyDef.kind,
       pattern: enemyDef.pattern,
       mechanics: [...(enemyDef.mechanics || [])],
+      roles: enemyRoles(enemyDef),
+      rewardWeapon: enemyDef.rewardWeapon || "",
       color: enemyDef.color,
       x: position.x,
       y: position.y,
@@ -1812,6 +2725,12 @@
       backHitFlash: 0,
       shieldFlash: 0,
       healFlash: 0,
+      stagger: 0,
+      staggerMax: staggerLimitForEnemy(enemyDef, Math.min(3, total)),
+      staggerTimer: 0,
+      staggerFlash: 0,
+      counterWindowTimer: 0,
+      attackHoldTimer: 0,
       defeated: false,
     };
   }
@@ -1839,7 +2758,10 @@
     setCombatArena("normal");
     game.activeRoomKey = "__developerCustom";
     game.roomTitle = "自定义房间";
+    game.roomModifier = null;
+    game.encounter = null;
     game.roomReward = null;
+    game.roomWeaponDrops = [];
     game.pendingChallenge = null;
     game.challengeCount = Math.min(3, total);
     game.defeatedInRoom = 0;
@@ -1871,6 +2793,7 @@
   function openChestRoom(roomKey = "chest") {
     if (game.completed[roomKey]) return;
     game.completed[roomKey] = true;
+    game.roomChallengeCounts[roomKey] = 0;
     restoreMissingHpOnRoomEnter(game.player);
     const rewardWeapon = pickChestWeapon(game.player);
     const rewardBuff = pickChestBuff();
@@ -1935,7 +2858,7 @@
         allowMixedEnemies: true,
         title,
         label: `${title}：${enemy.name}`,
-        rewardWeapon: sourceRoom.rewardWeapon || enemy.rewardWeapon,
+        rewardWeapon: enemy.rewardWeapon || sourceRoom.rewardWeapon,
         clearTitle: `${enemy.name}被击败`,
         clearText: `你在随机教室中完成了${sourceRoom.title || "知识点教室"}的同款测试。`,
         enemy,
@@ -1950,7 +2873,7 @@
   }
 
   function bossShieldForCore(coreId, direct) {
-    return direct ? 58 : 48;
+    return direct ? 54 : 44;
   }
 
   function bossInitialCoreHp(direct) {
@@ -2004,10 +2927,14 @@
     mode = "combat";
     game.activeRoom = "boss";
     setCombatArena("boss");
+    game.roomModifier = null;
+    game.encounter = null;
     game.pendingChallenge = null;
     game.challengeCount = 1;
     game.defeatedInRoom = 0;
     game.monsterClearDelay = 0;
+    game.roomReward = null;
+    game.roomWeaponDrops = [];
     if (!bossOptions.skipRestore) restoreMissingHpOnRoomEnter(game.player);
     const centerX = arenaCenterX();
     const centerY = arenaCenterY();
@@ -2078,6 +3005,14 @@
       weaponDamage: {},
       weaponDamageNames: {},
       obstacleBoomCount: 0,
+      pressure: 0,
+      maxPressure: direct ? 2.45 : 2.75,
+      pressureDecay: bossPressureDecay * (direct ? 1.04 : 1),
+      attackCount: 0,
+      attackDelayCount: 0,
+      counterWindowHits: 0,
+      lastAttackCoreId: "",
+      lastCounterCoreId: "",
       fullPowerCoreId: "",
       intro: {
         elapsed: 0,
@@ -2151,13 +3086,15 @@
     return true;
   }
 
-  function showClear(eyebrow, title, text, weaponChoice = null) {
+  function showClear(eyebrow, title, text, weaponChoice = null, passiveChoice = null) {
     mode = "clear";
+    game.pendingPassiveChoice = passiveChoice;
     game.pendingWeaponChoice = weaponChoice;
     ui.clearEyebrow.textContent = eyebrow;
     ui.clearTitle.textContent = title;
     ui.clearText.textContent = text;
     showScreen("clear");
+    updatePassiveChoiceUi();
     updateWeaponChoiceUi();
     updateHud();
   }
@@ -2502,30 +3439,105 @@
     return "treasure";
   }
 
+  function isKnowledgeRoomKey(key) {
+    return ["monster", "geometry", "linear"].includes(key);
+  }
+
+  function completedRoomChallengeCount(key) {
+    if (completedRoomType(key) !== "combat") return 0;
+    return clamp(Math.round(Number(game.roomChallengeCounts?.[key] || 1)), 1, 3);
+  }
+
   function completedRoomBreakdown() {
     const counts = {
       total: 0,
       combat: 0,
       treasure: 0,
+      onePerson: 0,
+      twoPerson: 0,
+      threePerson: 0,
     };
     completedRoomKeys.forEach((key) => {
       if (!game.completed[key]) return;
       counts.total += 1;
       const type = completedRoomType(key);
       counts[type] += 1;
+      if (type === "combat") {
+        const challengeCount = completedRoomChallengeCount(key);
+        if (challengeCount >= 3) counts.threePerson += 1;
+        else if (challengeCount >= 2) counts.twoPerson += 1;
+        else counts.onePerson += 1;
+      }
     });
     return counts;
   }
 
   function completedRoomScore() {
     const breakdown = completedRoomBreakdown();
-    const combatScore = breakdown.combat * 105;
-    const treasureScore = breakdown.treasure * 28;
+    let combatScore = 0;
+    let treasureScore = 0;
+    let challengeScore = 0;
+    let routeBonus = 0;
+
+    completedRoomKeys.forEach((key) => {
+      if (!game.completed[key]) return;
+      const type = completedRoomType(key);
+      if (type === "combat") {
+        const challengeCount = completedRoomChallengeCount(key);
+        combatScore += isKnowledgeRoomKey(key) ? 135 : 125;
+        challengeScore += [0, 70, 155][challengeCount - 1] || 0;
+      } else {
+        treasureScore += 45;
+      }
+    });
+
+    const fullKnowledgeRoute = ["monster", "geometry", "linear"].every((key) => game.completed[key]);
+    if (fullKnowledgeRoute) routeBonus += 90;
+    if (breakdown.total >= completedRoomKeys.length) routeBonus += 120;
+
+    const routeScore = combatScore + treasureScore + routeBonus;
     return {
       ...breakdown,
       combatScore,
       treasureScore,
-      score: combatScore + treasureScore,
+      challengeScore,
+      routeBonus,
+      routeScore,
+      score: routeScore + challengeScore,
+    };
+  }
+
+  function totalChallengePassiveLevels(player = game.player) {
+    if (!player?.passives?.length) return 0;
+    return player.passives.reduce((sum, passive) => sum + Math.max(0, Math.round(Number(passive.level || 0))), 0);
+  }
+
+  function totalWeaponUpgradeLevels(player = game.player) {
+    if (!player?.weapons?.length) return 0;
+    return player.weapons.reduce((sum, weapon) => sum + Math.max(0, Math.round(Number(weapon.level || 1)) - 1), 0);
+  }
+
+  function calculateBuildScore(player = game.player) {
+    const weaponCount = Math.max(0, game.weaponsFound - 1);
+    const weaponUpgradeLevels = totalWeaponUpgradeLevels(player);
+    const buffStacks = player?.buffs?.length || 0;
+    const passiveLevels = totalChallengePassiveLevels(player);
+    const weaponCountScore = Math.min(126, weaponCount * 18);
+    const weaponUpgradeScore = Math.min(144, weaponUpgradeLevels * 18);
+    const weaponScore = weaponCountScore + weaponUpgradeScore;
+    const buffScore = Math.min(240, buffStacks * 24);
+    const passiveScore = Math.min(336, passiveLevels * 42);
+    return {
+      weaponCount,
+      weaponUpgradeLevels,
+      buffStacks,
+      passiveLevels,
+      weaponCountScore,
+      weaponUpgradeScore,
+      weaponScore,
+      buffScore,
+      passiveScore,
+      buildScore: weaponScore + buffScore + passiveScore,
     };
   }
 
@@ -2543,32 +3555,54 @@
 
   function calculateClearScore(seconds, player) {
     const roomScoreDetails = completedRoomScore();
+    const buildScoreDetails = calculateBuildScore(player);
     const roomCount = roomScoreDetails.total;
     const hpRatio = clamp((player?.hp || 0) / Math.max(1, player?.maxHp || 1), 0, 1);
     const swordOnly = isSwordOnlyRun();
     const bossClear = 650;
     const roomScore = roomScoreDetails.score;
-    const killScore = Math.min(game.kills, 18) * 26;
-    const weaponScore = Math.max(0, game.weaponsFound - 1) * 16;
+    const killScore = Math.min(game.kills, 24) * 20;
+    const weaponScore = buildScoreDetails.weaponScore;
+    const buffScore = buildScoreDetails.buffScore;
+    const passiveScore = buildScoreDetails.passiveScore;
+    const buildScore = buildScoreDetails.buildScore;
     const hpScore = Math.round(hpRatio * 300);
     const speedScore = calculateSpeedScore(seconds);
-    const overtimePenalty = Math.max(0, Math.round((seconds - 300) * 5.5));
-    const swordRouteBonus = swordOnly ? 520 : 0;
-    const swordSpeedBonus = swordOnly ? Math.max(0, Math.round(560 - seconds * 1.4)) : 0;
-    const swordDirectBonus = swordOnly && roomCount === 0 ? 240 : 0;
+    const overtimeSeconds = Math.max(0, seconds - 300);
+    const heavyOvertimeSeconds = Math.max(0, seconds - 420);
+    const overtimePenalty = Math.round(overtimeSeconds * 5.5 + Math.pow(heavyOvertimeSeconds, 1.16) * 1.7);
+    const swordRouteBonus = swordOnly ? 620 : 0;
+    const swordSpeedBonus = swordOnly ? Math.max(0, Math.round(720 - seconds * 1.6)) : 0;
+    const swordDirectBonus = swordOnly && roomCount === 0 ? 300 : 0;
     const swordBonus = swordRouteBonus + swordSpeedBonus + swordDirectBonus;
     const score = Math.max(1, Math.round(
-      bossClear + roomScore + killScore + weaponScore + hpScore + speedScore + swordBonus - overtimePenalty
+      bossClear + roomScore + killScore + buildScore + hpScore + speedScore + swordBonus - overtimePenalty
     ));
     return {
       score,
       roomCount,
       combatRoomCount: roomScoreDetails.combat,
       treasureRoomCount: roomScoreDetails.treasure,
+      onePersonRoomCount: roomScoreDetails.onePerson,
+      twoPersonRoomCount: roomScoreDetails.twoPerson,
+      threePersonRoomCount: roomScoreDetails.threePerson,
       bossClear,
       roomScore,
+      routeScore: roomScoreDetails.routeScore,
+      combatScore: roomScoreDetails.combatScore,
+      treasureScore: roomScoreDetails.treasureScore,
+      challengeScore: roomScoreDetails.challengeScore,
+      routeBonus: roomScoreDetails.routeBonus,
       killScore,
       weaponScore,
+      weaponCountScore: buildScoreDetails.weaponCountScore,
+      weaponUpgradeScore: buildScoreDetails.weaponUpgradeScore,
+      weaponUpgradeLevels: buildScoreDetails.weaponUpgradeLevels,
+      buffScore,
+      buffStacks: buildScoreDetails.buffStacks,
+      passiveScore,
+      passiveLevels: buildScoreDetails.passiveLevels,
+      buildScore,
       hpScore,
       speedScore,
       overtimePenalty,
@@ -2760,6 +3794,7 @@
 
   function swordOnlyResultMarkup(scoreDetails, score, seconds, player) {
     const hp = `${Math.max(0, Math.ceil(player.hp))} / ${player.maxHp}`;
+    const buildText = scoreDetails.buildScore ? `+${scoreDetails.buildScore}` : "-";
     const route = scoreDetails.roomCount === 0 ? "直通 Boss" : `${scoreDetails.roomCount} / 6`;
     const speedText = `+${scoreDetails.speedScore}${scoreDetails.overtimePenalty ? ` / 超时 -${scoreDetails.overtimePenalty}` : ""}`;
     return `
@@ -2773,6 +3808,9 @@
       </div>
       <div class="sword-result-stats">
         ${resultStatMarkup([
+          ["基础分", `+${scoreDetails.bossClear}`],
+          ["路线分", `+${scoreDetails.roomScore}`],
+          ["构筑分", buildText],
           ["完成路线", route],
           ["击败小怪", `${game.kills}`],
           ["剩余生命", hp],
@@ -2807,6 +3845,12 @@
     ui.resultStats.innerHTML = swordOnlyWin
       ? swordOnlyResultMarkup(scoreDetails, score, seconds, player)
       : resultStatMarkup([
+        ["基础分", scoreDetails ? `+${scoreDetails.bossClear}` : "-"],
+        ["路线分", scoreDetails ? `+${scoreDetails.routeScore}` : "-"],
+        ["挑战分", scoreDetails ? `+${scoreDetails.challengeScore}` : "-"],
+        ["击败分", scoreDetails ? `+${scoreDetails.killScore}` : "-"],
+        ["构筑分", scoreDetails ? `+${scoreDetails.buildScore}` : "-"],
+        ["生命分", scoreDetails ? `+${scoreDetails.hpScore}` : "-"],
         ["击败小怪", `${game.kills}`],
         ["完成房间", `${scoreDetails?.roomCount ?? completedRoomNames().length} / 6`],
         ["剩余生命", `${Math.max(0, Math.ceil(player.hp))} / ${player.maxHp}`],
@@ -2852,6 +3896,7 @@
       return;
     }
 
+    updateGuideToast(dt);
     const bossIntroActive = isBossIntroActive();
     if (shouldCountBattleTime()) {
       game.elapsed += dt * 1000;
@@ -2873,6 +3918,10 @@
     player.dashCooldown = Math.max(0, (player.dashCooldown || 0) - dt);
     player.invuln = Math.max(0, player.invuln - dt);
     player.mistakeBoostTimer = Math.max(0, (player.mistakeBoostTimer || 0) - dt);
+    player.swordFocusTimer = Math.max(0, (player.swordFocusTimer || 0) - dt);
+    player.swordFocusFlash = Math.max(0, (player.swordFocusFlash || 0) - dt);
+    player.tacticalFocusTimer = Math.max(0, (player.tacticalFocusTimer || 0) - dt);
+    player.tacticalFocusFlash = Math.max(0, (player.tacticalFocusFlash || 0) - dt);
     updateWeaponReloads(dt);
     updatePassiveShield(dt);
 
@@ -2928,6 +3977,10 @@
     return multiplier;
   }
 
+  function combatDashCooldownForPlayer(player = game.player) {
+    return 0.72 * passiveMultiplier(player, "dash", -0.06, 0.55);
+  }
+
   function updatePlayer(dt) {
     const player = game.player;
     let dx = 0;
@@ -2950,6 +4003,92 @@
     return len ? { x: dx / len, y: dy / len } : null;
   }
 
+  function nearEnemyTelegraphThreat(from, to) {
+    if (game.activeRoom !== "monster") return false;
+    const player = game.player;
+    if (!player) return false;
+    return game.enemies.some((enemy) => {
+      if (enemy.defeated) return false;
+      if ((enemy.lhopitalSlashWarnTimer || 0) > 0) {
+        const tx = enemy.lhopitalSlashTargetX ?? enemy.x;
+        const ty = enemy.lhopitalSlashTargetY ?? enemy.y;
+        return distancePointToSegment(player.x, player.y, enemy.x, enemy.y, tx, ty) <= player.r + enemy.r + 26;
+      }
+      if ((enemy.taylorDashWarnTimer || 0) > 0) {
+        const tx = enemy.taylorDashTargetX ?? enemy.x;
+        const ty = enemy.taylorDashTargetY ?? enemy.y;
+        return distancePointToSegment(player.x, player.y, enemy.x, enemy.y, tx, ty) <= player.r + enemy.r + 28;
+      }
+      if ((enemy.dashWarnTimer || 0) > 0) {
+        const tx = enemy.dashTargetX ?? enemy.x;
+        const ty = enemy.dashTargetY ?? enemy.y;
+        return distancePointToSegment(player.x, player.y, enemy.x, enemy.y, tx, ty) <= player.r + enemy.r + 28;
+      }
+      if ((enemy.archimedesDashWarnTimer || 0) > 0) {
+        const tx = enemy.archimedesDashTargetX ?? enemy.x;
+        const ty = enemy.archimedesDashTargetY ?? enemy.y;
+        return distancePointToSegment(player.x, player.y, enemy.x, enemy.y, tx, ty) <= player.r + enemy.r + 30;
+      }
+      return false;
+    });
+  }
+
+  function nearCombatThreat(from, to) {
+    const player = game.player;
+    if (!player || game.activeRoom !== "monster" && game.activeRoom !== "boss") return false;
+    const shotMargin = 38;
+    const laserMargin = 32;
+    const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+    const nearShot = game.enemyShots.some((shot) => (
+      !shot.harmless &&
+      distancePointToSegment(shot.x, shot.y, from.x, from.y, to.x, to.y) <= player.r + (shot.r || 0) + shotMargin
+    ));
+    if (nearShot) return true;
+    return game.enemyLasers.some((laser) => {
+      if (!isLaserActive(laser) && laser.age < laser.warningTime * 0.38) return false;
+      return [from, mid, to].some((point) => laserHitsPlayer(laser, {
+        x: point.x,
+        y: point.y,
+        r: player.r + laserMargin,
+      }));
+    });
+  }
+
+  function nearSwordFocusThreat(from, to) {
+    return game.activeRoom === "boss" && isSwordOnlyRun() && nearCombatThreat(from, to);
+  }
+
+  function grantTacticalFocus(player = game.player) {
+    if (!player) return false;
+    player.tacticalFocusTimer = tacticalFocusDurationForPlayer(player);
+    player.tacticalFocusFlash = 0.42;
+    showGuideOnce("tacticalFocus", "闪避擦过危险后会获得战术专注，下一次攻击会短暂强化。");
+    return true;
+  }
+
+  function consumeTacticalFocus(player = game.player, x = player?.x || 0, y = player?.y || 0) {
+    if (!player || (player.tacticalFocusTimer || 0) <= 0) return false;
+    player.tacticalFocusTimer = 0;
+    player.tacticalFocusFlash = 0.22;
+    burst(x, y, colors.warning, 10);
+    return true;
+  }
+
+  function grantSwordFocus(player = game.player) {
+    if (!player || game.activeRoom !== "boss" || !isSwordOnlyRun()) return false;
+    player.swordFocusTimer = swordFocusDuration;
+    player.swordFocusFlash = 0.45;
+    return true;
+  }
+
+  function consumeSwordFocus(player = game.player, x = player?.x || 0, y = player?.y || 0) {
+    if (!player || (player.swordFocusTimer || 0) <= 0) return false;
+    player.swordFocusTimer = 0;
+    player.swordFocusFlash = 0.25;
+    burst(x, y, colors.paper, 14);
+    return true;
+  }
+
   function dashCombatPlayer() {
     const player = game.player;
     if (!player || mode !== "combat" || isBossIntroActive() || (player.dashCooldown || 0) > 0) return false;
@@ -2961,7 +4100,13 @@
     player.x = clamp(player.x + dir.x * distanceValue, arena.left + 4, arena.right - 4);
     player.y = clamp(player.y + dir.y * distanceValue, arena.top + 8, arena.bottom - 4);
     resolvePlayerObstacles();
-    player.dashCooldown = 0.72;
+    if (nearCombatThreat(from, { x: player.x, y: player.y }) || nearEnemyTelegraphThreat(from, { x: player.x, y: player.y })) {
+      grantTacticalFocus(player);
+    }
+    if (nearSwordFocusThreat(from, { x: player.x, y: player.y })) {
+      grantSwordFocus(player);
+    }
+    player.dashCooldown = combatDashCooldownForPlayer(player);
     player.invuln = Math.max(player.invuln, 0.22);
     burst(from.x, from.y, colors.paper, 10);
     burst(player.x, player.y, colors.cyan, 8);
@@ -2992,7 +4137,11 @@
     }
     player.attackTimer = weapon.cooldown * playerAttackCooldownMultiplier(player);
     const attackKind = weapon.kind;
-    const damageMultiplier = playerDamageBuffMultiplier(player);
+    const swordFocusReady = weapon.id === "sword" && (player.swordFocusTimer || 0) > 0;
+    const tacticalFocusReady = (player.tacticalFocusTimer || 0) > 0;
+    const damageMultiplier = playerDamageBuffMultiplier(player)
+      * (tacticalFocusReady ? tacticalFocusDamageMultiplier(player) : 1)
+      * (swordFocusReady ? swordFocusMultiplier : 1);
     const sourceWeaponId = weapon.id;
     const sourceWeaponName = displayWeaponName(weapon);
 
@@ -3018,6 +4167,7 @@
             originY: player.y,
           });
         });
+        if (tacticalFocusReady) consumeTacticalFocus(player, player.x, player.y);
         return;
       }
       if (weapon.special === "shieldPulse") {
@@ -3042,13 +4192,16 @@
           originX: player.x,
           originY: player.y,
         });
+        if (tacticalFocusReady) consumeTacticalFocus(player, player.x, player.y);
         return;
       }
-      const reach = weapon.slashReach || swordSlashReach;
-      const radius = weapon.slashRadius || swordSlashRadius;
+      const reach = (weapon.slashReach || swordSlashReach) + (swordFocusReady ? 8 : 0);
+      const radius = (weapon.slashRadius || swordSlashRadius) + (swordFocusReady ? 10 : 0);
+      const slashX = player.x + Math.cos(angle) * reach;
+      const slashY = player.y + Math.sin(angle) * reach;
       game.slashes.push({
-        x: player.x + Math.cos(angle) * reach,
-        y: player.y + Math.sin(angle) * reach,
+        x: slashX,
+        y: slashY,
         r: radius,
         angle,
         life: 0.16,
@@ -3062,6 +4215,12 @@
         originX: player.x,
         originY: player.y,
       });
+      if (swordFocusReady) {
+        consumeSwordFocus(player, slashX, slashY);
+      }
+      if (tacticalFocusReady) {
+        consumeTacticalFocus(player, slashX, slashY);
+      }
       return;
     }
 
@@ -3102,6 +4261,9 @@
       if (weapon.ammo === 0) {
         startReload(weapon);
       }
+    }
+    if (tacticalFocusReady) {
+      consumeTacticalFocus(player, player.x, player.y);
     }
   }
 
@@ -3145,6 +4307,9 @@
     }
     if (hasEnemyMechanic(enemy, "gaussHalfField") && enemyInTopHalf(enemy)) {
       multiplier *= 0.5;
+    }
+    if ((enemy.staggerTimer || 0) > 0) {
+      multiplier *= staggerDamageMultiplier;
     }
     return multiplier;
   }
@@ -3250,8 +4415,8 @@
     enemy.lhopitalSlashFromY = enemy.y;
     enemy.lhopitalSlashTargetX = target.x;
     enemy.lhopitalSlashTargetY = target.y;
-    enemy.lhopitalSlashWarnTimer = 0.18;
-    enemy.lhopitalSlashWarnMax = 0.18;
+    enemy.lhopitalSlashWarnTimer = lhopitalSlashWarning;
+    enemy.lhopitalSlashWarnMax = lhopitalSlashWarning;
     enemy.lhopitalSlashHitPlayer = false;
   }
 
@@ -3273,6 +4438,7 @@
       return;
     }
     enemy.lhopitalRestTimer = enemyHpRatio(enemy) <= 0.2 ? lhopitalEnragedRestDuration : lhopitalRestDuration;
+    enemy.counterWindowTimer = Math.max(enemy.counterWindowTimer || 0, Math.min(1.4, enemy.lhopitalRestTimer));
     enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, enemy.lhopitalRestTimer);
   }
 
@@ -3304,6 +4470,11 @@
     if ((enemy.lhopitalSlashRemaining || 0) <= 0) {
       enemy.lhopitalSlashRemaining = enemyHpRatio(enemy) <= 0.2 ? 4 : 3;
     }
+    if (!canSpendEncounterPressure(enemy, 1.08)) {
+      enemy.lhopitalSlashDelay = 0.18 + Math.random() * 0.14;
+      return;
+    }
+    spendEncounterPressure(enemy, 1.08);
     beginLhopitalSlash(enemy);
   }
 
@@ -3332,8 +4503,8 @@
     if (!target) return false;
     enemy.taylorDashTargetX = target.x;
     enemy.taylorDashTargetY = target.y;
-    enemy.taylorDashWarnTimer = 0.26;
-    enemy.taylorDashWarnMax = 0.26;
+    enemy.taylorDashWarnTimer = taylorDashWarning;
+    enemy.taylorDashWarnMax = taylorDashWarning;
     return true;
   }
 
@@ -3357,6 +4528,7 @@
       beginTaylorDashStep(enemy);
     } else {
       enemy.taylorRestTimer = taylorRestDuration;
+      enemy.counterWindowTimer = Math.max(enemy.counterWindowTimer || 0, Math.min(1.6, taylorRestDuration));
       enemy.taylorDashTimer = 3.0 + Math.random() * 0.8;
     }
   }
@@ -3393,6 +4565,8 @@
     } else {
       enemy.archimedesWallDashCount = 0;
     }
+    enemy.archimedesRecoveryTimer = 0.85;
+    enemy.counterWindowTimer = Math.max(enemy.counterWindowTimer || 0, 0.85);
   }
 
   function updateArchimedesMarkDash(enemy, dt) {
@@ -3492,7 +4666,7 @@
         angle: baseAngle,
         sourceX: clamp(enemy.x + sideX * i * 34, arena.left + 12, arena.right - 12),
         sourceY: clamp(enemy.y + sideY * i * 34, arena.top + 12, arena.bottom - 12),
-        warningTime: 0.46,
+        warningTime: gaussDeathBeamWarning,
         activeTime: 0.26,
         width: 13,
         damage: 11,
@@ -3573,6 +4747,11 @@
     if (enemy.dashTimer == null) enemy.dashTimer = 3.0 * dashIntervalMultiplier;
     enemy.dashTimer -= dt;
     if (enemy.dashTimer <= 0) {
+      if (!canSpendEncounterPressure(enemy, 1.05)) {
+        enemy.dashTimer = 0.18 + Math.random() * 0.16;
+        return;
+      }
+      spendEncounterPressure(enemy, 1.05);
       enemy.dashSequenceRemaining = 2;
       enemy.dashSequenceDirection = Math.random() < 0.5 ? -1 : 1;
       queueEuclidDashStep(enemy, 0.58);
@@ -3646,9 +4825,14 @@
       }
       return;
     }
-    if (enemy.taylorDashTimer == null) enemy.taylorDashTimer = 1.4 + Math.random() * 0.6;
+    if (enemy.taylorDashTimer == null) enemy.taylorDashTimer = 2.1 + Math.random() * 0.8;
     enemy.taylorDashTimer -= dt;
     if (enemy.taylorDashTimer <= 0) {
+      if (!canSpendEncounterPressure(enemy, 1.12)) {
+        enemy.taylorDashTimer = 0.22 + Math.random() * 0.16;
+        return;
+      }
+      spendEncounterPressure(enemy, 1.12);
       enemy.taylorDashPoints = createTaylorDashPoints(enemy);
       beginTaylorDashStep(enemy);
       enemy.taylorDashTimer = 99;
@@ -3677,6 +4861,7 @@
         enemy.y = enemy.baseY;
         enemy.moveT = 0;
         enemy.jacobiLandingTimer = 0.35;
+        enemy.counterWindowTimer = Math.max(enemy.counterWindowTimer || 0, 0.72);
         enemy.fireTimer = Math.max(enemy.fireTimer || 0, 0.72);
         scheduleJacobiVolley(enemy, 1.5);
         burst(enemy.x, enemy.y, enemy.color || colors.warning, 18);
@@ -3688,8 +4873,8 @@
     enemy.jacobiBlinkTimer -= dt;
     if (enemy.jacobiBlinkTimer <= 0) {
       enemy.jacobiBlinkTarget = jacobiBlinkTarget(enemy);
-      enemy.jacobiBlinkWarnTimer = 0.46;
-      enemy.jacobiBlinkWarnMax = 0.46;
+      enemy.jacobiBlinkWarnTimer = jacobiBlinkWarning;
+      enemy.jacobiBlinkWarnMax = jacobiBlinkWarning;
       enemy.jacobiBlinkTimer = 5.0 + Math.random() * 1.0;
     }
   }
@@ -3869,6 +5054,7 @@
         } else if (hasEnemyMechanic(enemy, "dashScatter")) {
           enemy.dashSequenceRemaining = 0;
           enemy.dashTimer = 3.0;
+          enemy.counterWindowTimer = Math.max(enemy.counterWindowTimer || 0, 0.95);
         }
       }
       return;
@@ -3974,6 +5160,12 @@
         dashIntervalMultiplier: 1,
         shieldFlash: 0,
         healFlash: 0,
+        stagger: 0,
+        staggerMax: Math.max(24, Math.round((enemy.staggerMax || 48) * 0.62)),
+        staggerTimer: 0,
+        staggerFlash: 0,
+        counterWindowTimer: 0,
+        attackHoldTimer: 0,
         defeated: false,
       };
       game.enemies.push(child);
@@ -3986,6 +5178,15 @@
     triggerGaussDeathBeams(enemy);
     const didSplit = spawnSplitEnemies(enemy);
     enemy.defeated = true;
+    if (
+      game.activeRoom === "monster" &&
+      !isDeveloperCustomRoom() &&
+      !enemy.splitChild &&
+      !enemy.bossProjection &&
+      enemy.rewardWeapon
+    ) {
+      game.roomWeaponDrops.push(enemy.rewardWeapon);
+    }
     clearWeaponSealFromSource(enemy.id);
     game.kills += 1;
     game.defeatedInRoom += 1;
@@ -4007,19 +5208,32 @@
       tryCompleteMonsterChallenge(dt);
       return;
     }
+    updateEncounterDirector(dt);
 
     game.enemies.forEach((enemy) => {
       if (enemy.defeated) return;
-      enemy.moveT += dt;
-      updateEnemyMechanics(enemy, dt);
-      const previousX = enemy.x;
-      const previousY = enemy.y;
-      updateEnemyPosition(enemy, dt);
-      updateEnemyFacing(enemy, previousX, previousY);
-      enemy.fireTimer -= dt;
-      if (enemy.fireTimer <= 0) {
-        enemy.fireTimer = enemy.fireEvery;
-        fireEnemyPattern(enemy);
+      updateEnemyRoomTimers(enemy, dt);
+      if ((enemy.staggerTimer || 0) > 0) {
+        enemy.moveT += dt * 0.2;
+        enemy.fireTimer = Math.max(enemy.fireTimer || 0, 0.34);
+      } else {
+        enemy.moveT += dt;
+        updateEnemyMechanics(enemy, dt);
+        const previousX = enemy.x;
+        const previousY = enemy.y;
+        updateEnemyPosition(enemy, dt);
+        updateEnemyFacing(enemy, previousX, previousY);
+        enemy.fireTimer -= dt;
+        if (enemy.fireTimer <= 0) {
+          if (canSpendEncounterPressure(enemy)) {
+            enemy.fireTimer = enemy.fireEvery;
+            spendEncounterPressure(enemy);
+            fireEnemyPattern(enemy);
+          } else {
+            enemy.fireTimer = encounterRetryDelay + Math.random() * 0.14;
+            enemy.attackHoldTimer = Math.max(enemy.attackHoldTimer || 0, enemy.fireTimer);
+          }
+        }
       }
 
       applyPlayerDamageToCircle(enemy, "enemy");
@@ -4054,66 +5268,47 @@
     const reward = game.roomReward || {};
     const player = game.player;
     const count = clamp(game.challengeCount || 1, 1, 3);
-    const rewardBuffs = [];
-    let weaponName = "";
-    let weaponAction = "获得正常版武器";
 
     game.completed[game.activeRoomKey] = true;
+    game.roomChallengeCounts[game.activeRoomKey] = count;
     player.weaponSealSourceId = "";
     player.weaponSealTimer = 0;
 
-    if (reward.weapon) {
-      const equivalentIds = weaponFamilyIds(reward.weapon);
-      const existingWeapon = player.weapons.find((weapon) => equivalentIds.includes(weapon.id));
-      if (existingWeapon) {
-        weaponAction = "强化重复武器";
-      }
-      weaponName = weaponChoiceName(reward.weapon);
+    const rewardWeapons = game.roomWeaponDrops.filter(Boolean).slice(0, count);
+    if (!rewardWeapons.length && reward.weapon) {
+      rewardWeapons.push(reward.weapon);
     }
-
-    if (count >= 2) {
-      rewardBuffs.push(pickChallengeBuff(rewardBuffs));
-    }
-    if (count >= 3) {
-      const extraBuff = pickChallengeBuff(rewardBuffs);
-      rewardBuffs.push(extraBuff);
-    }
-    const creditGain = awardBetaKnowledgeCredits(game.activeRoomKey, count);
-
-    const weaponText = weaponName ? `${weaponAction}：${weaponName}` : "获得战斗奖励";
-    const buffText = rewardBuffs.length ? `，可选增益：${rewardBuffs.join("、")}` : "";
-    const creditText = creditGain
-      ? `获得 ${creditGain} 学分，当前 ${game.credits} 学分。`
-      : "";
-    const selectableLabels = [
-      weaponName ? "武器" : "",
-      ...rewardBuffs.map((_, index) => rewardBuffs.length > 1 ? `增益${index === 0 ? "A" : "B"}` : "增益"),
-    ].filter(Boolean);
-    const rewardPickText = selectableLabels.length
-      ? `可以勾选${selectableLabels.join("、")}，确认后领取；也可以直接离开。`
-      : "勾选后确认领取，也可以直接离开。";
-    const clearText = rewardBuffs.length
-      ? `挑战 ${count} 人完成，${weaponText}${buffText}。${creditText}${rewardPickText}`
-      : `挑战 ${count} 人完成，${weaponText}。${creditText}${rewardPickText}`;
+    const rewardBuffs = count >= 2 ? [pickChestBuff()].filter(Boolean) : [];
+    const rewardBonusLevels = count >= 3 ? 1 : 0;
+    const passiveChoice = createChallengePassiveChoice(count);
+    const weaponNames = rewardWeapons.map((id) => rewardWeaponDisplayName(id, rewardBonusLevels));
+    const buffNames = rewardBuffs.map((id) => rewardBuffDisplayName(id, rewardBonusLevels));
+    awardBetaKnowledgeCredits(game.activeRoomKey, count);
+    const optionCount = rewardWeapons.length + rewardBuffs.length;
+    const rewardPickText = optionCount
+      ? "请从下方选择一项作为奖励。"
+      : "房间完成。";
+    const rewardIntroText = rewardPickText;
+    const initialClearText = passiveChoice ? passiveChoiceIntroText(passiveChoice) : rewardIntroText;
     showClear(
       reward.clearEyebrow || "怪物房",
       reward.clearTitle || "知识投影被击败",
-      clearText,
-      weaponName || rewardBuffs.length
+      initialClearText,
+      optionCount
         ? {
-          weaponId: reward.weapon,
+          weaponId: rewardWeapons[0],
+          weaponIds: rewardWeapons,
           buffIds: rewardBuffs,
-          altBuff: rewardBuffs[0],
-          allowWeaponWithBuff: Boolean(weaponName && rewardBuffs.length),
-          title: `奖励选择：${[weaponName, rewardBuffs.length ? rewardBuffs.join("、") : ""].filter(Boolean).join(" / ")}`,
-          acceptLabel: "武器",
-          weaponShortLabel: "武器",
-          buffLabel: "增益",
-          confirmLabel: "确认领取",
-          acceptText: `已加入背包：${weaponName}。`,
-          declineText: `你没有领取本房间奖励。${weaponName ? `没有加入${weaponName}，本局仍保留圣剑榜资格。` : ""}`,
+          allowWeaponWithBuff: false,
+          weaponBonusLevels: rewardBonusLevels,
+          buffBonusLevels: rewardBonusLevels,
+          title: `奖励掉落：${[...weaponNames, ...buffNames].join(" / ")}`,
+          introText: rewardIntroText,
+          confirmLabel: "确认",
+          declineText: `你没有领取本房间掉落。没有加入${weaponNames.join("、")}，本局仍保留圣剑榜资格。`,
         }
-        : null
+        : null,
+      passiveChoice
     );
   }
 
@@ -4124,13 +5319,6 @@
       const targetAngle = Math.atan2(dy, dx);
       enemy.facingAngle = smoothAngle(enemy.facingAngle ?? targetAngle, targetAngle, 0.18);
     }
-  }
-
-  function pickChallengeBuff(excluded = []) {
-    const options = ["学霸笔记", "公式大全", "熬夜咖啡", "草稿纸", "错题本", "绩点守护", "临时抱佛脚", "鸡煲"];
-    const available = options.filter((name) => !excluded.includes(name));
-    const source = available.length ? available : options;
-    return source[Math.floor(Math.random() * source.length)];
   }
 
   function fireEnemyPattern(enemy) {
@@ -4186,7 +5374,7 @@
       spawnEnemyLaser({
         orientation: "vertical",
         x: clamp(game.player.x, arena.left + 24, arena.right - 24),
-        warningTime: 0.52,
+        warningTime: axisLaserWarning,
         activeTime: 0.28,
         width: 15,
         damage: 12 * enemyDamageMultiplier(enemy),
@@ -4198,7 +5386,7 @@
       spawnEnemyLaser({
         orientation: "horizontal",
         y: clamp(game.player.y, arena.top + 24, arena.bottom - 24),
-        warningTime: 0.52,
+        warningTime: axisLaserWarning,
         activeTime: 0.28,
         width: 15,
         damage: 12 * enemyDamageMultiplier(enemy),
@@ -4227,8 +5415,13 @@
     if (!boss) return;
 
     advanceBossIntro(boss, dt);
+    if (!isBossIntroActive() && !boss.guideShown) {
+      boss.guideShown = true;
+      showGuideOnce("bossBasics", "Boss 只有前排核心会输出并可被打血；核心发光时命中可压低攻势。", 4.4);
+    }
     updateBossDeaths(boss);
     updateBossMovement(boss, dt);
+    updateBossDirector(boss, dt);
 
     boss.cores.forEach((core) => {
       core.hitFlash = Math.max(0, (core.hitFlash || 0) - dt);
@@ -4258,8 +5451,13 @@
       activeCores.forEach((core) => {
         core.fireTimer -= dt;
         if (core.fireTimer <= 0) {
-          fireBossCore(core);
-          core.fireTimer = bossCoreInterval(core);
+          if (canBossSpendPressure(core)) {
+            spendBossPressure(core);
+            fireBossCore(core);
+            core.fireTimer = bossCoreInterval(core);
+          } else {
+            core.fireTimer = encounterRetryDelay + Math.random() * 0.12;
+          }
         }
       });
     }
@@ -4347,6 +5545,70 @@
   function bossActiveCores(boss = game.boss, cores = null) {
     const source = cores || boss?.cores || [];
     return source.filter((core) => core.hp > 0 && !isBossCoreInDomain(core, boss));
+  }
+
+  function bossCorePressureCost(core) {
+    if (!core) return 1;
+    const costs = {
+      cauchy: 1.02,
+      descartes: 1.16,
+      gauss: 1.22,
+    };
+    return (costs[core.id] || 1) * (core.enraged ? 1.12 : 1);
+  }
+
+  function updateBossDirector(boss, dt) {
+    if (!boss) return;
+    boss.pressure = Math.max(0, (boss.pressure || 0) - (boss.pressureDecay || bossPressureDecay) * dt);
+    boss.cores.forEach((core) => {
+      core.counterWindowTimer = Math.max(0, (core.counterWindowTimer || 0) - dt);
+      core.counterFlash = Math.max(0, (core.counterFlash || 0) - dt);
+    });
+  }
+
+  function canBossSpendPressure(core) {
+    const boss = game.boss;
+    if (!boss || !core || core.hp <= 0) return false;
+    const cost = bossCorePressureCost(core);
+    const cap = boss.maxPressure || 2.6;
+    if ((boss.pressure || 0) + cost > cap) {
+      boss.attackDelayCount = (boss.attackDelayCount || 0) + 1;
+      return false;
+    }
+    return true;
+  }
+
+  function spendBossPressure(core) {
+    const boss = game.boss;
+    if (!boss || !core) return;
+    const cost = bossCorePressureCost(core);
+    boss.pressure = Math.min(boss.maxPressure || 2.6, (boss.pressure || 0) + cost);
+    boss.attackCount = (boss.attackCount || 0) + 1;
+    boss.lastAttackCoreId = core.id;
+  }
+
+  function openBossCounterWindow(core, duration = bossCounterWindowBase) {
+    if (!core || core.hp <= 0 || !isBossCoreFront(core)) return;
+    core.counterWindowTimer = Math.max(core.counterWindowTimer || 0, duration);
+    core.counterFlash = Math.max(core.counterFlash || 0, 0.24);
+  }
+
+  function triggerBossCounterHit(core, sourceWeaponId = "") {
+    const boss = game.boss;
+    if (!boss || !core || (core.counterWindowTimer || 0) <= 0) return false;
+    const suppression = bossCounterSuppressionBase
+      * weaponBossCounterMultiplier(sourceWeaponId)
+      * bossCounterSuppressionMultiplier(game.player);
+    boss.pressure = Math.max(0, (boss.pressure || 0) - suppression);
+    core.fireTimer = Math.max(core.fireTimer || 0, 0.9);
+    core.counterWindowTimer = 0;
+    core.counterFlash = Math.max(core.counterFlash || 0, 0.45);
+    boss.counterWindowHits = (boss.counterWindowHits || 0) + 1;
+    boss.lastCounterCoreId = core.id;
+    const pos = corePosition(core);
+    burst(pos.x, pos.y, colors.paper, 18);
+    showGuideOnce("bossCounter", "Boss 核心发光时命中它，可以压低下一轮攻势。", 4);
+    return true;
   }
 
   function updateBossDomain(boss, dt) {
@@ -4590,17 +5852,21 @@
       const boss = game.boss;
       const spawned = boss?.descartesQuadrantProjectionCount || 0;
       spawnCount = Math.min(spawnCount, Math.max(0, descartesQuadrantProjectionLimit - spawned));
-      if (boss) boss.descartesQuadrantProjectionCount = spawned + spawnCount;
     }
+    spawnCount = Math.min(spawnCount, remainingBossProjectionSlots());
+    let actualCount = 0;
     for (let i = 0; i < spawnCount; i += 1) {
       const point = randomPointInBossQuadrant(quadrant);
-      spawnBossProjection(point.x, point.y, source);
+      if (spawnBossProjection(point.x, point.y, source)) actualCount += 1;
+    }
+    if (source === "descartes-quadrant" && game.boss) {
+      game.boss.descartesQuadrantProjectionCount = (game.boss.descartesQuadrantProjectionCount || 0) + actualCount;
     }
   }
 
   function spawnDescartesExitProjections(boss) {
     const changes = Math.max(0, Math.min(4, boss.descartesQuadrantChanges || 0));
-    const count = Math.min(descartesExitProjectionLimit, changes <= 0 ? 6 : Math.max(0, 8 - changes * 2));
+    const count = Math.min(descartesExitProjectionLimit, remainingBossProjectionSlots(), changes <= 0 ? 6 : Math.max(0, 8 - changes * 2));
     for (let i = 0; i < count; i += 1) {
       const point = randomArenaPoint(48);
       spawnBossProjection(point.x, point.y, "descartes-exit");
@@ -4632,18 +5898,27 @@
   }
 
   function bossDomainIncomingMultiplier() {
-    return game.boss?.domainCoreId === "descartes" && bossPlayerQuadrant() === "q2" ? 2 : 1;
+    return game.boss?.domainCoreId === "descartes" && bossPlayerQuadrant() === "q2" ? 1.5 : 1;
   }
 
   function bossDomainMoveMultiplier() {
-    return game.boss?.domainCoreId === "descartes" && bossPlayerQuadrant() === "q3" ? 0.5 : 1;
+    return game.boss?.domainCoreId === "descartes" && bossPlayerQuadrant() === "q3" ? 0.7 : 1;
   }
 
   function bossDomainAttackCooldownMultiplier() {
-    return game.boss?.domainCoreId === "descartes" && bossPlayerQuadrant() === "q4" ? 2 : 1;
+    return game.boss?.domainCoreId === "descartes" && bossPlayerQuadrant() === "q4" ? 1.5 : 1;
+  }
+
+  function activeBossProjectionCount() {
+    return game.enemies.filter((enemy) => enemy.bossProjection && !enemy.defeated).length;
+  }
+
+  function remainingBossProjectionSlots() {
+    return Math.max(0, Number(bossProjectionLimit || 4) - activeBossProjectionCount());
   }
 
   function spawnBossProjection(x, y, source = "descartes") {
+    if (remainingBossProjectionSlots() <= 0) return false;
     const point = arenaPoint(x, y, 34);
     const id = `boss-projection-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     game.enemies.push({
@@ -4653,6 +5928,7 @@
       kind: "geometry",
       pattern: "projection",
       mechanics: [],
+      roles: ["ranged", "projection"],
       x: point.x,
       y: point.y,
       baseX: point.x,
@@ -4674,6 +5950,7 @@
       shortName: "影",
       defeated: false,
     });
+    return true;
   }
 
   function clearBossProjections() {
@@ -4886,7 +6163,7 @@
     boss.fullPowerCoreId = core.id;
     boss.phaseName = "末核领域";
     core.enraged = true;
-    core.fullPowerDamageMultiplier = core.id === "descartes" ? 1 : 1.5;
+    core.fullPowerDamageMultiplier = core.id === "descartes" ? 1 : 1.3;
     core.overloadFlash = Math.max(core.overloadFlash || 0, bossDomainCycleSeconds);
     const pos = corePosition(core);
     burst(pos.x, pos.y, core.color, 54);
@@ -4960,13 +6237,16 @@
     const pos = corePosition(core);
     if (core.id === "cauchy") {
       fireCauchySquares(pos, core);
+      openBossCounterWindow(core, 0.78);
       return;
     }
     if (core.id === "descartes") {
       fireDescartesCross(pos, core);
+      openBossCounterWindow(core, 0.92);
       return;
     }
     createGaussZones(core);
+    openBossCounterWindow(core, 1.02);
   }
 
   function fireCauchySquares(pos, core) {
@@ -5351,7 +6631,7 @@
         if (enemy.defeated || enemy === target || shot.hitIds.has(enemy.id)) return;
         if (distance(enemy, target) > radius + enemy.r) return;
         enemy.hp -= splashDamage;
-        onMonsterDamaged(enemy, splashDamage);
+        onMonsterDamaged(enemy, splashDamage, { blast: true });
         enemy.backHitFlash = Math.max(enemy.backHitFlash || 0, 0.14);
         shot.hitIds.add(enemy.id);
         burst(enemy.x, enemy.y, enemy.color || colors.warning, 8);
@@ -5392,7 +6672,7 @@
           burst(target.x, target.y, coreRef.shield > 0 ? colors.paper : coreRef.color, shot.blastRadius ? 16 : 4);
         } else {
           target.hp -= damage;
-          onMonsterDamaged(target, damage);
+          onMonsterDamaged(target, damage, { backHit, absorbed, weaponId: shot.weaponId, kind: shot.kind });
           target.backHitFlash = backHit ? 0.28 : target.backHitFlash || 0;
           burst(target.x, target.y, absorbed ? colors.paper : backHit ? colors.paper : target.color || colors.chalk, absorbed ? 12 : backHit ? 14 : shot.blastRadius ? 16 : 4);
         }
@@ -5423,7 +6703,7 @@
           burst(target.x, target.y, coreRef.shield > 0 ? colors.paper : coreRef.color, 5);
         } else {
           target.hp -= damage;
-          onMonsterDamaged(target, damage);
+          onMonsterDamaged(target, damage, { backHit, absorbed, weaponId: slash.weaponId, kind: slash.kind });
           target.backHitFlash = backHit ? 0.28 : target.backHitFlash || 0;
           burst(target.x, target.y, absorbed ? colors.paper : backHit ? colors.paper : target.color || colors.chalk, absorbed ? 12 : backHit ? 14 : 5);
         }
@@ -5437,6 +6717,7 @@
     if (!boss || !core || core.hp <= 0) return 0;
     let remaining = Math.max(0, Number(amount || 0));
     let absorbed = 0;
+    const counterEligible = (core.counterWindowTimer || 0) > 0 && isBossCoreFront(core, boss);
     if (remaining > 0 && (core.invisibleTimer || 0) > 0) {
       core.revealTimer = Math.max(core.revealTimer || 0, bossCoreRevealDuration);
       core.hitFlash = Math.max(core.hitFlash || 0, 0.18);
@@ -5466,6 +6747,9 @@
     }
     recordBossWeaponDamage(sourceWeaponId, sourceWeaponName, absorbed + hpDamage);
     core.hitFlash = 0.18;
+    if (counterEligible && absorbed + hpDamage > 0) {
+      triggerBossCounterHit(core, sourceWeaponId);
+    }
     return absorbed + hpDamage;
   }
 
@@ -5519,6 +6803,11 @@
       player.shield -= absorbed;
       remaining -= absorbed;
       burst(player.x, player.y, colors.cyan, 10);
+      if (absorbed > 0 && player.weapons?.some((weapon) => weapon.guardCounter)) {
+        player.tacticalFocusTimer = Math.max(player.tacticalFocusTimer || 0, 0.55);
+        player.tacticalFocusFlash = Math.max(player.tacticalFocusFlash || 0, 0.25);
+        showGuideOnce("guardCounter", "升级后的几何护盾挡住伤害时，会返还一个短促反击窗口。");
+      }
     }
 
     if (remaining > 0) {
@@ -5941,7 +7230,7 @@
       ctx.restore();
     }
     if ((enemy.lhopitalSlashWarnTimer || 0) > 0) {
-      const progress = 1 - clamp(enemy.lhopitalSlashWarnTimer / Math.max(0.01, enemy.lhopitalSlashWarnMax || 0.18), 0, 1);
+      const progress = 1 - clamp(enemy.lhopitalSlashWarnTimer / Math.max(0.01, enemy.lhopitalSlashWarnMax || lhopitalSlashWarning), 0, 1);
       ctx.save();
       ctx.globalAlpha = 0.28 + progress * 0.34;
       ctx.strokeStyle = enemy.color || colors.paper;
@@ -5970,7 +7259,7 @@
       ctx.restore();
     }
     if ((enemy.taylorDashWarnTimer || 0) > 0) {
-      const progress = 1 - clamp(enemy.taylorDashWarnTimer / Math.max(0.01, enemy.taylorDashWarnMax || 0.26), 0, 1);
+      const progress = 1 - clamp(enemy.taylorDashWarnTimer / Math.max(0.01, enemy.taylorDashWarnMax || taylorDashWarning), 0, 1);
       ctx.save();
       ctx.globalAlpha = 0.26 + progress * 0.36;
       ctx.strokeStyle = enemy.color || colors.chalk;
@@ -5986,7 +7275,7 @@
       ctx.restore();
     }
     if ((enemy.jacobiBlinkWarnTimer || 0) > 0 && enemy.jacobiBlinkTarget) {
-      const progress = 1 - clamp(enemy.jacobiBlinkWarnTimer / Math.max(0.01, enemy.jacobiBlinkWarnMax || 0.46), 0, 1);
+      const progress = 1 - clamp(enemy.jacobiBlinkWarnTimer / Math.max(0.01, enemy.jacobiBlinkWarnMax || jacobiBlinkWarning), 0, 1);
       ctx.save();
       ctx.globalAlpha = 0.24 + progress * 0.34;
       ctx.strokeStyle = enemy.color || colors.warning;
@@ -6046,6 +7335,32 @@
       ctx.stroke();
       ctx.restore();
     }
+    if ((enemy.counterWindowTimer || 0) > 0) {
+      const progress = clamp((enemy.counterWindowTimer || 0) / 1.6, 0, 1);
+      ctx.save();
+      ctx.globalAlpha = 0.16 + progress * 0.18;
+      ctx.strokeStyle = colors.warning;
+      ctx.lineWidth = Math.max(1, 2.5 * characterSizeScale);
+      ctx.setLineDash([6, 7]);
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, enemy.r + 24 * characterSizeScale, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if ((enemy.staggerTimer || 0) > 0) {
+      const progress = clamp((enemy.staggerTimer || 0) / staggerDuration, 0, 1);
+      ctx.save();
+      ctx.globalAlpha = 0.22 + progress * 0.24;
+      ctx.fillStyle = colors.paper;
+      circle(enemy.x, enemy.y, enemy.r + 18 * characterSizeScale);
+      ctx.globalAlpha = 0.72;
+      ctx.strokeStyle = colors.warning;
+      ctx.lineWidth = Math.max(1, 3 * characterSizeScale);
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, enemy.r + 24 * characterSizeScale, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+      ctx.stroke();
+      ctx.restore();
+    }
     if ((enemy.lhopitalInvincibleTimer || 0) > 0 || (enemy.lhopitalRestTimer || 0) > 0 || (enemy.jordanTransitionTimer || 0) > 0 || (enemy.shieldFlash || 0) > 0) {
       const timer = Math.max(enemy.lhopitalInvincibleTimer || 0, enemy.lhopitalRestTimer || 0, enemy.jordanTransitionTimer || 0, enemy.shieldFlash || 0);
       const shieldAlpha = Math.max(0.18, clamp(timer / Math.max(monsterShieldDuration, 1.05), 0, 1) * 0.42);
@@ -6066,6 +7381,10 @@
       ctx.restore();
     }
     drawHealthBar(enemy.x - 38 * characterSizeScale, enemy.y - 44 * characterSizeScale, 76 * characterSizeScale, Math.max(3, 7 * characterSizeScale), enemy.hp / enemy.maxHp, enemy.color);
+    if ((enemy.staggerMax || 0) > 0 && !enemy.bossProjection) {
+      const staggerRatio = (enemy.staggerTimer || 0) > 0 ? 1 : clamp((enemy.stagger || 0) / Math.max(1, enemy.staggerMax || 1), 0, 1);
+      drawHealthBar(enemy.x - 32 * characterSizeScale, enemy.y - 34 * characterSizeScale, 64 * characterSizeScale, Math.max(2, 4 * characterSizeScale), staggerRatio, colors.warning);
+    }
     ctx.fillStyle = "rgba(255,255,255,0.12)";
     circle(enemy.x, enemy.y, enemy.r + 10 * characterSizeScale);
     ctx.fillStyle = enemy.color;
@@ -6263,6 +7582,8 @@
       const flash = clamp((core.hitFlash || 0) / 0.18, 0, 1);
       const guardFlash = clamp((core.guardFlash || 0) / 0.28, 0, 1);
       const overloadFlash = clamp((core.overloadFlash || 0) / bossDomainCycleSeconds, 0, 1);
+      const counterProgress = clamp((core.counterWindowTimer || 0) / 1.05, 0, 1);
+      const counterFlash = clamp((core.counterFlash || 0) / 0.45, 0, 1);
       const pulse = 1 + Math.sin(performance.now() / (overload ? 92 : 180) + core.offset) * (overload ? 0.09 : 0.05);
       ctx.save();
       ctx.globalAlpha = alive ? introAlpha * (invulnerable ? 0.52 : 1) : 0.24;
@@ -6304,6 +7625,15 @@
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, (31 + Math.max(0, 0.46 - core.fireTimer) * 30) * bossSizeScale, 0, Math.PI * 2);
         ctx.stroke();
+      }
+      if (counterProgress > 0 || counterFlash > 0) {
+        ctx.strokeStyle = `rgba(240,195,93,${0.28 + counterProgress * 0.36 + counterFlash * 0.22})`;
+        ctx.lineWidth = Math.max(1, (2 + counterFlash * 2) * bossSizeScale);
+        ctx.setLineDash([5, 7]);
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, (47 + counterProgress * 10 + Math.sin(performance.now() / 58) * 2) * bossSizeScale, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
       }
       if (core.enraged) {
         ctx.strokeStyle = colors.danger;
@@ -6603,6 +7933,29 @@
       ctx.stroke();
       ctx.restore();
     }
+    if ((player.swordFocusTimer || 0) > 0 || (player.swordFocusFlash || 0) > 0) {
+      const focusAlpha = (player.swordFocusTimer || 0) > 0 ? 0.44 : clamp((player.swordFocusFlash || 0) / 0.45, 0, 1) * 0.34;
+      ctx.save();
+      ctx.globalAlpha = focusAlpha;
+      ctx.strokeStyle = colors.paper;
+      ctx.lineWidth = Math.max(1, 3 * characterSizeScale);
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.r + 23 * characterSizeScale + Math.sin(performance.now() / 55) * 2 * characterSizeScale, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if ((player.tacticalFocusTimer || 0) > 0 || (player.tacticalFocusFlash || 0) > 0) {
+      const focusAlpha = (player.tacticalFocusTimer || 0) > 0 ? 0.38 : clamp((player.tacticalFocusFlash || 0) / 0.42, 0, 1) * 0.28;
+      ctx.save();
+      ctx.globalAlpha = focusAlpha;
+      ctx.strokeStyle = colors.warning;
+      ctx.lineWidth = Math.max(1, 2.4 * characterSizeScale);
+      ctx.setLineDash([7, 7]);
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.r + 29 * characterSizeScale + Math.sin(performance.now() / 70) * 2 * characterSizeScale, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
     ctx.globalAlpha = player.invuln > 0 ? 0.62 : 1;
     ctx.fillStyle = "rgba(244,240,230,0.16)";
     circle(player.x, player.y, player.r + 9 * characterSizeScale);
@@ -6792,35 +8145,103 @@
   }
 
   function weaponTheory(weapon) {
-    const damage = weapon.damage;
-    let attackValue = damage * (weapon.pellets || 1);
-    if (weapon.special === "crossSlash") attackValue = damage * 2.2;
-    if (weapon.special === "shieldPulse") attackValue = damage * 1.35;
+    const damage = Number(weapon.damage || 0);
+    const cooldown = Math.max(0.01, Number(weapon.cooldown || 1));
+    const pelletCount = Math.max(1, Number(weapon.pellets || 1));
+    const pelletReliability = weapon.pellets
+      ? clamp(0.96 - Number(weapon.spread || 0) * 0.18, 0.72, 0.92)
+      : 1;
+    let attackValue = damage * pelletCount * pelletReliability;
+    if (weapon.special === "crossSlash") attackValue = damage * 2.15;
+    if (weapon.special === "shieldPulse") attackValue = damage * 1.15;
     if (weapon.splitPattern === "lu") {
-      attackValue += damage * (weapon.splitDamage || 0.5) * 4;
+      attackValue += damage * (weapon.splitDamage || 0.5) * 4 * 0.58;
     } else if (weapon.splitCount) {
-      attackValue += damage * (weapon.splitDamage || 0.5) * weapon.splitCount;
+      attackValue += damage * (weapon.splitDamage || 0.5) * weapon.splitCount * 0.45;
     }
-    if (weapon.blastRadius) attackValue += damage * 0.55;
+    if (weapon.blastRadius) attackValue += damage * clamp((weapon.blastRadius || 0) / 120, 0.28, 0.62);
+    if (weapon.shape === "beam") attackValue *= 1.04;
 
-    const burstDps = attackValue / Math.max(0.01, weapon.cooldown || 1);
+    const burstDps = attackValue / cooldown;
     const cycleTime = weapon.infiniteAmmo
-      ? Math.max(0.01, weapon.cooldown || 1)
-      : Math.max(0.01, (weapon.cooldown || 1) * (weapon.magazine || 1) + (weapon.reloadTime || 0));
+      ? cooldown
+      : Math.max(0.01, cooldown * (weapon.magazine || 1) + (weapon.reloadTime || 0));
     const sustainDps = weapon.infiniteAmmo
       ? burstDps
       : (attackValue * (weapon.magazine || 1)) / cycleTime;
-    const utility = 1
-      + (weapon.pierce ? Math.min(0.28, (weapon.pierce - 1) * 0.09) : 0)
-      + (weapon.shape === "beam" ? 0.12 : 0)
-      + (weapon.blastRadius ? 0.18 : 0)
-      + (weapon.special === "shieldPulse" ? 0.32 : 0);
+
+    const activeRatio = weapon.infiniteAmmo
+      ? 1
+      : clamp((cooldown * (weapon.magazine || 1)) / cycleTime, 0, 1);
+    const ammoScore = weapon.infiniteAmmo
+      ? 11
+      : clamp(
+        5 + activeRatio * 7 + Math.min(2, (weapon.magazine || 0) * 0.08) - Math.max(0, (weapon.reloadTime || 0) - 2) * 0.8,
+        4,
+        12
+      );
+    const outputScore = 38 * (1 - Math.exp(-sustainDps / 34));
+    const burstScore = 14 * (1 - Math.exp(-burstDps / 42));
+    const reliabilityScore = weapon.ranged
+      ? 10 * clamp(
+        (clamp((weapon.speed || 540) / 800, 0.45, 1) * 0.42)
+        + (clamp((weapon.projectileRadius || 5) / 8, 0.45, 1) * 0.24)
+        + (weapon.spread ? clamp(1 - weapon.spread * 0.35, 0.62, 1) : 1) * 0.34
+        + (weapon.pellets ? 0.08 : 0)
+        + (weapon.shape === "beam" ? 0.08 : 0),
+        0.45,
+        1.12
+      )
+      : 10 * clamp(
+        0.56
+        + ((weapon.slashReach || swordSlashReach) + (weapon.slashRadius || swordSlashRadius)) / 260
+        + (weapon.special === "crossSlash" ? 0.08 : 0)
+        + (weapon.special === "shieldPulse" ? 0.04 : 0),
+        0.55,
+        0.96
+      );
+    const areaScore = clamp(
+      (weapon.pierce ? Math.min(6.8, weapon.pierce * 1.7) : 0)
+      + (weapon.pellets ? Math.min(6, weapon.pellets * 0.75) : 0)
+      + (weapon.blastRadius ? Math.min(7, weapon.blastRadius * 0.1) : 0)
+      + (weapon.splitCount ? Math.min(5, weapon.splitCount * 0.75) : 0)
+      + (weapon.splitPattern === "lu" ? 3.2 : 0)
+      + (weapon.shape === "beam" ? 4.5 : 0)
+      + (weapon.special === "crossSlash" ? 5.2 : 0)
+      + (weapon.special === "shieldPulse" ? 4.4 : 0),
+      0,
+      14
+    );
+    const utilityScore = clamp(
+      (weapon.special === "shieldPulse" ? 12 + geometryShieldValue({ ...weapon, level: 1 }) * 0.22 + (weapon.shotClearRadius || 0) * 0.025 : 0)
+      + (weapon.id === "sword" ? 5 : 0)
+      + (weapon.special === "crossSlash" ? 2.8 : 0)
+      + (weapon.blastRadius ? 2.2 : 0)
+      + (weapon.splitAfter ? 1.8 : 0)
+      + (weapon.pierce >= 4 ? 2.2 : 0)
+      + (Math.max(0, (weapon.staggerBonus || 1) - 1) * 18)
+      + (Math.max(0, (weapon.bossCounterBonus || 1) - 1) * 18),
+      0,
+      18
+    );
+    const balanceScore = clamp(
+      Math.round((18 + outputScore + burstScore + ammoScore + reliabilityScore + areaScore + utilityScore) * 10) / 10,
+      35,
+      96
+    );
     return {
       id: weapon.id,
       name: displayWeaponName(weapon),
+      attackValue: Math.round(attackValue * 10) / 10,
       burstDps: Math.round(burstDps * 10) / 10,
       sustainDps: Math.round(sustainDps * 10) / 10,
-      balanceScore: Math.round(sustainDps * utility * 10) / 10,
+      outputScore: Math.round(outputScore * 10) / 10,
+      burstScore: Math.round(burstScore * 10) / 10,
+      ammoScore: Math.round(ammoScore * 10) / 10,
+      reliabilityScore: Math.round(reliabilityScore * 10) / 10,
+      areaScore: Math.round(areaScore * 10) / 10,
+      utilityScore: Math.round(utilityScore * 10) / 10,
+      balanceScore,
     };
   }
 
@@ -6881,7 +8302,7 @@
     }).join("");
 
     return `
-      <p>以下为当前可获得的全部增益。宝箱房会在随机武器和随机增益中二选一，知识点教室则会随挑战人数给出可选增益。</p>
+      <p>以下为当前可获得的全部增益。宝箱房会在随机武器和随机增益中二选一；知识点教室会按击败的投影掉落对应装备，2 人和 3 人额外出现 1 个增益候选。</p>
       <div class="buff-list buff-catalog">${cards}</div>
     `;
   }
@@ -6893,9 +8314,11 @@
     const ids = Object.keys(weapons);
     const rows = ids.map((id) => {
       const weapon = weapons[id];
+      const theory = weaponTheory({ ...weapon, level: 1 });
       return `
         <tr>
           <th scope="row">${weapon.name}</th>
+          <td>${theory.balanceScore}</td>
           <td>${weaponKindLabel(weapon.kind)}</td>
           <td>${weapon.ranged ? "远程" : "近战"}</td>
           <td>${weaponDamageLabel(weapon)}</td>
@@ -6915,6 +8338,7 @@
           <thead>
             <tr>
               <th scope="col">武器</th>
+              <th scope="col">评分</th>
               <th scope="col">学科</th>
               <th scope="col">类型</th>
               <th scope="col">每次攻击伤害</th>
@@ -6947,15 +8371,19 @@
   function ownedWeaponStatsMarkup({ heading = true } = {}) {
     const player = game.player;
     if (!player?.weapons?.length) return "";
-    const rows = player.weapons.map((weapon, index) => `
+    const rows = player.weapons.map((weapon, index) => {
+      const traits = weaponTraitLabels(weapon);
+      return `
       <tr>
         <th scope="row">${index + 1}. ${displayWeaponName(weapon)}</th>
         <td>${weapon.level || 1}</td>
         <td>${weaponDamageLabel(weapon)}</td>
         <td>${fixedNumber(weapon.cooldown, 2)}s</td>
         <td>${ammoLabel(weapon)}</td>
+        <td>${traits.length ? traits.join(" / ") : "基础形态"}</td>
       </tr>
-    `).join("");
+    `;
+    }).join("");
     return `
       ${heading ? "<h3>当前背包数据</h3>" : ""}
       <div class="weapon-table-wrap compact">
@@ -6967,10 +8395,35 @@
               <th scope="col">当前伤害</th>
               <th scope="col">当前冷却</th>
               <th scope="col">当前弹药</th>
+              <th scope="col">升级特性</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
         </table>
+      </div>
+    `;
+  }
+
+  function passiveInfoMarkup(player = game.player) {
+    const passives = player?.passives || [];
+    if (!passives.length) {
+      return `<p class="buff-empty">当前还没有挑战被动。</p>`;
+    }
+    const totals = challengePassiveDefs
+      .map((def) => ({ def, level: passiveLevel(player, def.id) }))
+      .filter((item) => item.level > 0);
+    return `
+      <div class="buff-list">
+        ${totals.map(({ def, level }) => `
+          <article class="buff-card">
+            <header>
+              <strong>${escapeHtml(def.name)} Lv.${level}</strong>
+              <span>${escapeHtml(def.type || "被动")}</span>
+            </header>
+            <p>${escapeHtml(def.effect(level))}</p>
+            <small>${escapeHtml(def.detail || "挑战被动")}</small>
+          </article>
+        `).join("")}
       </div>
     `;
   }
@@ -6986,6 +8439,10 @@
         <section class="inventory-section">
           <h3>当前增益</h3>
           ${buffInfoMarkup()}
+        </section>
+        <section class="inventory-section">
+          <h3>挑战被动</h3>
+          ${passiveInfoMarkup()}
         </section>
       </div>
     `;
@@ -7147,7 +8604,7 @@
           <span>生命 <strong>${hp}</strong></span>
           <span>刷新 <strong>${refreshCost}</strong></span>
         </div>
-        <p class="beta-shop-note">每件商品消耗 ${betaShopItemHpCost} 生命；刷新只消耗学分，价格从 1 学分开始逐次增加。进入商店时的房间回血已经结算，开始 Boss 战后不会再次回血。</p>
+        <p class="beta-shop-note">每件商品消耗 ${betaShopItemHpCost} 生命；刷新只消耗学分，费用依次为 1、3、5 学分，之后保持 5 学分。进入商店时的房间回血已经结算，开始 Boss 战后不会再次回血。</p>
         <div class="beta-shop-grid">${cards}</div>
         <div class="beta-shop-actions">
           <button type="button" data-beta-shop-action="refresh" ${credits < refreshCost ? "disabled" : ""}>刷新商店（${refreshCost} 学分）</button>
@@ -7676,8 +9133,9 @@
     return true;
   }
 
-  function onMonsterDamaged(enemy, amount) {
+  function onMonsterDamaged(enemy, amount, source = {}) {
     if (!enemy || amount <= 0) return;
+    addEnemyStagger(enemy, amount, source);
     if (hasEnemyMechanic(enemy, "taylorTripleDash") && (enemy.taylorRestTimer || 0) > 0) {
       applyEnemySlow(0.86, 2.4);
       enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.25);
@@ -7767,11 +9225,18 @@
     button.addEventListener("click", () => beginMonsterChallenge(button.dataset.challengeCount));
   });
   ui.challengeBack?.addEventListener("click", () => enterMap("当前状态：已返回地图，可以重新选择教室。"));
-  ui.acceptWeapon?.addEventListener("click", () => toggleRewardWeaponSelection());
-  ui.skipWeapon?.addEventListener("click", () => toggleRewardBuffSelection(0));
-  ui.secondBuffReward?.addEventListener("click", () => toggleRewardBuffSelection(1));
+  ui.passiveOptions?.forEach((button, index) => {
+    button?.addEventListener("click", () => selectPassiveChoice(index));
+  });
+  ui.confirmPassive?.addEventListener("click", () => resolvePassiveChoice(true));
+  ui.skipPassive?.addEventListener("click", () => resolvePassiveChoice(false));
+  ui.acceptWeapon?.addEventListener("click", () => toggleRewardOptionSelection(0));
+  ui.skipWeapon?.addEventListener("click", () => toggleRewardOptionSelection(1));
+  ui.secondBuffReward?.addEventListener("click", () => toggleRewardOptionSelection(2));
+  ui.thirdReward?.addEventListener("click", () => toggleRewardOptionSelection(3));
   ui.confirmReward?.addEventListener("click", () => resolveRewardChoice("selection"));
   ui.backToMap.addEventListener("click", () => {
+    if (game.pendingPassiveChoice) resolvePassiveChoice(false);
     if (game.pendingWeaponChoice) resolveRewardChoice("none");
     enterMap("当前状态：奖励已整理，可以继续选择房间或挑战 Boss。");
   });
@@ -7955,6 +9420,22 @@
       updateHud();
       return this.state();
     },
+    grantPassiveForVerify(id, level = 1) {
+      grantChallengePassive(game.player, id, level);
+      return this.state();
+    },
+    selectPendingPassiveForVerify(index = 0) {
+      selectPassiveChoice(Number(index) || 0);
+      return this.state();
+    },
+    confirmPendingPassiveForVerify() {
+      resolvePassiveChoice(true);
+      return this.state();
+    },
+    skipPendingPassiveForVerify() {
+      resolvePassiveChoice(false);
+      return this.state();
+    },
     tickPassiveForVerify(seconds) {
       updatePassiveShield(Number(seconds) || 0);
       updateHud();
@@ -7984,11 +9465,21 @@
       return this.state();
     },
     togglePendingWeaponForVerify() {
-      toggleRewardWeaponSelection();
+      toggleRewardOptionSelection(0);
+      return this.state();
+    },
+    togglePendingWeaponByIndexForVerify(index = 0) {
+      const targetIndex = Math.max(0, Math.round(Number(index) || 0));
+      const slotIndex = rewardOptionSlots(game.pendingWeaponChoice)
+        .findIndex((slot) => slot.type === "weapon" && slot.index === targetIndex);
+      if (slotIndex >= 0) toggleRewardOptionSelection(slotIndex);
       return this.state();
     },
     togglePendingBuffForVerify(index = 0) {
-      toggleRewardBuffSelection(Number(index) || 0);
+      const targetIndex = Math.max(0, Math.round(Number(index) || 0));
+      const slotIndex = rewardOptionSlots(game.pendingWeaponChoice)
+        .findIndex((slot) => slot.type === "buff" && slot.index === targetIndex);
+      if (slotIndex >= 0) toggleRewardOptionSelection(slotIndex);
       return this.state();
     },
     confirmPendingRewardForVerify() {
@@ -8120,6 +9611,19 @@
         state: this.state(),
       };
     },
+    setBossCounterWindowForVerify(id, seconds = 1) {
+      const core = game.boss?.cores.find((item) => item.id === id);
+      if (core) {
+        core.counterWindowTimer = Math.max(0, Number(seconds) || 0);
+      }
+      return this.state();
+    },
+    setBossPressureForVerify(value) {
+      if (game.boss) {
+        game.boss.pressure = clamp(Number(value) || 0, 0, game.boss.maxPressure || 2.6);
+      }
+      return this.state();
+    },
     bossKindMultiplierForVerify(kind, id) {
       const core = game.boss?.cores.find((item) => item.id === id);
       if (!core) return 0;
@@ -8135,9 +9639,15 @@
         weaponsFound: game.weaponsFound,
         usedNonSwordWeapon: game.usedNonSwordWeapon,
         completed: { ...game.completed },
+        roomChallengeCounts: { ...game.roomChallengeCounts },
         randomRooms: { ...game.randomRooms },
         hp: game.player?.hp,
         maxHp: game.player?.maxHp,
+        buffs: game.player?.buffs ? [...game.player.buffs] : null,
+        passives: game.player?.passives ? game.player.passives.map((passive) => ({ ...passive })) : null,
+        weapons: game.player?.weapons ? game.player.weapons.map((weapon) => ({ ...weapon })) : null,
+        weapon: game.player?.weapon ? { ...game.player.weapon } : null,
+        weaponIndex: game.player?.weaponIndex,
       };
       const completedKeys = new Set(options.completedKeys || []);
       completedRoomKeys.forEach((key) => {
@@ -8148,21 +9658,62 @@
         const type = randomRoomTypes[key];
         game.randomRooms[key] = type ? { type } : null;
       });
+      game.roomChallengeCounts = {};
+      const challengeCounts = options.challengeCounts || {};
+      completedRoomKeys.forEach((key) => {
+        if (!game.completed[key] || completedRoomType(key) !== "combat") return;
+        const rawCount = challengeCounts[key] ?? options.challengeCount;
+        if (rawCount != null) {
+          game.roomChallengeCounts[key] = clamp(Math.round(Number(rawCount) || 1), 1, 3);
+        }
+      });
       game.kills = Math.max(0, Math.round(Number(options.kills ?? game.kills)));
       game.weaponsFound = Math.max(1, Math.round(Number(options.weaponsFound ?? game.weaponsFound)));
       game.usedNonSwordWeapon = Boolean(options.usedNonSwordWeapon);
       const player = game.player || { hp: 100, maxHp: 100 };
       player.maxHp = Math.max(1, Math.round(Number(options.maxHp ?? player.maxHp ?? 100)));
       player.hp = clamp(Number(options.hp ?? player.hp ?? player.maxHp), 0, player.maxHp);
+      if (Array.isArray(options.buffs)) {
+        player.buffs = options.buffs.filter(Boolean).map((name) => String(name));
+      }
+      if (options.passives) {
+        player.passives = Array.isArray(options.passives)
+          ? options.passives
+            .map((passive) => ({
+              id: String(passive.id || passive),
+              level: Math.max(1, Math.round(Number(passive.level || 1))),
+            }))
+            .filter((passive) => passive.id)
+          : Object.entries(options.passives)
+            .map(([id, level]) => ({
+              id,
+              level: Math.max(1, Math.round(Number(level || 1))),
+            }))
+            .filter((passive) => passive.id);
+      }
+      if (Array.isArray(options.weaponLevels)) {
+        player.weapons = options.weaponLevels.map((level, index) => ({
+          id: index === 0 ? "sword" : `verify-${index}`,
+          level: Math.max(1, Math.round(Number(level || 1))),
+        }));
+        player.weaponIndex = 0;
+        player.weapon = player.weapons[0];
+      }
       const score = calculateClearScore(Math.max(1, Math.round(Number(options.seconds || 1))), player);
       game.kills = previous.kills;
       game.weaponsFound = previous.weaponsFound;
       game.usedNonSwordWeapon = previous.usedNonSwordWeapon;
       game.completed = previous.completed;
+      game.roomChallengeCounts = previous.roomChallengeCounts;
       game.randomRooms = previous.randomRooms;
       if (game.player) {
         game.player.hp = previous.hp;
         game.player.maxHp = previous.maxHp;
+        if (previous.buffs) game.player.buffs = previous.buffs;
+        if (previous.passives) game.player.passives = previous.passives;
+        if (previous.weapons) game.player.weapons = previous.weapons;
+        game.player.weaponIndex = previous.weaponIndex;
+        game.player.weapon = game.player.weapons?.[game.player.weaponIndex] || previous.weapon || game.player.weapon;
       }
       return score;
     },
@@ -8221,6 +9772,10 @@
       weaponSealSourceId: game.player?.weaponSealSourceId || "",
       enemySlowTimer: game.player?.enemySlowTimer || 0,
       cauchyDotTimer: game.player?.cauchyDotTimer || 0,
+      swordFocusTimer: game.player?.swordFocusTimer || 0,
+      swordFocusFlash: game.player?.swordFocusFlash || 0,
+      tacticalFocusTimer: game.player?.tacticalFocusTimer || 0,
+      tacticalFocusFlash: game.player?.tacticalFocusFlash || 0,
       gpaGuardUsed: Boolean(game.player?.gpaGuardUsed),
       weapon: game.player?.weapon ? displayWeaponName(game.player.weapon) : "",
       currentWeaponId: game.player?.weapon?.id || "",
@@ -8231,11 +9786,15 @@
       weaponIndex: game.player?.weaponIndex || 0,
       ammo: game.player?.weapon ? ammoLabel(game.player.weapon) : "",
       weaponLevel: game.player?.weapon?.level || 0,
+      currentWeaponTraits: game.player?.weapon ? weaponTraitLabels(game.player.weapon) : [],
       weaponDamage: game.player?.weapon ? game.player.weapon.damage : 0,
       effectiveWeaponDamage: game.player?.weapon ? game.player.weapon.damage * playerDamageBuffMultiplier(game.player) : 0,
       damageBuffMultiplier: game.player ? playerDamageBuffMultiplier(game.player) : 1,
       incomingDamageMultiplier: game.player ? incomingDamageMultiplier(game.player) : 1,
       attackCooldownMultiplier: game.player ? playerAttackCooldownMultiplier(game.player) : 1,
+      staggerGainMultiplier: game.player ? buffStaggerMultiplier(game.player) * weaponStaggerMultiplier(game.player.weapon?.id) : 1,
+      tacticalFocusDamageMultiplier: game.player ? tacticalFocusDamageMultiplier(game.player) : 1,
+      bossCounterSuppressionMultiplier: game.player ? bossCounterSuppressionMultiplier(game.player) : 1,
       weaponCooldown: game.player?.weapon ? game.player.weapon.cooldown * playerAttackCooldownMultiplier(game.player) : 0,
       effectiveReloadTime: game.player?.weapon ? weaponReloadTime(game.player.weapon, game.player) : 0,
       chickenBuffReady: Boolean(game.player && hasBuff(game.player, "鸡煲") && game.elapsed >= chickenHotpotDelayMs),
@@ -8246,20 +9805,44 @@
       bossDamageScale,
       weapons: game.player?.weapons.map((weapon) => displayWeaponName(weapon)) || [],
       weaponIds: game.player?.weapons.map((weapon) => weapon.id) || [],
+      weaponLevels: Object.fromEntries((game.player?.weapons || []).map((weapon) => [weapon.id, weapon.level || 1])),
       buffs: game.player?.buffs ? [...game.player.buffs] : [],
+      buffCounts: buffRewardIds.reduce((counts, name) => {
+        counts[name] = game.player ? buffCount(game.player, name) : 0;
+        return counts;
+      }, {}),
+      passives: game.player?.passives ? game.player.passives.map((passive) => ({
+        id: passive.id,
+        name: challengePassiveMap[passive.id]?.name || passive.id,
+        level: passive.level || 1,
+      })) : [],
+      passiveLevels: Object.fromEntries(challengePassiveDefs.map((passive) => [passive.id, passiveLevel(game.player, passive.id)])),
       leaderboard: readLeaderboard(),
       funStats: readFunStats(),
       leaderboardBoards: Object.fromEntries(Object.entries(leaderboardRankings()).map(([kind, rows]) => [kind, rows.length])),
+      pendingPassiveChoice: Boolean(game.pendingPassiveChoice),
+      pendingPassiveLevel: Math.max(0, Math.round(Number(game.pendingPassiveChoice?.level || 0))),
+      pendingPassiveOptions: game.pendingPassiveChoice?.options?.map((id) => ({
+        id,
+        name: challengePassiveMap[id]?.name || id,
+      })) || [],
+      pendingSelectedPassiveIndex: Number.isInteger(game.pendingPassiveChoice?.selectedIndex) ? game.pendingPassiveChoice.selectedIndex : null,
       pendingWeaponChoice: Boolean(game.pendingWeaponChoice),
       pendingWeaponId: game.pendingWeaponChoice?.weaponId || "",
+      pendingWeaponIds: rewardChoiceWeaponIds(game.pendingWeaponChoice),
       pendingAltBuff: rewardChoiceBuffIds(game.pendingWeaponChoice)[0] || "",
       pendingBuffIds: rewardChoiceBuffIds(game.pendingWeaponChoice),
       pendingAllowWeaponBuff: Boolean(game.pendingWeaponChoice?.allowWeaponWithBuff),
+      pendingWeaponBonusLevels: Math.max(0, Math.round(Number(game.pendingWeaponChoice?.weaponBonusLevels || 0))),
+      pendingBuffBonusLevels: Math.max(0, Math.round(Number(game.pendingWeaponChoice?.buffBonusLevels || 0))),
       pendingSelectedWeapon: game.pendingWeaponChoice ? rewardSelection(game.pendingWeaponChoice).weapon : false,
+      pendingSelectedWeaponIndex: game.pendingWeaponChoice ? rewardSelection(game.pendingWeaponChoice).weaponIndex : null,
+      pendingSelectedWeaponId: game.pendingWeaponChoice ? rewardSelection(game.pendingWeaponChoice).weaponId : "",
       pendingSelectedBuffIndex: game.pendingWeaponChoice ? rewardSelection(game.pendingWeaponChoice).buffIndex : null,
       pendingSelectedBuffIndexes: game.pendingWeaponChoice ? rewardSelection(game.pendingWeaponChoice).buffIndexes : [],
       pendingCanConfirmReward: game.pendingWeaponChoice ? Boolean(rewardSelection(game.pendingWeaponChoice).weapon || rewardSelection(game.pendingWeaponChoice).buffIndexes.length) : false,
       pendingWeaponName: game.pendingWeaponChoice?.weaponId ? weaponChoiceName(game.pendingWeaponChoice.weaponId) : "",
+      pendingWeaponNames: rewardChoiceWeaponIds(game.pendingWeaponChoice).map(weaponChoiceName),
       pendingLeaderboardEntry: Boolean(game.pendingLeaderboardEntry),
       leaderboardNameFormHidden: Boolean(ui.leaderboardNameForm?.hidden),
       usedNonSwordWeapon: game.usedNonSwordWeapon,
@@ -8267,9 +9850,17 @@
       swordOnlyRun: game.player ? isSwordOnlyRun() : false,
       kills: game.kills,
       completed: { ...game.completed },
+      roomChallengeCounts: { ...game.roomChallengeCounts },
       randomRooms: { ...game.randomRooms },
       pendingChallenge: Boolean(game.pendingChallenge),
       challengeCount: game.challengeCount,
+      roomModifierId: game.roomModifier?.id || "",
+      roomModifierName: game.roomModifier?.name || "",
+      encounterPressure: Number((game.encounter?.pressure || 0).toFixed(3)),
+      encounterMaxPressure: Number((game.encounter?.maxPressure || 0).toFixed(3)),
+      encounterAttacksFired: game.encounter?.attacksFired || 0,
+      encounterAttacksDelayed: game.encounter?.attacksDelayed || 0,
+      encounterStaggers: game.encounter?.staggers || 0,
       defeatedInRoom: game.defeatedInRoom,
       monsterClearDelay: game.monsterClearDelay || 0,
       enemyCount: game.enemies.length,
@@ -8279,6 +9870,8 @@
         kind: enemy.kind,
         pattern: enemy.pattern,
         mechanics: [...(enemy.mechanics || [])],
+        roles: [...(enemy.roles || [])],
+        rewardWeapon: enemy.rewardWeapon || "",
         splitChild: Boolean(enemy.splitChild),
         randomDrift: Boolean(enemy.randomDrift),
         fireEvery: Number((enemy.fireEvery || 0).toFixed(3)),
@@ -8289,6 +9882,10 @@
         dashIntervalMultiplier: enemy.dashIntervalMultiplier || 1,
         hp: Math.max(0, Math.ceil(enemy.hp)),
         maxHp: Math.max(1, Math.ceil(enemy.maxHp || enemy.hp || 1)),
+        stagger: Math.max(0, Number((enemy.stagger || 0).toFixed(2))),
+        staggerMax: Math.max(0, Number((enemy.staggerMax || 0).toFixed(2))),
+        staggerTimer: Number((enemy.staggerTimer || 0).toFixed(3)),
+        counterWindowTimer: Number((enemy.counterWindowTimer || 0).toFixed(3)),
         lhopitalInvincibleTimer: enemy.lhopitalInvincibleTimer || 0,
         lhopitalRestTimer: enemy.lhopitalRestTimer || 0,
         lhopitalSlashRemaining: enemy.lhopitalSlashRemaining || 0,
@@ -8369,8 +9966,18 @@
       bossFrontCoreIds: game.boss ? bossFrontCoreIds(game.boss) : [],
       bossInvulnerableCoreIds: game.boss ? game.boss.cores.filter((core) => core.hp > 0 && !isBossCoreFront(core, game.boss)).map((core) => core.id) : [],
       bossActiveCoreCount: game.boss ? bossActiveCores(game.boss).length : 0,
+      bossPressure: Number((game.boss?.pressure || 0).toFixed(3)),
+      bossMaxPressure: Number((game.boss?.maxPressure || 0).toFixed(3)),
+      bossAttackCount: game.boss?.attackCount || 0,
+      bossAttackDelayCount: game.boss?.attackDelayCount || 0,
+      bossLastAttackCoreId: game.boss?.lastAttackCoreId || "",
+      bossCounterWindowHits: game.boss?.counterWindowHits || 0,
+      bossLastCounterCoreId: game.boss?.lastCounterCoreId || "",
+      bossCounterWindowCoreIds: game.boss ? game.boss.cores.filter((core) => core.hp > 0 && (core.counterWindowTimer || 0) > 0).map((core) => core.id) : [],
       bossObstacleBoomCount: game.boss?.obstacleBoomCount || 0,
       bossDirect: Boolean(game.boss?.direct),
+      bossPreparationLabel: bossPreparationStatus().label,
+      bossPreparationDetail: bossPreparationStatus().detail,
       bossIntroActive: isBossIntroActive(),
       bossIntroElapsed: game.boss?.intro?.elapsed || 0,
       enemyShotPatterns: game.enemyShots.map((shot) => shot.pattern || "straight"),

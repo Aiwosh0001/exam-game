@@ -26,7 +26,7 @@ GAME_CONFIG = {
         "swordCooldown": 0.5,
         "enemyHp": 60,
         "enemyBulletDamage": 10,
-        "bossCoreHp": 300,
+        "bossCoreHp": 240,
         "eliteWeaponMultiplier": 1.25,
     },
 }

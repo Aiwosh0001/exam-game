@@ -148,6 +148,18 @@ async function chooseChallenge(cdp, count) {
   if (state.mode !== "combat" || state.challengeCount !== count || state.enemyCount !== count) {
     throw new Error(`Challenge ${count} did not start correctly`);
   }
+  if (!state.roomModifierId || !state.roomModifierName) {
+    throw new Error(`Monster challenge should apply a room modifier: ${JSON.stringify(state)}`);
+  }
+  if (state.enemyMechanics.some((enemy) => !Array.isArray(enemy.roles) || !enemy.roles.length)) {
+    throw new Error(`Challenge enemies should export role tags: ${JSON.stringify(state.enemyMechanics)}`);
+  }
+  if (state.encounterMaxPressure <= 0) {
+    throw new Error(`Monster challenge should create an encounter director: ${JSON.stringify(state)}`);
+  }
+  if (state.enemyMechanics.some((enemy) => enemy.staggerMax <= 0)) {
+    throw new Error(`Challenge enemies should expose stagger thresholds: ${JSON.stringify(state.enemyMechanics)}`);
+  }
   return state;
 }
 
@@ -171,67 +183,26 @@ async function resolvePendingWeapon(cdp, accept = true) {
   return after;
 }
 
-async function confirmPendingRewardSelection(cdp, { weapon = false, buffIndex = null, buffIndexes = null } = {}) {
-  const before = await evaluate(cdp, "window.__examGame.state()");
-  if (!before.pendingWeaponChoice) {
-    throw new Error(`Expected a pending reward selection: ${JSON.stringify(before)}`);
-  }
-  const expectedBuffIndexes = Array.isArray(buffIndexes)
-    ? buffIndexes
-    : Number.isInteger(buffIndex)
-      ? [buffIndex]
-      : [];
-  if (weapon) {
-    await evaluate(cdp, "document.getElementById('acceptWeaponBtn').click()");
-    await wait(40);
-  }
-  for (const index of expectedBuffIndexes) {
-    const buttonId = index === 0 ? "skipWeaponBtn" : "secondBuffRewardBtn";
-    await evaluate(cdp, `document.getElementById('${buttonId}').click()`);
-    await wait(40);
-  }
-  const selected = await evaluate(cdp, `({
-    ...window.__examGame.state(),
-    confirmHidden: document.getElementById('confirmRewardBtn').hidden,
-    confirmDisabled: document.getElementById('confirmRewardBtn').disabled,
-    weaponSelectedClass: document.getElementById('acceptWeaponBtn').classList.contains('selected'),
-    firstBuffSelectedClass: document.getElementById('skipWeaponBtn').classList.contains('selected'),
-    secondBuffSelectedClass: document.getElementById('secondBuffRewardBtn').classList.contains('selected')
-  })`);
-  const actualBuffIndexes = selected.pendingSelectedBuffIndexes || (Number.isInteger(selected.pendingSelectedBuffIndex) ? [selected.pendingSelectedBuffIndex] : []);
-  const sameBuffIndexes = JSON.stringify(actualBuffIndexes) === JSON.stringify(expectedBuffIndexes);
-  if (
-    selected.confirmHidden ||
-    selected.confirmDisabled ||
-    selected.pendingSelectedWeapon !== weapon ||
-    !sameBuffIndexes ||
-    selected.weaponSelectedClass !== weapon ||
-    selected.firstBuffSelectedClass !== expectedBuffIndexes.includes(0) ||
-    selected.secondBuffSelectedClass !== expectedBuffIndexes.includes(1)
-  ) {
-    throw new Error(`Pending reward selection did not match before confirm: ${JSON.stringify(selected)}`);
-  }
-  await evaluate(cdp, "document.getElementById('confirmRewardBtn').click()");
-  await wait(80);
-  const after = await evaluate(cdp, "window.__examGame.state()");
-  if (after.pendingWeaponChoice) {
-    throw new Error("Pending reward selection did not resolve after confirmation");
-  }
-  return { before, selected, after };
+function rewardButtonId(slotIndex) {
+  return ["acceptWeaponBtn", "skipWeaponBtn", "secondBuffRewardBtn", "thirdRewardBtn"][slotIndex] || "thirdRewardBtn";
 }
 
-async function chooseSinglePendingBuff(cdp, index) {
+function countItems(items, id) {
+  return items.filter((item) => item === id).length;
+}
+
+async function choosePendingWeaponByIndex(cdp, index) {
   const before = await evaluate(cdp, "window.__examGame.state()");
-  if (!before.pendingWeaponChoice || before.pendingBuffIds.length < index + 1) {
-    throw new Error(`Expected a pending reward with selectable buffs: ${JSON.stringify(before)}`);
+  if (!before.pendingWeaponChoice || before.pendingWeaponIds.length < index + 1) {
+    throw new Error(`Expected a pending reward with selectable weapons: ${JSON.stringify(before)}`);
   }
-  const buttonId = index === 0 ? "skipWeaponBtn" : "secondBuffRewardBtn";
+  const buttonId = rewardButtonId(index);
   const buttonState = await evaluate(cdp, `({
     hidden: document.getElementById('${buttonId}').hidden,
     text: document.getElementById('${buttonId}').textContent
   })`);
-  if (buttonState.hidden || !buttonState.text.includes(before.pendingBuffIds[index])) {
-    throw new Error(`Single-buff reward button was not visible for index ${index}: ${JSON.stringify({ buttonState, before })}`);
+  if (buttonState.hidden || !buttonState.text.includes(before.pendingWeaponNames[index])) {
+    throw new Error(`Weapon reward button was not visible for index ${index}: ${JSON.stringify({ buttonState, before })}`);
   }
   await evaluate(cdp, `document.getElementById('${buttonId}').click()`);
   await wait(40);
@@ -240,15 +211,114 @@ async function chooseSinglePendingBuff(cdp, index) {
     confirmHidden: document.getElementById('confirmRewardBtn').hidden,
     confirmDisabled: document.getElementById('confirmRewardBtn').disabled
   })`);
-  const selectedBuffIndexes = selected.pendingSelectedBuffIndexes || (Number.isInteger(selected.pendingSelectedBuffIndex) ? [selected.pendingSelectedBuffIndex] : []);
-  if (selected.pendingSelectedWeapon || JSON.stringify(selectedBuffIndexes) !== JSON.stringify([index]) || selected.confirmHidden || selected.confirmDisabled) {
-    throw new Error(`Single-buff reward was not selected correctly before confirm: ${JSON.stringify(selected)}`);
+  if (
+    !selected.pendingSelectedWeapon ||
+    selected.pendingSelectedWeaponIndex !== index ||
+    selected.pendingSelectedWeaponId !== before.pendingWeaponIds[index] ||
+    selected.pendingSelectedBuffIndexes.length ||
+    selected.confirmHidden ||
+    selected.confirmDisabled
+  ) {
+    throw new Error(`Weapon reward was not selected correctly before confirm: ${JSON.stringify(selected)}`);
   }
   await evaluate(cdp, "document.getElementById('confirmRewardBtn').click()");
   await wait(80);
   const after = await evaluate(cdp, "window.__examGame.state()");
   if (after.pendingWeaponChoice) {
-    throw new Error("Pending single-buff reward choice did not resolve after confirmation");
+    throw new Error("Pending weapon reward choice did not resolve after confirmation");
+  }
+  return { before, after };
+}
+
+async function choosePendingBuffByIndex(cdp, index) {
+  const before = await evaluate(cdp, "window.__examGame.state()");
+  if (!before.pendingWeaponChoice || before.pendingBuffIds.length < index + 1) {
+    throw new Error(`Expected a pending reward with selectable buffs: ${JSON.stringify(before)}`);
+  }
+  const slotIndex = before.pendingWeaponIds.length + index;
+  const buttonId = rewardButtonId(slotIndex);
+  const buttonState = await evaluate(cdp, `({
+    hidden: document.getElementById('${buttonId}').hidden,
+    text: document.getElementById('${buttonId}').textContent
+  })`);
+  if (buttonState.hidden || !buttonState.text.includes(before.pendingBuffIds[index])) {
+    throw new Error(`Buff reward button was not visible for index ${index}: ${JSON.stringify({ buttonState, before })}`);
+  }
+  await evaluate(cdp, `document.getElementById('${buttonId}').click()`);
+  await wait(40);
+  const selected = await evaluate(cdp, `({
+    ...window.__examGame.state(),
+    confirmHidden: document.getElementById('confirmRewardBtn').hidden,
+    confirmDisabled: document.getElementById('confirmRewardBtn').disabled
+  })`);
+  const selectedBuffIndexes = selected.pendingSelectedBuffIndexes || [];
+  if (
+    selected.pendingSelectedWeapon ||
+    JSON.stringify(selectedBuffIndexes) !== JSON.stringify([index]) ||
+    selected.confirmHidden ||
+    selected.confirmDisabled
+  ) {
+    throw new Error(`Buff reward was not selected correctly before confirm: ${JSON.stringify(selected)}`);
+  }
+  await evaluate(cdp, "document.getElementById('confirmRewardBtn').click()");
+  await wait(80);
+  const after = await evaluate(cdp, "window.__examGame.state()");
+  if (after.pendingWeaponChoice) {
+    throw new Error("Pending buff reward choice did not resolve after confirmation");
+  }
+  return { before, after };
+}
+
+async function choosePendingPassive(cdp, index = 0) {
+  const before = await evaluate(cdp, "window.__examGame.state()");
+  if (!before.pendingPassiveChoice || before.pendingPassiveOptions.length !== 3) {
+    throw new Error(`Expected a pending passive choice with three options: ${JSON.stringify(before)}`);
+  }
+  const buttonId = ["passiveOptionA", "passiveOptionB", "passiveOptionC"][index] || "passiveOptionA";
+  const initialUi = await evaluate(cdp, `({
+    passiveHidden: document.getElementById('passiveChoice').hidden,
+    weaponHidden: document.getElementById('weaponChoice').hidden,
+    backHidden: document.getElementById('backToMapBtn').hidden,
+    confirmDisabled: document.getElementById('confirmPassiveBtn').disabled,
+    optionText: document.getElementById('${buttonId}').textContent
+  })`);
+  if (initialUi.passiveHidden || !initialUi.weaponHidden || !initialUi.backHidden || !initialUi.confirmDisabled || !initialUi.optionText.includes(before.pendingPassiveOptions[index].name)) {
+    throw new Error(`Passive choice UI should block normal rewards before selection: ${JSON.stringify({ initialUi, before })}`);
+  }
+  await evaluate(cdp, `document.getElementById('${buttonId}').click()`);
+  await wait(40);
+  const selected = await evaluate(cdp, `({
+    ...window.__examGame.state(),
+    confirmDisabled: document.getElementById('confirmPassiveBtn').disabled,
+    selectedClass: document.getElementById('${buttonId}').classList.contains('selected')
+  })`);
+  if (selected.pendingSelectedPassiveIndex !== index || selected.confirmDisabled || !selected.selectedClass) {
+    throw new Error(`Passive option was not selected correctly: ${JSON.stringify(selected)}`);
+  }
+  await evaluate(cdp, "document.getElementById('confirmPassiveBtn').click()");
+  await wait(80);
+  const after = await evaluate(cdp, "window.__examGame.state()");
+  const afterUi = await evaluate(cdp, `({
+    passiveHidden: document.getElementById('passiveChoice').hidden,
+    weaponHidden: document.getElementById('weaponChoice').hidden,
+    backHidden: document.getElementById('backToMapBtn').hidden
+  })`);
+  if (after.pendingPassiveChoice || !afterUi.passiveHidden || afterUi.weaponHidden || afterUi.backHidden) {
+    throw new Error(`Passive confirmation should reveal normal rewards: ${JSON.stringify({ after, afterUi })}`);
+  }
+  return { before, after };
+}
+
+async function skipPendingPassive(cdp) {
+  const before = await evaluate(cdp, "window.__examGame.state()");
+  if (!before.pendingPassiveChoice) {
+    throw new Error(`Expected a pending passive choice to skip: ${JSON.stringify(before)}`);
+  }
+  await evaluate(cdp, "document.getElementById('skipPassiveBtn').click()");
+  await wait(80);
+  const after = await evaluate(cdp, "window.__examGame.state()");
+  if (after.pendingPassiveChoice) {
+    throw new Error("Pending passive choice did not resolve after skipping");
   }
   return { before, after };
 }
@@ -310,7 +380,7 @@ async function main() {
     });
     await cdp.send("Page.navigate", { url: `http://127.0.0.1:${port}/` });
     await wait(600);
-    await evaluate(cdp, "localStorage.removeItem('examGameLeaderboardV1'); localStorage.removeItem('examGameLeaderboardCombatTimeV1')");
+    await evaluate(cdp, "localStorage.removeItem('examGameLeaderboardV1'); localStorage.removeItem('examGameLeaderboardCombatTimeV1'); localStorage.removeItem('examGameLeaderboardCombatTimeV2')");
 
     const title = await evaluate(cdp, "document.title");
     const hasGame = await evaluate(cdp, "Boolean(window.__examGame)");
@@ -322,9 +392,11 @@ async function main() {
 
     const menuWeaponInfoState = await evaluate(cdp, `({
       hasHomepageButton: Boolean(document.getElementById('weaponStatsBtn')),
-      helpHidden: document.getElementById('ingameHelpBtn').hidden
+      helpHidden: document.getElementById('ingameHelpBtn').hidden,
+      guideExists: Boolean(document.getElementById('guideToast')),
+      guideHidden: document.getElementById('guideToast')?.hidden ?? false
     })`);
-    if (menuWeaponInfoState.hasHomepageButton || !menuWeaponInfoState.helpHidden) {
+    if (menuWeaponInfoState.hasHomepageButton || !menuWeaponInfoState.helpHidden || !menuWeaponInfoState.guideExists || !menuWeaponInfoState.guideHidden) {
       throw new Error(`Weapon info should move from homepage to hidden in-game help button: ${JSON.stringify(menuWeaponInfoState)}`);
     }
 
@@ -476,7 +548,7 @@ async function main() {
     if (betaRandomBlockedState.credits !== 1 || betaRandomBlockedState.randomRooms.chest || betaRandomBlockedState.mode !== "map") {
       throw new Error(`Beta random room should stay closed when credits are insufficient: ${JSON.stringify(betaRandomBlockedState)}`);
     }
-    await evaluate(cdp, "window.__examGame.startVersion('beta'); window.__examGame.setCreditsForVerify(3); window.__examGame.setPlayerHp(40); window.__examGame.startBossRoom()");
+    await evaluate(cdp, "window.__examGame.startVersion('beta'); window.__examGame.setCreditsForVerify(9); window.__examGame.setPlayerHp(40); window.__examGame.startBossRoom()");
     await wait(120);
     const betaShopOpenState = await evaluate(cdp, `({
       ...window.__examGame.state(),
@@ -512,18 +584,22 @@ async function main() {
     }
     const betaShopRefreshOne = await evaluate(cdp, "window.__examGame.refreshBetaShopForVerify()");
     if (
-      betaShopRefreshOne.credits !== 2 ||
-      betaShopRefreshOne.betaBossShopRefreshCost !== 2 ||
+      betaShopRefreshOne.credits !== 8 ||
+      betaShopRefreshOne.betaBossShopRefreshCost !== 3 ||
       betaShopRefreshOne.betaBossShopStock.some((item) => item.purchased)
     ) {
       throw new Error(`First beta shop refresh should cost one credit and reset stock: ${JSON.stringify(betaShopRefreshOne)}`);
     }
     const betaShopRefreshTwo = await evaluate(cdp, "window.__examGame.refreshBetaShopForVerify()");
-    if (betaShopRefreshTwo.credits !== 0 || betaShopRefreshTwo.betaBossShopRefreshCost !== 3) {
-      throw new Error(`Second beta shop refresh should cost two credits and raise the next price: ${JSON.stringify(betaShopRefreshTwo)}`);
+    if (betaShopRefreshTwo.credits !== 5 || betaShopRefreshTwo.betaBossShopRefreshCost !== 5) {
+      throw new Error(`Second beta shop refresh should cost three credits and raise the next price to five: ${JSON.stringify(betaShopRefreshTwo)}`);
+    }
+    const betaShopRefreshThree = await evaluate(cdp, "window.__examGame.refreshBetaShopForVerify()");
+    if (betaShopRefreshThree.credits !== 0 || betaShopRefreshThree.betaBossShopRefreshCost !== 5) {
+      throw new Error(`Third beta shop refresh should cost five credits and keep the next price capped at five: ${JSON.stringify(betaShopRefreshThree)}`);
     }
     const betaShopRefreshBlocked = await evaluate(cdp, "window.__examGame.refreshBetaShopForVerify()");
-    if (betaShopRefreshBlocked.credits !== 0 || betaShopRefreshBlocked.betaBossShopRefreshCost !== 3 || !betaShopRefreshBlocked.betaBossShopMessage.includes("学分不足")) {
+    if (betaShopRefreshBlocked.credits !== 0 || betaShopRefreshBlocked.betaBossShopRefreshCost !== 5 || !betaShopRefreshBlocked.betaBossShopMessage.includes("学分不足")) {
       throw new Error(`Beta shop refresh should be blocked when credits are insufficient: ${JSON.stringify(betaShopRefreshBlocked)}`);
     }
     const betaBossFromShopState = await evaluate(cdp, "window.__examGame.startBossFromShopForVerify()");
@@ -547,6 +623,22 @@ async function main() {
     const hasRoomMap = await evaluate(cdp, "Boolean(document.querySelector('.straight-map'))");
     if (!hasRoomMap) {
       throw new Error("Straight corridor map did not render");
+    }
+    const routeHintState = await evaluate(cdp, `({
+      tags: Array.from(document.querySelectorAll('.door-tag')).map((item) => item.textContent.trim()),
+      bossPrep: document.getElementById('bossDoorPrep')?.textContent || '',
+      challengeTexts: Array.from(document.querySelectorAll('.challenge-card span')).map((item) => item.textContent.trim())
+    })`);
+    if (
+      !routeHintState.tags.some((text) => text.includes("连续输出")) ||
+      !routeHintState.tags.some((text) => text.includes("近战")) ||
+      !routeHintState.tags.some((text) => text.includes("爆发")) ||
+      !routeHintState.tags.filter((text) => text.includes("未知事件")).length ||
+      !routeHintState.bossPrep.includes("裸考") ||
+      !routeHintState.challengeTexts.some((text) => text.includes("被动")) ||
+      !routeHintState.challengeTexts.some((text) => text.includes("+1 装备"))
+    ) {
+      throw new Error(`Corridor route hints did not render correctly: ${JSON.stringify(routeHintState)}`);
     }
     const mapShot = await screenshot(cdp, "corridor.png");
 
@@ -591,7 +683,10 @@ async function main() {
       "determinantLaser",
     ];
     const fullBalanceScores = fullWeaponIds.map((id) => weaponBalance[id]?.balanceScore || 0);
-    if (Math.max(...fullBalanceScores) > 65 || Math.min(...fullBalanceScores) < 19) {
+    const nonSwordBalanceScores = fullWeaponIds
+      .filter((id) => id !== "sword")
+      .map((id) => weaponBalance[id]?.balanceScore || 0);
+    if (Math.max(...nonSwordBalanceScores) > 65 || Math.min(...nonSwordBalanceScores) < 60 || Math.max(...fullBalanceScores) > 90 || Math.min(...fullBalanceScores) < 60) {
       throw new Error(`Weapon balance scores drifted too far: ${JSON.stringify(weaponBalance)}`);
     }
     await evaluate(cdp, "document.querySelector('[data-weapon-info-page=\"1\"]').click()");
@@ -635,9 +730,9 @@ async function main() {
     }
     if (
       directBossSwordState.bossCoreMaxHp.some((hp) => hp !== 240) ||
-      directBossSwordState.bossCoreShield.some((shield) => shield !== 58)
+      directBossSwordState.bossCoreShield.some((shield) => shield !== 54)
     ) {
-      throw new Error(`Direct boss HP/shield should be tuned down to 240/58: ${JSON.stringify(directBossSwordState)}`);
+      throw new Error(`Direct boss HP/shield should be tuned down to 240/54: ${JSON.stringify(directBossSwordState)}`);
     }
     if (Math.abs(directBossSwordState.hp - 70) > 0.001) {
       throw new Error(`Entering a room should restore 50% of missing HP: ${JSON.stringify({ hp: directBossSwordState.hp })}`);
@@ -661,6 +756,9 @@ async function main() {
     if (Math.abs(coffeeStackState.movementSpeedMultiplier - 2.25) > 0.001) {
       throw new Error(`Duplicate coffee should stack multiplicatively: ${JSON.stringify(coffeeStackState)}`);
     }
+    if (coffeeStackState.tacticalFocusDamageMultiplier <= coffeeState.tacticalFocusDamageMultiplier) {
+      throw new Error(`Coffee should also lengthen and sharpen tactical focus windows: ${JSON.stringify({ coffeeState, coffeeStackState })}`);
+    }
     const beforeFormulaState = await evaluate(cdp, "window.__examGame.state()");
     const formulaState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('公式大全')");
     if (
@@ -674,6 +772,9 @@ async function main() {
     if (Math.abs(formulaStackState.attackCooldownMultiplier - (1 / (1.2 ** 2))) > 0.001) {
       throw new Error(`Duplicate formula compendium should stack multiplicatively: ${JSON.stringify(formulaStackState)}`);
     }
+    if (formulaStackState.staggerGainMultiplier <= beforeFormulaState.staggerGainMultiplier) {
+      throw new Error(`Formula compendium should improve stagger gain as a side synergy: ${JSON.stringify({ beforeFormulaState, formulaStackState })}`);
+    }
     const noteState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('学霸笔记')");
     if (Math.abs(noteState.damageBuffMultiplier - 1.2) > 0.001 || Math.abs(noteState.effectiveWeaponDamage - noteState.weaponDamage * 1.2) > 0.001) {
       throw new Error(`Academic notes should raise outgoing damage by 20%: ${JSON.stringify(noteState)}`);
@@ -681,6 +782,9 @@ async function main() {
     const noteStackState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('学霸笔记')");
     if (Math.abs(noteStackState.damageBuffMultiplier - (1.2 ** 2)) > 0.001 || Math.abs(noteStackState.effectiveWeaponDamage - noteStackState.weaponDamage * (1.2 ** 2)) > 0.001) {
       throw new Error(`Duplicate academic notes should stack multiplicatively: ${JSON.stringify(noteStackState)}`);
+    }
+    if (noteStackState.bossCounterSuppressionMultiplier <= noteState.bossCounterSuppressionMultiplier) {
+      throw new Error(`Academic notes should strengthen boss-counter suppression as a side synergy: ${JSON.stringify({ noteState, noteStackState })}`);
     }
     await evaluate(cdp, "window.__examGame.grantBuffForVerify('草稿纸'); window.__examGame.grantBuffForVerify('草稿纸'); window.__examGame.addWeaponForVerify('matrixRpg')");
     const draftPaperReload = await evaluate(cdp, "window.__examGame.drainCurrentWeapon()");
@@ -849,6 +953,20 @@ async function main() {
           randomRoomTypes: { chest: 'chest', randomB: 'monster', randomC: 'chest' },
           usedNonSwordWeapon: true
         }),
+        fullChallengePrep: window.__examGame.scoreForVerify({
+          seconds: 260,
+          hp: 100,
+          maxHp: 100,
+          kills: 18,
+          weaponsFound: 6,
+          weaponLevels: [1, 2, 2, 1, 1, 1],
+          completedKeys: allRooms,
+          randomRoomTypes: { chest: 'chest', randomB: 'monster', randomC: 'chest' },
+          challengeCounts: { monster: 3, geometry: 3, linear: 3, randomB: 3 },
+          buffs: ['buff-a', 'buff-b', 'buff-c'],
+          passives: { damage: 2, guard: 2, reload: 2, dash: 2 },
+          usedNonSwordWeapon: true
+        }),
         slowFullPrep: window.__examGame.scoreForVerify({
           seconds: 520,
           hp: 100,
@@ -907,6 +1025,16 @@ async function main() {
     if (scoreBalance.fastFullPrep.score <= scoreBalance.slowFullPrep.score || scoreBalance.slowFullPrep.overtimePenalty <= 0) {
       throw new Error(`Time pressure is not strong enough in the scoring model: ${JSON.stringify(scoreBalance)}`);
     }
+    if (
+      scoreBalance.fullChallengePrep.score <= scoreBalance.fastFullPrep.score ||
+      scoreBalance.fullChallengePrep.challengeScore <= scoreBalance.fastFullPrep.challengeScore ||
+      scoreBalance.fullChallengePrep.buildScore <= scoreBalance.fastFullPrep.buildScore ||
+      scoreBalance.fullChallengePrep.buffScore <= 0 ||
+      scoreBalance.fullChallengePrep.passiveScore <= 0 ||
+      scoreBalance.fullChallengePrep.weaponUpgradeScore <= 0
+    ) {
+      throw new Error(`High-risk rooms and build rewards should contribute to score: ${JSON.stringify(scoreBalance)}`);
+    }
     if (scoreBalance.treasurePrep.score >= scoreBalance.fastFullPrep.score || scoreBalance.treasurePrep.roomScore >= scoreBalance.fastFullPrep.roomScore) {
       throw new Error(`Treasure rooms should not outscore combat prep after combat-only timing: ${JSON.stringify(scoreBalance)}`);
     }
@@ -964,10 +1092,10 @@ async function main() {
       throw new Error(`Chest buff pool is incomplete: ${JSON.stringify(initialDropModel)}`);
     }
     if (
-      JSON.stringify(initialDropModel.randomRewardFamilies.sort()) !== JSON.stringify(["functionGun", "matrixRpg", "polarShotgun"].sort()) ||
+      JSON.stringify(initialDropModel.randomRewardFamilies.sort()) !== JSON.stringify(["determinantLaser", "functionGun", "polarShotgun"].sort()) ||
       initialDropModel.randomFamilyEntryCounts.functionGun !== 1 ||
       initialDropModel.randomFamilyEntryCounts.polarShotgun !== 1 ||
-      initialDropModel.randomFamilyEntryCounts.matrixRpg !== 1
+      initialDropModel.randomFamilyEntryCounts.determinantLaser !== 1
     ) {
       throw new Error(`Random monster rooms should mirror the three knowledge classrooms: ${JSON.stringify(initialDropModel)}`);
     }
@@ -1096,6 +1224,13 @@ async function main() {
     if (calculusFightState.activeRoomKey !== "monster") {
       throw new Error("Calculus challenge did not start correctly");
     }
+    const combatGuideState = await evaluate(cdp, `({
+      hidden: document.getElementById('guideToast').hidden,
+      text: document.getElementById('guideToast').textContent
+    })`);
+    if (combatGuideState.hidden || !combatGuideState.text.includes("空格闪避")) {
+      throw new Error(`Combat should show a lightweight guide toast on first classroom entry: ${JSON.stringify(combatGuideState)}`);
+    }
     if (calculusFightState.enemyMechanics.some((enemy) => enemy.kind !== "calculus")) {
       throw new Error(`Calculus room should only spawn calculus enemies: ${JSON.stringify(calculusFightState.enemyMechanics)}`);
     }
@@ -1106,6 +1241,10 @@ async function main() {
     const lagrangeParent = calculusFightState.enemyMechanics.find((enemy) => enemy.mechanics.includes("splitOnDeath"));
     if (!lagrangeParent) {
       throw new Error(`Calculus room should include a Lagrange split enemy: ${JSON.stringify(calculusFightState.enemyMechanics)}`);
+    }
+    const calculusExpectedDrops = calculusFightState.enemyMechanics.map((enemy) => enemy.rewardWeapon);
+    if (calculusExpectedDrops.length !== 2 || calculusExpectedDrops.some((id) => !id)) {
+      throw new Error(`Calculus enemies should each expose a reward weapon: ${JSON.stringify(calculusFightState.enemyMechanics)}`);
     }
     const lagrangeSplitPreview = await evaluate(cdp, "window.__examGame.previewSplitEnemyForVerify(0)");
     const expectedLagrangeChildFireEvery = Number(lagrangeParent.fireEvery.toFixed(3));
@@ -1128,17 +1267,35 @@ async function main() {
     await evaluate(cdp, "window.__examGame.completeActiveRoom()");
     await wait(150);
     const calculusPromptState = await evaluate(cdp, "window.__examGame.state()");
-    if (!calculusPromptState.completed.monster || !calculusPromptState.pendingWeaponChoice || !calculusPromptState.pendingAllowWeaponBuff) {
+    if (
+      !calculusPromptState.completed.monster ||
+      !calculusPromptState.pendingPassiveChoice ||
+      calculusPromptState.pendingPassiveLevel !== 1 ||
+      calculusPromptState.pendingPassiveOptions.length !== 3 ||
+      !calculusPromptState.pendingWeaponChoice ||
+      calculusPromptState.pendingAllowWeaponBuff ||
+      calculusPromptState.pendingBuffIds.length !== 1 ||
+      calculusPromptState.pendingWeaponBonusLevels !== 0 ||
+      calculusPromptState.pendingBuffBonusLevels !== 0 ||
+      JSON.stringify(calculusPromptState.pendingWeaponIds) !== JSON.stringify(calculusExpectedDrops)
+    ) {
       throw new Error("Calculus room did not complete correctly");
+    }
+    const calculusPassive = await choosePendingPassive(cdp, 0);
+    const calculusPassiveId = calculusPassive.before.pendingPassiveOptions[0].id;
+    if (calculusPassive.after.passiveLevels[calculusPassiveId] !== (calculusPassive.before.passiveLevels[calculusPassiveId] || 0) + 1) {
+      throw new Error(`Two-person passive choice should grant a level 1 passive: ${JSON.stringify(calculusPassive)}`);
     }
     const calculusClearState = await resolvePendingWeapon(cdp, true);
     if (calculusClearState.challengeCount !== 2 || calculusClearState.defeatedInRoom !== 2 || calculusClearState.weaponLevel < 2) {
       throw new Error("Duplicate weapon reward did not strengthen the existing weapon");
     }
+    if (!calculusClearState.currentWeaponTraits.length || !calculusClearState.currentWeaponTraits.includes("破防强化")) {
+      throw new Error(`Duplicate weapon rewards should expose upgrade traits: ${JSON.stringify(calculusClearState.currentWeaponTraits)}`);
+    }
     await evaluate(cdp, "document.getElementById('backToMapBtn').click()");
     await wait(100);
 
-    const geometryBeforeState = await evaluate(cdp, "window.__examGame.state()");
     await evaluate(cdp, "window.__examGame.startMonsterRoom('geometry')");
     await wait(200);
     const geometryEntryState = await evaluate(cdp, "window.__examGame.state()");
@@ -1156,36 +1313,50 @@ async function main() {
     if (new Set(geometryEnemyNames).size !== geometryEnemyNames.length) {
       throw new Error(`Geometry room should not duplicate enemy names: ${JSON.stringify(geometryFightState.enemyMechanics)}`);
     }
+    const geometryExpectedDrops = geometryFightState.enemyMechanics.map((enemy) => enemy.rewardWeapon);
+    if (geometryExpectedDrops.length !== 3 || geometryExpectedDrops.some((id) => !id)) {
+      throw new Error(`Geometry enemies should each expose a reward weapon: ${JSON.stringify(geometryFightState.enemyMechanics)}`);
+    }
     await evaluate(cdp, "window.__examGame.completeActiveRoom()");
     await wait(150);
     const geometryPromptState = await evaluate(cdp, "window.__examGame.state()");
-    if (!geometryPromptState.completed.geometry || !geometryPromptState.pendingWeaponChoice || !geometryPromptState.pendingAllowWeaponBuff) {
+    if (
+      !geometryPromptState.completed.geometry ||
+      !geometryPromptState.pendingPassiveChoice ||
+      geometryPromptState.pendingPassiveLevel !== 2 ||
+      geometryPromptState.pendingPassiveOptions.length !== 3 ||
+      !geometryPromptState.pendingWeaponChoice ||
+      geometryPromptState.pendingAllowWeaponBuff ||
+      geometryPromptState.pendingBuffIds.length !== 1 ||
+      geometryPromptState.pendingWeaponBonusLevels !== 1 ||
+      geometryPromptState.pendingBuffBonusLevels !== 1 ||
+      JSON.stringify(geometryPromptState.pendingWeaponIds) !== JSON.stringify(geometryExpectedDrops)
+    ) {
       throw new Error("Geometry room did not complete correctly");
     }
-    const geometryRewardText = await evaluate(cdp, "document.getElementById('clearText').textContent");
-    if (!geometryRewardText.includes("增益A") || !geometryRewardText.includes("增益B") || geometryRewardText.includes("一个增益")) {
-      throw new Error(`Three-person reward text should describe both buff choices: ${geometryRewardText}`);
+    const geometryPassiveText = await evaluate(cdp, "document.getElementById('clearText').textContent");
+    if (geometryPassiveText !== "请从下方选择一项作为奖励。") {
+      throw new Error(`Three-person passive text should use the compact choice prompt: ${geometryPassiveText}`);
     }
-    const geometrySelection = await confirmPendingRewardSelection(cdp, { weapon: true, buffIndexes: [0, 1] });
+    const geometryPassive = await choosePendingPassive(cdp, 1);
+    const geometryRewardText = await evaluate(cdp, "document.getElementById('clearText').textContent");
+    if (geometryRewardText !== "请从下方选择一项作为奖励。") {
+      throw new Error(`Three-person reward text should use the compact choice prompt after passive selection: ${geometryRewardText}`);
+    }
+    const geometryPassiveId = geometryPassive.before.pendingPassiveOptions[1].id;
+    if (geometryPassive.after.passiveLevels[geometryPassiveId] !== (geometryPassive.before.passiveLevels[geometryPassiveId] || 0) + 2) {
+      throw new Error(`Three-person passive choice should grant a level 2 passive: ${JSON.stringify(geometryPassive)}`);
+    }
+    const geometrySelection = await choosePendingBuffByIndex(cdp, 0);
     const geometryClearState = geometrySelection.after;
+    const geometrySelectedBuff = geometrySelection.before.pendingBuffIds[0];
     if (
       geometryClearState.challengeCount !== 3 ||
       geometryClearState.defeatedInRoom !== 3 ||
-      geometryClearState.buffs.length !== geometrySelection.before.buffs.length + 2 ||
-      !geometryClearState.buffs.includes(geometrySelection.before.pendingBuffIds[0]) ||
-      !geometryClearState.buffs.includes(geometrySelection.before.pendingBuffIds[1])
+      geometryClearState.weapons.length !== geometrySelection.before.weapons.length ||
+      countItems(geometryClearState.buffs, geometrySelectedBuff) !== countItems(geometrySelection.before.buffs, geometrySelectedBuff) + 2
     ) {
-      throw new Error("Three-person challenge did not grant the selected weapon plus both selected buffs");
-    }
-    const hadGeometryWeapon = geometryBeforeState.weaponIds.includes("polarShotgun");
-    const expectedGeometryWeaponCount = geometryBeforeState.weapons.length + (hadGeometryWeapon ? 0 : 1);
-    const expectedGeometryWeaponLevel = hadGeometryWeapon ? 2 : 1;
-    if (
-      geometryClearState.currentWeaponId !== "polarShotgun" ||
-      geometryClearState.weapons.length !== expectedGeometryWeaponCount ||
-      geometryClearState.weaponLevel !== expectedGeometryWeaponLevel
-    ) {
-      throw new Error(`Three-person challenge should grant one normal weapon or one duplicate upgrade: ${JSON.stringify({ geometryBeforeState, geometryClearState })}`);
+      throw new Error("Three-person challenge should grant the selected +1 buff as two stacks and no weapon");
     }
     await evaluate(cdp, "document.getElementById('backToMapBtn').click()");
     await wait(100);
@@ -1207,19 +1378,44 @@ async function main() {
     if (new Set(linearEnemyNames).size !== linearEnemyNames.length) {
       throw new Error(`Linear room should not duplicate enemy names: ${JSON.stringify(linearFightState.enemyMechanics)}`);
     }
+    const linearExpectedDrops = linearFightState.enemyMechanics.map((enemy) => enemy.rewardWeapon);
+    if (linearExpectedDrops.length !== 3 || linearExpectedDrops.some((id) => !id)) {
+      throw new Error(`Linear enemies should each expose a reward weapon: ${JSON.stringify(linearFightState.enemyMechanics)}`);
+    }
     await evaluate(cdp, "window.__examGame.completeActiveRoom()");
     await wait(150);
     const linearPromptState = await evaluate(cdp, "window.__examGame.state()");
-    if (!linearPromptState.completed.linear || !linearPromptState.pendingWeaponChoice || !linearPromptState.pendingAllowWeaponBuff || linearPromptState.pendingBuffIds.length !== 2) {
+    if (
+      !linearPromptState.completed.linear ||
+      !linearPromptState.pendingPassiveChoice ||
+      linearPromptState.pendingPassiveLevel !== 2 ||
+      linearPromptState.pendingPassiveOptions.length !== 3 ||
+      !linearPromptState.pendingWeaponChoice ||
+      linearPromptState.pendingAllowWeaponBuff ||
+      linearPromptState.pendingBuffIds.length !== 1 ||
+      linearPromptState.pendingWeaponBonusLevels !== 1 ||
+      linearPromptState.pendingBuffBonusLevels !== 1 ||
+      JSON.stringify(linearPromptState.pendingWeaponIds) !== JSON.stringify(linearExpectedDrops)
+    ) {
       throw new Error("Linear room did not complete correctly");
     }
-    const singleBuffChoice = await chooseSinglePendingBuff(cdp, 1);
+    const skippedLinearPassive = await skipPendingPassive(cdp);
+    if (skippedLinearPassive.after.passives.length !== skippedLinearPassive.before.passives.length) {
+      throw new Error(`Skipping passive should not add passive entries: ${JSON.stringify(skippedLinearPassive)}`);
+    }
+    const preferredLinearWeaponIndex = linearPromptState.pendingWeaponIds.findIndex((id) => !linearPromptState.weaponIds.includes(id));
+    const singleBuffChoice = await choosePendingWeaponByIndex(cdp, preferredLinearWeaponIndex >= 0 ? preferredLinearWeaponIndex : 2);
+    const linearChosenWeapon = singleBuffChoice.before.pendingWeaponIds[preferredLinearWeaponIndex >= 0 ? preferredLinearWeaponIndex : 2];
+    const linearHadWeapon = singleBuffChoice.before.weaponIds.includes(linearChosenWeapon);
+    const beforeLinearLevel = singleBuffChoice.before.weaponLevels[linearChosenWeapon] || 0;
+    const expectedLinearLevel = linearHadWeapon ? Math.min(beforeLinearLevel + 2, 6) : 2;
     if (
-      singleBuffChoice.after.weapons.length !== singleBuffChoice.before.weapons.length ||
-      singleBuffChoice.after.buffs.length !== singleBuffChoice.before.buffs.length + 1 ||
-      !singleBuffChoice.after.buffs.includes(singleBuffChoice.before.pendingBuffIds[1])
+      singleBuffChoice.after.weapons.length !== singleBuffChoice.before.weapons.length + (linearHadWeapon ? 0 : 1) ||
+      singleBuffChoice.after.buffs.length !== singleBuffChoice.before.buffs.length ||
+      !singleBuffChoice.after.weaponIds.includes(linearChosenWeapon) ||
+      singleBuffChoice.after.weaponLevels[linearChosenWeapon] !== expectedLinearLevel
     ) {
-      throw new Error(`Choosing one of two buffs should grant exactly that buff and no weapon: ${JSON.stringify(singleBuffChoice)}`);
+      throw new Error(`Choosing one of three weapon drops should grant exactly that weapon and no buff: ${JSON.stringify(singleBuffChoice)}`);
     }
     await evaluate(cdp, "document.getElementById('backToMapBtn').click()");
     await wait(100);
@@ -1247,7 +1443,7 @@ async function main() {
     }
 
     await evaluate(cdp, "window.__examGame.startBossRoom()");
-    await wait(1150);
+    await wait(1300);
     const bossIntroState = await evaluate(cdp, "window.__examGame.state()");
     if (!bossIntroState.bossIntroActive || bossIntroState.bossIntroElapsed < 1) {
       const introErrors = cdp.events
@@ -1266,9 +1462,9 @@ async function main() {
     }
     if (
       bossState.bossCoreMaxHp.some((hp) => hp !== 240) ||
-      bossState.bossCoreShield.some((shield) => shield < 48 || shield % 48 !== 0)
+      bossState.bossCoreShield.some((shield) => shield < 44 || shield % 44 !== 0)
     ) {
-      throw new Error(`Boss HP/shield should use 240 HP and 48-point shield layers: ${JSON.stringify(bossState)}`);
+      throw new Error(`Boss HP/shield should use 240 HP and 44-point shield layers: ${JSON.stringify(bossState)}`);
     }
     const swordBossMultipliers = await evaluate(cdp, `Object.fromEntries(
       ['cauchy', 'descartes', 'gauss'].map((id) => [id, window.__examGame.bossKindMultiplierForVerify('sword', id)])
@@ -1290,6 +1486,9 @@ async function main() {
     }
     if (bossState.bossMoveT <= 0 || Math.abs(bossState.bossMoveOffset) < 4) {
       throw new Error("Boss triangular movement did not start");
+    }
+    if (bossState.bossMaxPressure <= 0 || bossState.bossAttackCount <= 0) {
+      throw new Error(`Boss pressure director should initialize and count live attacks: ${JSON.stringify(bossState)}`);
     }
     if (bossState.bossDomainCycleSeconds !== 20) {
       throw new Error(`Boss domain cycle should be 20 seconds: ${JSON.stringify(bossState)}`);
@@ -1353,7 +1552,7 @@ async function main() {
       gaussDomainState.bossGaussZoneBaseCount !== 4 ||
       gaussDomainState.bossGaussZoneMaxCount !== 7 ||
       gaussDomainState.bossGaussZoneDebuffDuration !== 5 ||
-      gaussDomainState.bossCauchyExplosionBulletCount !== 10
+      gaussDomainState.bossCauchyExplosionBulletCount !== 9
     ) {
       throw new Error(`Boss document constants should match the latest design: ${JSON.stringify(gaussDomainState)}`);
     }
@@ -1361,17 +1560,17 @@ async function main() {
     if (
       !gaussRevealHit.bossRevealedCoreIds.includes("gauss") ||
       gaussRevealHit.bossInvisibleCoreIds.includes("gauss") ||
-      gaussRevealHit.bossCoreRevealTimers[2] <= 1.8
+      gaussRevealHit.bossCoreRevealTimers[2] <= 2.5
     ) {
-      throw new Error(`Hitting an invisible boss core should reveal it for two seconds: ${JSON.stringify(gaussRevealHit)}`);
+      throw new Error(`Hitting an invisible boss core should reveal it for nearly three seconds: ${JSON.stringify(gaussRevealHit)}`);
     }
-    await wait(2200);
+    await wait(3100);
     const gaussRehiddenState = await evaluate(cdp, "window.__examGame.state()");
     if (
       gaussRehiddenState.bossRevealedCoreIds.includes("gauss") ||
       !gaussRehiddenState.bossInvisibleCoreIds.includes("gauss")
     ) {
-      throw new Error(`Revealed boss core should return to invisibility after two seconds: ${JSON.stringify(gaussRehiddenState)}`);
+      throw new Error(`Revealed boss core should return to invisibility after the reveal window: ${JSON.stringify(gaussRehiddenState)}`);
     }
     await evaluate(cdp, "window.__examGame.forceBossMechanic('gauss')");
     await wait(80);
@@ -1443,6 +1642,15 @@ async function main() {
     }
     const trackingCoreId = cauchySwordHit.state.bossFrontCoreIds.includes("descartes") ? "descartes" : cauchySwordHit.state.bossFrontCoreIds[0];
     const trackingWeapon = trackingCoreId === "gauss" ? "matrixRpg" : trackingCoreId === "descartes" ? "coordinateBlade" : "functionGun";
+    const counterSetupState = await evaluate(cdp, `window.__examGame.setBossPressureForVerify(1.6); window.__examGame.setBossCounterWindowForVerify('${trackingCoreId}', 1)`);
+    const bossCounterHit = await evaluate(cdp, `window.__examGame.damageBossCoreForVerify('${trackingCoreId}', 20, '${trackingWeapon}')`);
+    if (
+      bossCounterHit.state.bossCounterWindowHits <= counterSetupState.bossCounterWindowHits ||
+      bossCounterHit.state.bossLastCounterCoreId !== trackingCoreId ||
+      bossCounterHit.state.bossPressure >= counterSetupState.bossPressure
+    ) {
+      throw new Error(`Boss counter-window hits should suppress the pressure director: ${JSON.stringify({ counterSetupState, bossCounterHit })}`);
+    }
     await evaluate(cdp, `window.__examGame.damageBossCoreForVerify('${trackingCoreId}', 30, '${trackingWeapon}')`);
     const bossDamageTrackState = await evaluate(cdp, `window.__examGame.damageBossCoreForVerify('${trackingCoreId}', 80, 'sword').state`);
     if (

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>今天你挂科了吗？</title>
-    <link rel="stylesheet" href="/static/css/styles.css?v=20260605-ingame-help">
+    <link rel="stylesheet" href="/static/css/styles.css?v=20260606-reward-plus">
   </head>
   <body>
     <main class="game-shell" aria-label="今天你挂科了吗基础版">
@@ -39,6 +39,7 @@
         <span>B 背包</span>
         <span>Esc 暂停</span>
       </section>
+      <section id="guideToast" class="guide-toast" hidden aria-live="polite"></section>
 
       <button id="ingameHelpBtn" class="ingame-help-button" type="button" title="武器与增益" aria-label="打开武器与增益说明" hidden>?</button>
 
@@ -87,42 +88,49 @@
             <span class="door-copy">
               <strong>?</strong>
               <small>三位一体</small>
+              <small id="bossDoorPrep" class="door-tag">准备度</small>
             </span>
           </button>
 
           <button id="geometryRoomBtn" class="door-card corridor-room side-room left-room row-1 subject-room geometry-room" type="button">
             <span class="door-copy">
               <strong>欧氏几何</strong>
+              <small class="door-tag">近战 / 防守</small>
             </span>
           </button>
 
           <button id="monsterRoomBtn" class="door-card corridor-room side-room left-room row-2 subject-room calculus-room" type="button">
             <span class="door-copy">
               <strong>微积分</strong>
+              <small class="door-tag">连续输出</small>
             </span>
           </button>
 
           <button id="linearRoomBtn" class="door-card corridor-room side-room left-room row-3 subject-room linear-room" type="button">
             <span class="door-copy">
               <strong>线性代数</strong>
+              <small class="door-tag">爆发 / 穿透</small>
             </span>
           </button>
 
           <button id="randomRoomBBtn" class="door-card corridor-room side-room right-room row-1 random-room" type="button" aria-label="随机教室 B">
             <span class="door-copy">
               <strong>?</strong>
+              <small class="door-tag">未知事件</small>
             </span>
           </button>
 
           <button id="randomRoomCBtn" class="door-card corridor-room side-room right-room row-2 random-room" type="button" aria-label="随机教室 C">
             <span class="door-copy">
               <strong>?</strong>
+              <small class="door-tag">未知事件</small>
             </span>
           </button>
 
           <button id="chestRoomBtn" class="door-card corridor-room side-room right-room row-3 random-room" type="button" aria-label="随机教室 A">
             <span class="door-copy">
               <strong>?</strong>
+              <small class="door-tag">未知事件</small>
             </span>
           </button>
 
@@ -138,6 +146,19 @@
         <p class="eyebrow" id="clearEyebrow">房间完成</p>
         <h2 id="clearTitle">奖励已获得</h2>
         <p id="clearText">你获得了新的武器。</p>
+        <div id="passiveChoice" class="passive-choice" hidden>
+          <strong id="passiveChoiceName">挑战被动</strong>
+          <p id="passiveChoiceText" class="passive-choice-description">选择一项额外提升。</p>
+          <div class="passive-choice-grid">
+            <button id="passiveOptionA" class="passive-card" type="button"></button>
+            <button id="passiveOptionB" class="passive-card" type="button"></button>
+            <button id="passiveOptionC" class="passive-card" type="button"></button>
+          </div>
+          <div class="passive-choice-actions">
+            <button id="confirmPassiveBtn" class="primary-action" type="button">确认</button>
+            <button id="skipPassiveBtn" type="button">离开</button>
+          </div>
+        </div>
         <div id="weaponChoice" class="weapon-choice" hidden>
           <strong id="weaponChoiceName">发现武器</strong>
           <p id="weaponChoiceBuffText" class="weapon-choice-description"></p>
@@ -145,7 +166,8 @@
             <button id="acceptWeaponBtn" type="button">加入背包</button>
             <button id="skipWeaponBtn" type="button">不加入</button>
             <button id="secondBuffRewardBtn" type="button">选择增益</button>
-            <button id="confirmRewardBtn" type="button">确认领取</button>
+            <button id="thirdRewardBtn" type="button">选择奖励</button>
+            <button id="confirmRewardBtn" type="button">确认</button>
           </div>
         </div>
         <button id="backToMapBtn" class="primary-action" type="button">确认离开</button>
@@ -159,15 +181,15 @@
           <div class="challenge-options" aria-label="挑战人数">
             <button class="challenge-card" type="button" data-challenge-count="1">
               <strong>挑战 1 人</strong>
-              <span>低风险：正常版武器</span>
+              <span>低风险：获得 1 件对应装备，也可以放弃奖励。</span>
             </button>
             <button class="challenge-card" type="button" data-challenge-count="2">
               <strong>挑战 2 人</strong>
-              <span>中风险：正常版武器 + 1 个增益</span>
+              <span>中风险：先选 Lv.1 被动，再从 2 件装备和 1 个增益中选一项。</span>
             </button>
             <button class="challenge-card high-risk" type="button" data-challenge-count="3">
               <strong>挑战 3 人</strong>
-              <span>高风险：正常版武器 + 2 个增益</span>
+              <span>高风险：先选 Lv.2 被动，再从 3 件 +1 装备和 1 个 +1 增益中选一项。</span>
             </button>
           </div>
           <button id="challengeBackBtn" type="button">返回地图</button>
@@ -230,9 +252,9 @@
     </script>
     <script src="/static/js/core/constants.js?v=20260605-boss-large-arena"></script>
     <script src="/static/js/utils/math.js?v=20260603-modules"></script>
-    <script src="/static/js/data/weapons.js?v=20260603-modules"></script>
-    <script src="/static/js/data/buffs.js?v=20260605-buff-stacking"></script>
-    <script src="/static/js/data/enemies.js?v=20260604-doc9-mechanics"></script>
-    <script src="/static/js/game.js?v=20260605-ingame-help"></script>
+    <script src="/static/js/data/weapons.js?v=20260605-combat-flow"></script>
+    <script src="/static/js/data/buffs.js?v=20260605-combat-flow"></script>
+    <script src="/static/js/data/enemies.js?v=20260605-monster-overhaul"></script>
+    <script src="/static/js/game.js?v=20260606-reward-plus"></script>
   </body>
 </html>

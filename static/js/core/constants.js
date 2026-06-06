@@ -11,8 +11,8 @@
     line: "rgba(255,255,255,0.16)",
   };
 
-  const leaderboardScoreVersion = "combat-time-v1";
-  const leaderboardStorageKey = "examGameLeaderboardCombatTimeV1";
+  const leaderboardScoreVersion = "combat-time-v2";
+  const leaderboardStorageKey = "examGameLeaderboardCombatTimeV2";
   const leaderboardLimit = 10;
   const defaultLeaderboardName = "考生";
   const randomRoomMonsterChance = 1 / 3;
@@ -29,20 +29,21 @@
   const cauchyDotDps = 2.2;
   const cauchyDomainWallCount = 5;
   const cauchyHighlightEvery = 4;
-  const cauchyExplosionBulletCount = 10;
+  const cauchyExplosionBulletCount = 9;
   const cauchyFullPowerWallCount = 7;
   const cauchyFullPowerCycle = 7;
   const bossProjectionHp = 20;
+  const bossProjectionLimit = 4;
   const gaussZoneBaseCount = 4;
   const gaussZoneResetCount = 3;
   const gaussZoneMaxCount = 7;
   const gaussZoneDuration = 7;
   const gaussZoneFireEvery = 2;
   const gaussZoneDebuffDuration = 5;
-  const bossCoreInvisibleDuration = 15;
-  const bossCoreRevealDuration = 2;
+  const bossCoreInvisibleDuration = 11;
+  const bossCoreRevealDuration = 2.8;
   const gaussFullPowerStealthEvery = 5;
-  const gaussFullPowerStealthDuration = 7;
+  const gaussFullPowerStealthDuration = 5.8;
   const descartesFullPowerSpawnEvery = 5;
   const descartesQuadrantProjectionLimit = 4;
   const descartesExitProjectionLimit = 4;
@@ -91,6 +92,7 @@
       cauchyFullPowerWallCount,
       cauchyFullPowerCycle,
       bossProjectionHp,
+      bossProjectionLimit,
       gaussZoneBaseCount,
       gaussZoneResetCount,
       gaussZoneMaxCount,
