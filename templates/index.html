@@ -23,6 +23,10 @@
           <span class="hud-label">剩余子弹</span>
           <strong id="hudAmmo">无限</strong>
         </div>
+        <div class="hud-group hud-item-group">
+          <span class="hud-label">局内道具</span>
+          <strong id="hudItem">无</strong>
+        </div>
         <button id="inventoryBtn" class="hud-inventory-button" type="button" title="按 B 打开背包">
           <span>背包</span>
           <kbd>B</kbd>
@@ -35,6 +39,7 @@
         <span>左键 攻击</span>
         <span>Space 冲刺</span>
         <span>R 换弹</span>
+        <span>F 道具</span>
         <span>1-9/Q 武器</span>
         <span>B 背包</span>
         <span>Esc 暂停</span>
@@ -67,10 +72,37 @@
             </button>
             <button id="versionBetaBtn" class="version-card beta-version" type="button">
               <strong>β</strong>
-              <span>测试服</span>
+              <span>实验分支</span>
             </button>
           </div>
           <button id="versionBackBtn" type="button">返回主菜单</button>
+        </div>
+      </section>
+
+      <section id="difficultySelectScreen" class="screen difficulty-select-screen" hidden>
+        <div class="version-select-panel difficulty-select-panel">
+          <p class="eyebrow">β 难度选择</p>
+          <h2>选择模拟强度</h2>
+          <p>难度越高，敌人的数值和机制越激进；同时高阶奖励、增益强化和随机房收益也会提高。</p>
+          <div class="difficulty-options" aria-label="β 难度">
+            <button class="difficulty-card" type="button" data-beta-difficulty="standard">
+              <strong>标准</strong>
+              <span>接近当前版本，适合熟悉 β 新事件。</span>
+            </button>
+            <button class="difficulty-card" type="button" data-beta-difficulty="pressure">
+              <strong>高压</strong>
+              <span>敌人更主动，奖励增益开始强化。</span>
+            </button>
+            <button class="difficulty-card" type="button" data-beta-difficulty="crisis">
+              <strong>危机</strong>
+              <span>精英与特殊房概率提高，收益更高。</span>
+            </button>
+            <button class="difficulty-card" type="button" data-beta-difficulty="final">
+              <strong>终局</strong>
+              <span>机制密度最高，适合挑战极限路线。</span>
+            </button>
+          </div>
+          <button id="difficultyBackBtn" type="button">返回版本选择</button>
         </div>
       </section>
 

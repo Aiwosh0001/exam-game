@@ -14,7 +14,7 @@ LEADERBOARD_PATH = BASE_DIR / "data" / "leaderboard.json"
 STATS_PATH = BASE_DIR / "data" / "stats.json"
 LEADERBOARD_LIMIT = 10
 DEFAULT_LEADERBOARD_NAME = "考生"
-LEADERBOARD_SCORE_VERSION = "combat-time-v1"
+LEADERBOARD_SCORE_VERSION = "combat-time-v2"
 
 GAME_CONFIG = {
     "title": "今天你挂科了吗？",
@@ -22,7 +22,7 @@ GAME_CONFIG = {
     "baseStats": {
         "hp": 100,
         "speed": 3.5,
-        "swordDamage": 15,
+        "swordDamage": 10,
         "swordCooldown": 0.5,
         "enemyHp": 60,
         "enemyBulletDamage": 10,
@@ -69,6 +69,14 @@ def normalize_leaderboard_entry(entry: object) -> dict | None:
         return None
     if score <= 0:
         return None
+    try:
+        raw_score = max(0, round(float(entry.get("rawScore", score))))
+    except (TypeError, ValueError):
+        raw_score = score
+    try:
+        difficulty_multiplier = max(1.0, round(float(entry.get("difficultyMultiplier", 1)), 2))
+    except (TypeError, ValueError):
+        difficulty_multiplier = 1.0
 
     def as_int(key: str, default: int) -> int:
         try:
@@ -86,6 +94,8 @@ def normalize_leaderboard_entry(entry: object) -> dict | None:
     weapon_ids = clean_text_list(entry.get("weaponIds"), 12)
     weapon_names = clean_text_list(entry.get("weaponNames"), 12)
     buffs = clean_text_list(entry.get("buffs"), 16)
+    difficulty_id = clean_text_list([entry.get("difficultyId")], 1)
+    difficulty_label = clean_text_list([entry.get("difficultyLabel")], 1)
 
     raw_route_type = str(entry.get("routeType") or "")
     route_type = raw_route_type if raw_route_type in {"direct", "prepared", "full"} else route_type_for_rooms(len(completed_rooms))
@@ -111,6 +121,10 @@ def normalize_leaderboard_entry(entry: object) -> dict | None:
         "id": str(entry.get("id") or f"{played_at}-{score}"),
         "name": sanitize_leaderboard_name(entry.get("name")),
         "score": score,
+        "rawScore": raw_score,
+        "difficultyId": difficulty_id[0] if difficulty_id else "alpha",
+        "difficultyLabel": difficulty_label[0] if difficulty_label else "",
+        "difficultyMultiplier": difficulty_multiplier,
         "seconds": max(1, as_int("seconds", 1)),
         "kills": as_int("kills", 0),
         "weaponsFound": max(1, as_int("weaponsFound", 1)),
@@ -159,6 +173,14 @@ def normalize_stats_entry(entry: object) -> dict | None:
             score = max(0, round(float(entry.get("score", 0))))
         except (TypeError, ValueError):
             score = 0
+        try:
+            raw_score = max(0, round(float(entry.get("rawScore", score))))
+        except (TypeError, ValueError):
+            raw_score = score
+        try:
+            difficulty_multiplier = max(1.0, round(float(entry.get("difficultyMultiplier", 1)), 2))
+        except (TypeError, ValueError):
+            difficulty_multiplier = 1.0
 
         completed_rooms = entry.get("completedRooms")
         if not isinstance(completed_rooms, list):
@@ -170,6 +192,8 @@ def normalize_stats_entry(entry: object) -> dict | None:
         weapon_ids = clean_text_list(entry.get("weaponIds"), 12)
         weapon_names = clean_text_list(entry.get("weaponNames"), 12)
         buffs = clean_text_list(entry.get("buffs"), 16)
+        difficulty_id = clean_text_list([entry.get("difficultyId")], 1)
+        difficulty_label = clean_text_list([entry.get("difficultyLabel")], 1)
 
         raw_route_type = str(entry.get("routeType") or "")
         route_type = raw_route_type if raw_route_type in {"direct", "prepared", "full"} else route_type_for_rooms(len(completed_rooms))
@@ -184,6 +208,10 @@ def normalize_stats_entry(entry: object) -> dict | None:
             "id": str(entry.get("id") or f"{played_at}-{score}"),
             "name": sanitize_leaderboard_name(entry.get("name")),
             "score": score,
+            "rawScore": raw_score,
+            "difficultyId": difficulty_id[0] if difficulty_id else "alpha",
+            "difficultyLabel": difficulty_label[0] if difficulty_label else "",
+            "difficultyMultiplier": difficulty_multiplier,
             "seconds": max(1, as_int("seconds", 1)),
             "kills": as_int("kills", 0),
             "weaponsFound": max(1, as_int("weaponsFound", 1)),

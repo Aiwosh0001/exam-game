@@ -5,6 +5,7 @@
   const screens = {
     menu: document.getElementById("mainMenu"),
     version: document.getElementById("versionSelectScreen"),
+    difficulty: document.getElementById("difficultySelectScreen"),
     map: document.getElementById("mapScreen"),
     clear: document.getElementById("roomClearScreen"),
     challenge: document.getElementById("challengeScreen"),
@@ -17,6 +18,7 @@
     hp: document.getElementById("hudHp"),
     weapon: document.getElementById("hudWeapon"),
     ammo: document.getElementById("hudAmmo"),
+    item: document.getElementById("hudItem"),
     inventory: document.getElementById("inventoryBtn"),
     hints: document.getElementById("controlHints"),
   };
@@ -27,6 +29,8 @@
     versionAlpha: document.getElementById("versionAlphaBtn"),
     versionBeta: document.getElementById("versionBetaBtn"),
     versionBack: document.getElementById("versionBackBtn"),
+    difficultyOptions: document.querySelectorAll("[data-beta-difficulty]"),
+    difficultyBack: document.getElementById("difficultyBackBtn"),
     ingameHelp: document.getElementById("ingameHelpBtn"),
     enemyCodex: document.getElementById("enemyCodexBtn"),
     funFacts: document.getElementById("funFactsBtn"),
@@ -236,9 +240,11 @@
   const lhopitalRestDuration = 3;
   const lhopitalEnragedRestDuration = 2;
   const taylorRestDuration = 4;
-  const archimedesDashWarning = 1.7;
-  const archimedesPlayerLockWarning = 1;
-  const archimedesWallDashLimit = 2;
+  const archimedesDashWarning = 0.74;
+  const archimedesDashInterval = 4;
+  const archimedesSquareVolleyCount = 12;
+  const euclidBlinkInterval = 3;
+  const euclidFreezeDuration = 0.7;
   const lhopitalSlashWarning = 0.42;
   const taylorDashWarning = 0.42;
   const jacobiBlinkWarning = 0.58;
@@ -253,6 +259,22 @@
   const staggerDuration = 1.05;
   const staggerDamageMultiplier = 1.28;
   const counterWindowStaggerMultiplier = 1.55;
+  const calculusChainInterval = 5.2;
+  const calculusChainGap = 0.28;
+  const geometryLinkInterval = 5.6;
+  const geometryLinkWarning = 0.95;
+  const geometryLinkActive = 1.45;
+  const geometryLinkDamage = 5.5;
+  const geometryLinkTick = 0.72;
+  const linearPivotInterval = 5.8;
+  const linearPivotGuardRadius = 270;
+  const linearPivotGuardMultiplier = 0.76;
+  const linearPivotGuardMultiplierTwo = 0.84;
+  const knowledgeSynergyPauseDuration = 1.15;
+  const finalEnemyPursuitInterval = 4.6;
+  const finalEnemyPursuitWarning = 0.82;
+  const finalEnemyRevengeWarning = 0.58;
+  const finalEnemyResolveWarning = 0.72;
   const bossPressureDecay = 1.18;
   const bossCounterWindowBase = 0.86;
   const bossCounterSuppressionBase = 0.62;
@@ -260,6 +282,129 @@
   const betaRandomRoomCost = 2;
   const betaShopItemHpCost = 30;
   const betaShopRefreshCosts = [1, 3, 5];
+  const betaItemLimit = 3;
+  const betaShopGuardTaxInitial = 3.2;
+  const betaShopGuardTaxReset = 4.0;
+  const betaShopGuardPressureInitial = 1.8;
+  const betaShopGuardPressureReset = 2.55;
+  const betaDifficultyDefs = [
+    {
+      id: "standard",
+      name: "标准",
+      label: "β 标准",
+      hpScale: 1,
+      damageScale: 1,
+      fireEveryScale: 1,
+      speedScale: 1,
+      pressureScale: 1,
+      bossHpScale: 1,
+      bossShieldScale: 1,
+      scoreMultiplier: 1,
+      mechanicLevel: 0,
+      rewardBuffBonus: 0,
+      oneRoomBuffChance: 0.15,
+      creditBonus: 0,
+      eliteChance: 0.12,
+      supplyChance: 0.14,
+      forgeChance: 0.1,
+      monsterChance: 0.24,
+    },
+    {
+      id: "pressure",
+      name: "高压",
+      label: "β 高压",
+      hpScale: 1.16,
+      damageScale: 1.1,
+      fireEveryScale: 0.9,
+      speedScale: 1.06,
+      pressureScale: 1.12,
+      bossHpScale: 1.08,
+      bossShieldScale: 1.06,
+      scoreMultiplier: 1.12,
+      mechanicLevel: 1,
+      rewardBuffBonus: 1,
+      oneRoomBuffChance: 0.35,
+      creditBonus: 1,
+      eliteChance: 0.17,
+      supplyChance: 0.15,
+      forgeChance: 0.12,
+      monsterChance: 0.24,
+    },
+    {
+      id: "crisis",
+      name: "危机",
+      label: "β 危机",
+      hpScale: 1.34,
+      damageScale: 1.22,
+      fireEveryScale: 0.8,
+      speedScale: 1.12,
+      pressureScale: 1.28,
+      bossHpScale: 1.18,
+      bossShieldScale: 1.12,
+      scoreMultiplier: 1.28,
+      mechanicLevel: 2,
+      rewardBuffBonus: 1,
+      oneRoomBuffChance: 0.55,
+      creditBonus: 2,
+      eliteChance: 0.22,
+      supplyChance: 0.16,
+      forgeChance: 0.14,
+      monsterChance: 0.23,
+    },
+    {
+      id: "final",
+      name: "终局",
+      label: "β 终局",
+      hpScale: 1.58,
+      damageScale: 1.34,
+      fireEveryScale: 0.72,
+      speedScale: 1.18,
+      pressureScale: 1.42,
+      bossHpScale: 1.3,
+      bossShieldScale: 1.2,
+      scoreMultiplier: 1.5,
+      mechanicLevel: 3,
+      rewardBuffBonus: 2,
+      oneRoomBuffChance: 0.8,
+      creditBonus: 3,
+      eliteChance: 0.28,
+      supplyChance: 0.17,
+      forgeChance: 0.16,
+      monsterChance: 0.22,
+    },
+  ];
+  const betaDifficultyMap = Object.fromEntries(betaDifficultyDefs.map((difficulty) => [difficulty.id, difficulty]));
+  const betaItemDefs = [
+    {
+      id: "firstAid",
+      name: "急救包",
+      icon: "HP",
+      type: "生存道具",
+      effect: "立刻回复 35% 已损失生命值，至少回复 18 点。",
+    },
+    {
+      id: "chalkSmoke",
+      name: "粉笔烟幕",
+      icon: "SMK",
+      type: "控场道具",
+      effect: "清除场上大部分敌方弹幕，并短暂破防普通敌人。",
+    },
+    {
+      id: "spareMagazine",
+      name: "备用弹匣",
+      icon: "AMM",
+      type: "输出道具",
+      effect: "当前武器立刻装填满弹，并获得短暂战术专注。",
+    },
+    {
+      id: "creditVoucher",
+      name: "学分券",
+      icon: "CR",
+      type: "经济道具",
+      effect: "立刻获得 2 学分；β 高难度会额外增加 1 学分。",
+    },
+  ];
+  const betaItemMap = Object.fromEntries(betaItemDefs.map((item) => [item.id, item]));
   const jordanSlashWarnDuration = 0.7;
   const jordanSlashRadiusScale = 2 / 3;
   const jordanSlashDamage = 14;
@@ -501,6 +646,7 @@
 
   const game = {
     versionChannel: "alpha",
+    betaDifficultyId: "standard",
     startedAt: 0,
     elapsed: 0,
     kills: 0,
@@ -532,10 +678,11 @@
     roomTitle: "",
     roomModifier: null,
     roomReward: null,
-    roomWeaponDrops: [],
+    roomRewardKinds: [],
     roomChallengeCounts: {},
     pendingChallenge: null,
     encounter: null,
+    knowledgeSynergy: null,
     challengeCount: 1,
     defeatedInRoom: 0,
     monsterClearDelay: 0,
@@ -564,6 +711,12 @@
     developerModeUsed: false,
     developerCustomMessage: "",
     credits: 0,
+    betaItems: [],
+    betaShopRaid: {
+      completed: false,
+      freeClaim: false,
+      refreshLocked: false,
+    },
     betaBossShop: {
       entered: false,
       stock: [],
@@ -793,6 +946,42 @@
     return game.versionChannel === "beta";
   }
 
+  function betaDifficulty() {
+    return betaDifficultyMap[game.betaDifficultyId] || betaDifficultyMap.standard;
+  }
+
+  function betaDifficultyValue(key, fallback = 1) {
+    return isBetaVersion() ? Number(betaDifficulty()?.[key] ?? fallback) : fallback;
+  }
+
+  function betaDifficultyMechanicLevel() {
+    return isBetaVersion() ? Math.max(0, Math.round(Number(betaDifficulty()?.mechanicLevel || 0))) : 0;
+  }
+
+  function isFinalBetaDifficulty() {
+    return isBetaVersion() && (game.betaDifficultyId || "standard") === "final";
+  }
+
+  function betaDifficultyLabel() {
+    return isBetaVersion() ? betaDifficulty()?.label || "β 标准" : "α 当前";
+  }
+
+  function betaRewardBuffBonus() {
+    return isBetaVersion() ? Math.max(0, Math.round(Number(betaDifficulty()?.rewardBuffBonus || 0))) : 0;
+  }
+
+  function betaCreditBonus() {
+    return isBetaVersion() ? Math.max(0, Math.round(Number(betaDifficulty()?.creditBonus || 0))) : 0;
+  }
+
+  function clearScoreMultiplier() {
+    return isBetaVersion() ? Math.max(1, Number(betaDifficulty()?.scoreMultiplier || 1)) : 1;
+  }
+
+  function betaItemName(itemId) {
+    return betaItemMap[itemId]?.name || itemId || "无";
+  }
+
   function isKnowledgeCreditRoomKey(roomKey) {
     return ["monster", "geometry", "linear"].includes(roomKey);
   }
@@ -873,27 +1062,26 @@
   }
 
   function awardBetaKnowledgeCredits(roomKey, count) {
-    if (!isBetaVersion() || !isKnowledgeCreditRoomKey(roomKey)) return 0;
-    const gained = clamp(Math.round(Number(count) || 0), 0, 3);
+    if (!isKnowledgeCreditRoomKey(roomKey)) return 0;
+    const gained = clamp(Math.round(Number(count) || 0), 0, 3) + betaCreditBonus();
     game.credits = Math.max(0, Math.round(Number(game.credits || 0))) + gained;
     return gained;
   }
 
   function chargeBetaRandomRoom(roomKey) {
-    if (!isBetaVersion() || !isBetaRandomRoomKey(roomKey) || game.randomRooms[roomKey]) return true;
+    if (!isBetaRandomRoomKey(roomKey) || game.randomRooms[roomKey]) return true;
     if ((game.credits || 0) < betaRandomRoomCost) {
-      game.message = `β 测试服：开启右侧随机教室需要 ${betaRandomRoomCost} 学分，当前 ${game.credits || 0} 学分。`;
+      game.message = `开启右侧随机教室需要 ${betaRandomRoomCost} 学分，当前 ${game.credits || 0} 学分。`;
       updateMap();
       return false;
     }
     game.credits -= betaRandomRoomCost;
-    game.message = `β 测试服：已消耗 ${betaRandomRoomCost} 学分开启随机教室，剩余 ${game.credits} 学分。`;
+    game.message = `已消耗 ${betaRandomRoomCost} 学分开启随机教室，剩余 ${game.credits} 学分。`;
     updateMap();
     return true;
   }
 
   function openBetaBossShop() {
-    if (!isBetaVersion()) return false;
     const shop = ensureBetaBossShopStock();
     if (!shop.entered) {
       const recovered = restoreMissingHpOnRoomEnter(game.player);
@@ -904,7 +1092,7 @@
         ? `进入 Boss 前商店，已先回复 ${Math.ceil(recovered)} 点生命；之后开始 Boss 战不会再次回血。`
         : "进入 Boss 前商店；之后开始 Boss 战不会再次回血。";
     }
-    game.message = `β 测试服：Boss 前商店已开启，当前 ${game.credits || 0} 学分。`;
+    game.message = `Boss 前商店已开启，当前 ${game.credits || 0} 学分。`;
     updateMap();
     openModal("betaShop");
     return true;
@@ -914,13 +1102,16 @@
     const shop = ensureBetaBossShopStock();
     const item = shop.stock[Number(index)];
     if (!item || item.purchased) return false;
-    if (!game.player || game.player.hp <= betaShopItemHpCost) {
+    const freeClaim = Boolean(game.betaShopRaid?.freeClaim);
+    if (!freeClaim && (!game.player || game.player.hp <= betaShopItemHpCost)) {
       shop.message = `生命不足：每项需要 ${betaShopItemHpCost} 生命，至少要保留 1 点生命。`;
       rerenderBetaShopModal();
       return false;
     }
 
-    game.player.hp = Math.max(1, game.player.hp - betaShopItemHpCost);
+    if (!freeClaim) {
+      game.player.hp = Math.max(1, game.player.hp - betaShopItemHpCost);
+    }
     if (item.type === "weapon") {
       const added = addWeapon(game.player, item.id, true);
       if (added) rememberRewardFamily(item.id);
@@ -930,11 +1121,20 @@
     item.purchased = true;
     shop.message = `已用 ${betaShopItemHpCost} 生命兑换 ${betaShopItemName(item)}。`;
     rerenderBetaShopModal();
+    if (freeClaim) {
+      shop.message = `商人已让步，免费获得 ${betaShopItemName(item)}。`;
+      rerenderBetaShopModal();
+    }
     return true;
   }
 
   function refreshBetaBossShop() {
     const shop = ensureBetaBossShopStock();
+    if (game.betaShopRaid?.refreshLocked) {
+      shop.message = "击败商人后商店库存已锁定，不能再次刷新。";
+      rerenderBetaShopModal();
+      return false;
+    }
     const cost = normalizeBetaShopRefreshCost(shop.refreshCost);
     if ((game.credits || 0) < cost) {
       shop.message = `学分不足：本次刷新需要 ${cost} 学分，当前 ${game.credits || 0} 学分。`;
@@ -955,6 +1155,76 @@
     return startBossRoom({ bypassShop: true, skipRestore });
   }
 
+  function createBetaShopGuardEnemyDef() {
+    return {
+      id: "shopGuard",
+      shortName: "$",
+      name: "商人",
+      kind: "linear",
+      pattern: "shopGuard",
+      mechanics: ["shopGuard"],
+      roles: ["elite", "controller", "ranged"],
+      color: colors.warning,
+      hp: 190,
+      radius: 25,
+      moveAmp: 108,
+      moveSpeed: 1.72,
+      fireEvery: 1.05,
+    };
+  }
+
+  function startBetaShopRaid() {
+    if (!isBetaVersion() || game.betaShopRaid?.started) return false;
+    closeModal();
+    game.betaShopRaid = { started: true, completed: false, freeClaim: false, refreshLocked: false };
+    mode = "combat";
+    game.activeRoom = "monster";
+    setCombatArena("normal");
+    game.activeRoomKey = "__betaShopRaid";
+    game.roomTitle = "抢商店";
+    game.roomModifier = {
+      id: "shopAlarm",
+      name: "商店警报",
+      name: "商人反击",
+      text: "商人会释放高压账单弹幕，击败后本轮商店库存免费领取。",
+      hpScale: 1.14,
+      fireEveryScale: 0.8,
+      obstacleBonus: 1,
+      pressureScale: 1.36,
+      staggerScale: 1.12,
+      firstFireScale: 0.72,
+    };
+    game.encounter = createEncounterDirector({ allowMixedEnemies: true }, 3);
+    game.knowledgeSynergy = null;
+    game.challengeCount = 3;
+    game.defeatedInRoom = 0;
+    game.monsterClearDelay = 0;
+    game.roomReward = {
+      clearEyebrow: "抢商店",
+      eliteRoom: true,
+      clearTitle: "商人让步",
+      clearText: "商人收起账本，本轮商店库存可以免费领取。",
+      specialReward: "shopRaid",
+      rewardKinds: ["calculus", "geometry", "linear"],
+    };
+    game.roomRewardKinds = [];
+    game.pendingChallenge = null;
+    game.player.x = W * 0.5;
+    game.player.y = H * 0.74;
+    game.playerShots = [];
+    game.enemyShots = [];
+    game.enemyLasers = [];
+    game.slashes = [];
+    game.particles = [];
+    armPassiveShieldTimer(game.player);
+    game.enemies = [createChallengeEnemy(createBetaShopGuardEnemyDef(), 0, 1)];
+    game.obstacles = generateRoomObstacles("monster");
+    showScreen("combat");
+    showGuideOnce("shopRaid", "商人会用账单弹幕反击；击败后回到商店，当前库存免费领取。", 4.8);
+    updateHud();
+    return true;
+  }
+
   function randomMonsterRoomChoices() {
     return ["monster", "geometry", "linear"]
       .map((key) => monsterRooms[key])
@@ -963,7 +1233,7 @@
 
   function randomMonsterFamilyGroups() {
     return randomMonsterRoomChoices().reduce((groups, room) => {
-      const family = canonicalWeaponFamily(room.enemy?.rewardWeapon || room.rewardWeapon);
+      const family = room.enemy?.kind || room.knowledgeKey || room.completedKey;
       if (!groups.has(family)) groups.set(family, []);
       groups.get(family).push(room);
       return groups;
@@ -1059,6 +1329,70 @@
       player.gpaGuardUsed = false;
     }
     showGuideOnce("buffSynergy", "增益可以重复获得并乘算叠加，部分增益还会强化闪避、破防或核心压制。", 4);
+  }
+
+  function addBetaItem(itemId, count = 1) {
+    if (!isBetaVersion() || !betaItemMap[itemId]) return false;
+    game.betaItems ||= [];
+    const addCount = Math.max(1, Math.round(Number(count) || 1));
+    for (let i = 0; i < addCount; i += 1) {
+      if (game.betaItems.length >= betaItemLimit) break;
+      game.betaItems.push(itemId);
+    }
+    updateHud();
+    return true;
+  }
+
+  function pickBetaItem(exclude = []) {
+    const blocked = new Set(exclude);
+    const pool = betaItemDefs.filter((item) => !blocked.has(item.id));
+    const candidates = pool.length ? pool : betaItemDefs;
+    return candidates[Math.floor(Math.random() * candidates.length)]?.id || "";
+  }
+
+  function useBetaItem() {
+    if (!isBetaVersion() || !game.player || !game.betaItems?.length) return false;
+    const itemId = game.betaItems.shift();
+    const item = betaItemMap[itemId];
+    if (!item) return false;
+    const player = game.player;
+    if (itemId === "firstAid") {
+      const missing = Math.max(0, player.maxHp - player.hp);
+      const heal = Math.max(18, missing * 0.35);
+      player.hp = Math.min(player.maxHp, player.hp + heal);
+      burst(player.x, player.y, colors.mint, 24);
+    } else if (itemId === "chalkSmoke") {
+      const cleared = game.enemyShots.length;
+      game.enemyShots = game.enemyShots.filter((shot) => shot.ignoresObstacles || shot.harmless);
+      game.enemyLasers.forEach((laser) => {
+        if (!isLaserActive(laser)) laser.hit = true;
+      });
+      game.enemies.forEach((enemy) => {
+        if (enemy.defeated || enemy.bossProjection) return;
+        enemy.fireTimer = Math.max(enemy.fireTimer || 0, 1.1);
+        enemy.stagger = Math.min(enemy.staggerMax || 50, (enemy.stagger || 0) + (enemy.staggerMax || 50) * 0.28);
+        enemy.staggerFlash = Math.max(enemy.staggerFlash || 0, 0.28);
+      });
+      burst(player.x, player.y, colors.paper, Math.max(18, Math.min(48, cleared + 18)));
+    } else if (itemId === "spareMagazine") {
+      const weapon = player.weapon;
+      if (weapon && !weapon.infiniteAmmo) {
+        weapon.ammo = weapon.magazine;
+        weapon.reloading = false;
+        weapon.reloadTimer = 0;
+      }
+      player.tacticalFocusTimer = Math.max(player.tacticalFocusTimer || 0, 4.2);
+      player.tacticalFocusFlash = Math.max(player.tacticalFocusFlash || 0, 0.5);
+      player.attackTimer = 0;
+      burst(player.x, player.y, colors.warning, 22);
+    } else if (itemId === "creditVoucher") {
+      game.credits = Math.max(0, Math.round(Number(game.credits || 0))) + 2 + (betaDifficultyMechanicLevel() >= 2 ? 1 : 0);
+      burst(player.x, player.y, colors.chalk, 20);
+    }
+    showGuideOnce("betaItemUse", `已使用局内道具：${item.name}。`, 2.2);
+    updateMap();
+    updateHud();
+    return true;
   }
 
   function restoreMissingHpOnRoomEnter(player = game.player) {
@@ -1225,6 +1559,28 @@
         ? [choice.altBuff]
         : [];
     return ids.filter(Boolean);
+  }
+
+  function weaponKind(weaponId) {
+    return weapons[weaponId]?.kind || "";
+  }
+
+  function weaponIdsForKind(kind) {
+    if (!kind) return [];
+    return chestWeaponIds.filter((id) => weaponKind(id) === kind);
+  }
+
+  function randomRewardWeaponsForKinds(kinds, limit = 3) {
+    const selected = [];
+    const used = new Set();
+    kinds.filter(Boolean).slice(0, limit).forEach((kind) => {
+      const pool = weaponIdsForKind(kind).filter((id) => !used.has(id));
+      if (!pool.length) return;
+      const weaponId = pool[Math.floor(Math.random() * pool.length)];
+      selected.push(weaponId);
+      used.add(weaponId);
+    });
+    return selected;
   }
 
   function buffBriefText(name) {
@@ -1810,15 +2166,34 @@
     showScreen("version");
   }
 
+  function openBetaDifficultySelect() {
+    mode = "difficulty";
+    game.versionChannel = "beta";
+    showScreen("difficulty");
+  }
+
   function startVersion(channel = "alpha") {
-    game.versionChannel = channel === "beta" ? "beta" : "alpha";
+    if (channel === "beta") {
+      openBetaDifficultySelect();
+      return;
+    }
+    game.versionChannel = "alpha";
+    game.betaDifficultyId = "standard";
+    resetGame();
+  }
+
+  function startBetaDifficulty(difficultyId = "standard") {
+    game.versionChannel = "beta";
+    game.betaDifficultyId = betaDifficultyMap[difficultyId] ? difficultyId : "standard";
     resetGame();
   }
 
   function resetGame() {
     const versionChannel = game.versionChannel || "alpha";
+    const betaDifficultyId = versionChannel === "beta" ? (game.betaDifficultyId || "standard") : "standard";
     mode = "map";
     game.versionChannel = versionChannel;
+    game.betaDifficultyId = betaDifficultyId;
     setCombatArena("normal");
     game.startedAt = performance.now();
     game.elapsed = 0;
@@ -1844,7 +2219,7 @@
     game.roomTitle = "";
     game.roomModifier = null;
     game.roomReward = null;
-    game.roomWeaponDrops = [];
+    game.roomRewardKinds = [];
     game.roomChallengeCounts = {};
     game.pendingChallenge = null;
     game.encounter = null;
@@ -1872,9 +2247,13 @@
     game.developerModeUsed = false;
     game.developerCustomMessage = "";
     game.credits = 0;
+    game.betaItems = [];
+    game.betaShopRaid = { completed: false, freeClaim: false, refreshLocked: false };
     resetBetaBossShop();
     hideLeaderboardNameForm();
-    game.message = versionChannel === "beta" ? "当前状态：β 测试服走廊。" : "当前状态：刚进入复习走廊。";
+    game.message = versionChannel === "beta"
+      ? `当前状态：${betaDifficultyLabel()} 走廊。`
+      : "当前状态：刚进入复习走廊。";
     updateMap();
     showScreen("map");
     updateHud();
@@ -1903,7 +2282,7 @@
     game.roomTitle = "";
     game.roomModifier = null;
     game.roomReward = null;
-    game.roomWeaponDrops = [];
+    game.roomRewardKinds = [];
     game.pendingPassiveChoice = null;
     game.pendingWeaponChoice = null;
     game.pendingChallenge = null;
@@ -1939,9 +2318,10 @@
       ui.bossDoorPrep.textContent = `准备：${prep.label}`;
       ui.bossDoorPrep.dataset.prep = prep.key;
     }
-    ui.mapLog.textContent = isBetaVersion()
-      ? `${game.message} | 学分：${game.credits || 0}`
-      : game.message;
+    const betaStatus = isBetaVersion()
+      ? ` | ${betaDifficultyLabel()} | 道具：${game.betaItems?.length || 0}/${betaItemLimit}`
+      : "";
+    ui.mapLog.textContent = `${game.message} | 学分：${game.credits || 0}${betaStatus}`;
     updateMapPlayerUI();
   }
 
@@ -1992,7 +2372,17 @@
     if (door.key === "monster") return "连续输出 / 弹幕压力";
     if (door.key === "geometry") return "近战防守 / 位置压迫";
     if (door.key === "linear") return "爆发穿透 / 分裂弹幕";
-    if (["chest", "randomB", "randomC"].includes(door.key)) return "未知事件：可能宝箱，也可能混合投影";
+    if (["chest", "randomB", "randomC"].includes(door.key)) {
+      const revealedType = game.randomRooms[door.key]?.type;
+      if (revealedType === "elite") return "已揭示：精英房";
+      if (revealedType === "supply") return "已揭示：补给房";
+      if (revealedType === "forge") return "已揭示：工坊房";
+      if (revealedType === "monster") return "已揭示：混合投影";
+      if (revealedType === "chest") return "已揭示：宝箱房";
+      return isBetaVersion()
+        ? "未知事件：宝箱 / 混怪 / 精英 / 补给 / 工坊"
+        : "未知事件：可能宝箱，也可能混合投影";
+    }
     if (door.key === "boss") return `当前准备：${bossPreparationStatus().label}\n${bossPreparationStatus().detail}`;
     return "";
   }
@@ -2317,12 +2707,12 @@
     ui.mapPrompt.style.top = `${Math.max(12, door.y - 6)}%`;
     if (door.completed) {
       ui.mapPrompt.textContent = "已完成";
-    } else if (isBetaVersion() && isBetaRandomRoomKey(door.key) && !game.randomRooms[door.key]) {
+    } else if (isBetaRandomRoomKey(door.key) && !game.randomRooms[door.key]) {
       const hint = roomDoorHint(door);
       ui.mapPrompt.textContent = (game.credits || 0) >= betaRandomRoomCost
         ? `按 E 消耗 ${betaRandomRoomCost} 学分进入 ${door.label}\n${hint}`
         : `需要 ${betaRandomRoomCost} 学分开启 ${door.label}\n${hint}`;
-    } else if (isBetaVersion() && door.key === "boss") {
+    } else if (door.key === "boss") {
       ui.mapPrompt.textContent = `按 E 打开 Boss 前商店\n${roomDoorHint(door)}`;
     } else {
       const hint = roomDoorHint(door);
@@ -2363,7 +2753,7 @@
     const pending = game.pendingChallenge;
     const room = pending?.room || monsterRooms.monster;
     if (!room || game.completed[room.completedKey]) return;
-    const challengeCount = clamp(Math.round(Number(count) || 1), 1, 3);
+    const challengeCount = clamp(Math.round(Number(count) || room.forceChallengeCount || 1), 1, 3);
 
     mode = "combat";
     game.activeRoom = "monster";
@@ -2376,12 +2766,16 @@
     game.defeatedInRoom = 0;
     game.monsterClearDelay = 0;
     game.roomReward = {
-      weapon: room.enemy.rewardWeapon || room.rewardWeapon,
+      knowledgeKind: room.enemy?.kind || "",
       clearEyebrow: room.title,
       clearTitle: room.clearTitle || `${room.enemy.name}被击败`,
       clearText: room.clearText || `你击败了${room.enemy.name}，获得了新的武器和增益。`,
+      eliteRoom: Boolean(room.eliteRoom),
+      specialReward: room.specialReward || "",
+      rewardKinds: Array.isArray(room.rewardKinds) ? [...room.rewardKinds] : null,
     };
-    game.roomWeaponDrops = [];
+    game.roomRewardKinds = [];
+    game.knowledgeSynergy = null;
     restoreMissingHpOnRoomEnter(game.player);
     game.pendingChallenge = null;
     game.player.x = W * 0.5;
@@ -2393,6 +2787,7 @@
     game.particles = [];
     armPassiveShieldTimer(game.player);
     game.enemies = buildChallengeEnemies(room, challengeCount);
+    applyKnowledgeRoomSynergy(room, game.enemies, challengeCount);
     game.obstacles = generateRoomObstacles("monster");
     showScreen("combat");
     showGuideOnce("combatBasics", "空格闪避，背击和抓住破绽都能更快打出破防。击败敌人后才能离开。", 4.2);
@@ -2403,14 +2798,264 @@
     return selectChallengeEnemyDefs(room, count).map((enemyDef, index) => createChallengeEnemy(enemyDef, index, count));
   }
 
+  function knowledgeRoomKind(room) {
+    const roomKinds = {
+      monster: "calculus",
+      geometry: "geometry",
+      linear: "linear",
+    };
+    return roomKinds[room?.knowledgeKey || room?.completedKey] || "";
+  }
+
+  function applyKnowledgeRoomSynergy(room, enemies, count) {
+    game.knowledgeSynergy = null;
+    if (!room || room.allowMixedEnemies || count < 2 || isDeveloperCustomRoom()) return;
+    const kind = knowledgeRoomKind(room);
+    if (!["calculus", "geometry", "linear"].includes(kind)) return;
+    if (!Array.isArray(enemies) || enemies.length < 2 || enemies.some((enemy) => enemy.kind !== kind)) return;
+
+    const state = {
+      kind,
+      tier: Math.min(3, Math.max(2, Math.round(Number(count) || enemies.length))),
+      roomKey: room.completedKey,
+      enemyIds: enemies.map((enemy) => enemy.id),
+      pauseTimer: 0,
+      timer: (count >= 3 ? 1.55 : 2.15) + Math.random() * 0.85,
+      phase: "idle",
+      activeTimer: 0,
+      warnTimer: 0,
+      damageTick: 0,
+      chainQueue: [],
+      chainGapTimer: 0,
+      pivotEnemyId: "",
+      pivotTimer: linearPivotInterval,
+      disabledTimer: 0,
+    };
+    game.knowledgeSynergy = state;
+
+    enemies.forEach((enemy, index) => {
+      enemy.knowledgeSynergy = kind;
+      enemy.knowledgeSynergyGroup = state.roomKey;
+      enemy.synergyIndex = index;
+      enemy.synergyFlash = 0.28 + index * 0.08;
+      enemy.synergyPivot = false;
+      enemy.synergyGuarded = false;
+    });
+    if (kind === "linear") {
+      rotateLinearSynergyPivot(state, enemies, Math.floor(Math.random() * enemies.length));
+    }
+  }
+
+  function linkedKnowledgeEnemies(state = game.knowledgeSynergy) {
+    if (!state?.enemyIds?.length) return [];
+    const ids = new Set(state.enemyIds);
+    return game.enemies.filter((enemy) => ids.has(enemy.id) && !enemy.defeated);
+  }
+
+  function resetKnowledgeEnemyFlags(enemies = []) {
+    enemies.forEach((enemy) => {
+      enemy.synergyPivot = false;
+      enemy.synergyGuarded = false;
+    });
+  }
+
+  function suspendKnowledgeSynergy(state, enemies, duration = knowledgeSynergyPauseDuration) {
+    if (!state) return;
+    state.pauseTimer = Math.max(state.pauseTimer || 0, duration);
+    state.chainQueue = [];
+    state.chainGapTimer = 0;
+    state.phase = "idle";
+    state.warnTimer = 0;
+    state.activeTimer = 0;
+    state.damageTick = 0;
+    state.timer = Math.max(state.timer || 0, duration + 0.45);
+    state.disabledTimer = Math.max(state.disabledTimer || 0, duration);
+    resetKnowledgeEnemyFlags(enemies);
+  }
+
+  function updateKnowledgeRoomSynergy(dt) {
+    const state = game.knowledgeSynergy;
+    if (!state || game.activeRoom !== "monster") return;
+    const enemies = linkedKnowledgeEnemies(state);
+    enemies.forEach((enemy) => {
+      enemy.synergyFlash = Math.max(0, (enemy.synergyFlash || 0) - dt);
+    });
+    if (enemies.length < 2) {
+      resetKnowledgeEnemyFlags(enemies);
+      return;
+    }
+
+    state.pauseTimer = Math.max(0, (state.pauseTimer || 0) - dt);
+    if (enemies.some((enemy) => (enemy.staggerTimer || 0) > 0)) {
+      suspendKnowledgeSynergy(state, enemies);
+      return;
+    }
+    if ((state.pauseTimer || 0) > 0) {
+      resetKnowledgeEnemyFlags(enemies);
+      return;
+    }
+
+    if (state.kind === "calculus") {
+      updateCalculusSynergy(state, enemies, dt);
+    } else if (state.kind === "geometry") {
+      updateGeometrySynergy(state, enemies, dt);
+    } else if (state.kind === "linear") {
+      updateLinearSynergy(state, enemies, dt);
+    }
+  }
+
+  function updateCalculusSynergy(state, enemies, dt) {
+    if (state.chainQueue?.length) {
+      state.chainGapTimer -= dt;
+      if (state.chainGapTimer <= 0) {
+        const enemy = enemyById(state.chainQueue.shift());
+        if (enemy && !enemy.defeated) fireCalculusChainShot(enemy, enemies.length);
+        state.chainGapTimer = calculusChainGap;
+      }
+      return;
+    }
+
+    state.timer -= dt;
+    if (state.timer > 0) return;
+    const source = enemies[0];
+    if (!canSpendEncounterPressure(source, enemies.length >= 3 ? 0.72 : 0.48)) {
+      state.timer = 0.34;
+      return;
+    }
+    spendEncounterPressure(source, enemies.length >= 3 ? 0.72 : 0.48);
+    const ordered = [...enemies].sort((a, b) => (a.synergyIndex || 0) - (b.synergyIndex || 0));
+    state.chainQueue = ordered.map((enemy) => enemy.id);
+    state.chainGapTimer = 0;
+    state.timer = calculusChainInterval + Math.random() * 0.9 + (3 - Math.min(3, enemies.length)) * 1.1;
+  }
+
+  function fireCalculusChainShot(enemy, aliveCount) {
+    const player = game.player || enemy;
+    const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+    const offset = aliveCount >= 3 ? ((enemy.synergyIndex || 0) - 1) * 0.09 : 0;
+    const fullChain = aliveCount >= 3;
+    fireEnemyShot(enemy, enemy.x, enemy.y, angle + offset, fullChain ? 132 : 124, fullChain ? 5.5 : 4.5, enemy.color || colors.chalk, {
+      r: fullChain ? 4.4 : 4.0,
+      life: 4.1,
+      shape: "triangle",
+      pulse: (enemy.synergyIndex || 0) * 0.21,
+    });
+    enemy.synergyFlash = Math.max(enemy.synergyFlash || 0, 0.46);
+  }
+
+  function updateGeometrySynergy(state, enemies, dt) {
+    if (state.phase === "warn") {
+      state.warnTimer = Math.max(0, (state.warnTimer || 0) - dt);
+      enemies.forEach((enemy) => {
+        enemy.synergyFlash = Math.max(enemy.synergyFlash || 0, 0.18);
+      });
+      if (state.warnTimer <= 0) {
+        state.phase = "active";
+        state.activeTimer = geometryLinkActive;
+        state.damageTick = 0;
+      }
+      return;
+    }
+
+    if (state.phase === "active") {
+      state.activeTimer = Math.max(0, (state.activeTimer || 0) - dt);
+      state.damageTick = Math.max(0, (state.damageTick || 0) - dt);
+      enemies.forEach((enemy) => {
+        enemy.synergyFlash = Math.max(enemy.synergyFlash || 0, 0.24);
+      });
+      const player = game.player;
+      if (player && player.invuln <= 0 && state.damageTick <= 0 && playerNearGeometryLink(player, enemies)) {
+        const damage = enemies.length >= 3 ? geometryLinkDamage : geometryLinkDamage * 0.78;
+        applyPlayerDamage(scaledIncomingDamage(damage), colors.cyan);
+        applyEnemySlow(0.86, 1.25);
+        player.invuln = Math.max(player.invuln, 0.46);
+        state.damageTick = geometryLinkTick;
+      }
+      if (state.activeTimer <= 0) {
+        state.phase = "idle";
+        state.timer = geometryLinkInterval + Math.random() * 0.8 + (3 - Math.min(3, enemies.length)) * 1.0;
+      }
+      return;
+    }
+
+    state.timer -= dt;
+    if (state.timer > 0) return;
+    if (!canSpendEncounterPressure(enemies[0], enemies.length >= 3 ? 0.62 : 0.4)) {
+      state.timer = 0.36;
+      return;
+    }
+    spendEncounterPressure(enemies[0], enemies.length >= 3 ? 0.62 : 0.4);
+    state.phase = "warn";
+    state.warnTimer = geometryLinkWarning;
+    state.activeTimer = 0;
+  }
+
+  function geometryLinkPairs(enemies) {
+    if (enemies.length < 2) return [];
+    const ordered = [...enemies].sort((a, b) => (a.synergyIndex || 0) - (b.synergyIndex || 0));
+    const pairs = [];
+    for (let i = 0; i < ordered.length - 1; i += 1) {
+      pairs.push([ordered[i], ordered[i + 1]]);
+    }
+    if (ordered.length >= 3) pairs.push([ordered[ordered.length - 1], ordered[0]]);
+    return pairs;
+  }
+
+  function playerNearGeometryLink(player, enemies) {
+    return geometryLinkPairs(enemies).some(([a, b]) => (
+      distancePointToSegment(player.x, player.y, a.x, a.y, b.x, b.y) <= player.r + 10
+    ));
+  }
+
+  function rotateLinearSynergyPivot(state, enemies, preferredIndex = -1) {
+    const ordered = [...enemies].sort((a, b) => (a.synergyIndex || 0) - (b.synergyIndex || 0));
+    if (!ordered.length) return;
+    let nextIndex = preferredIndex;
+    if (nextIndex < 0) {
+      const currentIndex = ordered.findIndex((enemy) => enemy.id === state.pivotEnemyId);
+      nextIndex = (currentIndex + 1 + ordered.length) % ordered.length;
+    }
+    const pivot = ordered[clamp(nextIndex, 0, ordered.length - 1)] || ordered[0];
+    state.pivotEnemyId = pivot.id;
+    state.pivotTimer = linearPivotInterval + Math.random() * 0.65;
+    ordered.forEach((enemy) => {
+      enemy.synergyPivot = enemy.id === pivot.id;
+      enemy.synergyFlash = Math.max(enemy.synergyFlash || 0, enemy.synergyPivot ? 0.72 : 0.22);
+    });
+  }
+
+  function updateLinearSynergy(state, enemies, dt) {
+    state.disabledTimer = Math.max(0, (state.disabledTimer || 0) - dt);
+    const pivot = enemyById(state.pivotEnemyId);
+    if (!pivot || !enemies.includes(pivot)) {
+      rotateLinearSynergyPivot(state, enemies);
+      return;
+    }
+
+    state.pivotTimer -= dt;
+    if (state.pivotTimer <= 0) {
+      rotateLinearSynergyPivot(state, enemies);
+    }
+
+    const activePivot = enemyById(state.pivotEnemyId);
+    enemies.forEach((enemy) => {
+      enemy.synergyPivot = activePivot ? enemy.id === activePivot.id : false;
+      enemy.synergyGuarded = Boolean(
+        activePivot &&
+        state.disabledTimer <= 0 &&
+        enemy.id !== activePivot.id &&
+        distance(enemy, activePivot) <= linearPivotGuardRadius
+      );
+      if (enemy.synergyGuarded || enemy.synergyPivot) {
+        enemy.synergyFlash = Math.max(enemy.synergyFlash || 0, enemy.synergyPivot ? 0.2 : 0.12);
+      }
+    });
+  }
+
   function pickRoomModifier(room, count) {
     if (!room || isDeveloperCustomRoom()) return null;
     if (count <= 1 && !room.allowMixedEnemies) return roomModifiers[0];
     return roomModifiers[Math.floor(Math.random() * roomModifiers.length)] || null;
-  }
-
-  function roomModifierLine(modifier = game.roomModifier) {
-    return modifier ? `本房间词条：${modifier.name}。${modifier.text}` : "";
   }
 
   function selectChallengeEnemyDefs(room, count) {
@@ -2504,7 +3149,7 @@
   function createEncounterDirector(room, count) {
     if (!room || isDeveloperCustomRoom()) return null;
     const basePressure = 1.45 + count * 0.58 + (room.allowMixedEnemies ? 0.22 : 0);
-    const modifierScale = game.roomModifier?.pressureScale || 1;
+    const modifierScale = (game.roomModifier?.pressureScale || 1) * betaDifficultyValue("pressureScale", 1) * (room.eliteRoom ? 1.18 : 1);
     return {
       pressure: 0,
       maxPressure: Math.max(1.8, basePressure * modifierScale),
@@ -2577,6 +3222,8 @@
     if ((enemy.taylorDashWarnTimer || 0) > 0) enemy.taylorDashWarnTimer = 0;
     if ((enemy.archimedesDashWarnTimer || 0) > 0) enemy.archimedesDashWarnTimer = 0;
     if ((enemy.dashWarnTimer || 0) > 0) enemy.dashWarnTimer = 0;
+    if ((enemy.finalPursuitWarnTimer || 0) > 0) enemy.finalPursuitWarnTimer = 0;
+    if ((enemy.finalResolveWarnTimer || 0) > 0) enemy.finalResolveWarnTimer = 0;
     burst(enemy.x, enemy.y, source.backHit ? colors.paper : enemy.color || colors.warning, 22);
     game.encounter && (game.encounter.staggers = (game.encounter.staggers || 0) + 1);
     showGuideOnce("stagger", "敌人破防后会短暂硬直，适合贴近集中输出。");
@@ -2635,8 +3282,9 @@
     const position = positions[count]?.[index] || positions[1][0];
     const hpScale = count === 1 ? 1 : count === 2 ? 0.9 : 0.78;
     const fireScale = count === 1 ? 1 : count === 2 ? 1.18 : 1.38;
+    const eliteScale = game.pendingChallenge?.room?.eliteRoom || game.roomReward?.eliteRoom ? 1.18 : 1;
     const hp = Math.max(42, Math.round(enemyDef.hp * hpScale));
-    const scaledHp = Math.max(32, Math.round(hp * (game.roomModifier?.hpScale || 1)));
+    const scaledHp = Math.max(32, Math.round(hp * (game.roomModifier?.hpScale || 1) * betaDifficultyValue("hpScale", 1) * eliteScale));
 
     return {
       id: `${enemyDef.id}-${game.activeRoomKey}-${index}`,
@@ -2646,7 +3294,8 @@
       pattern: enemyDef.pattern,
       mechanics: [...(enemyDef.mechanics || [])],
       roles: enemyRoles(enemyDef),
-      rewardWeapon: enemyDef.rewardWeapon || "",
+      eliteRoom: Boolean(game.roomReward?.eliteRoom),
+      betaMechanicLevel: betaDifficultyMechanicLevel(),
       color: enemyDef.color,
       x: position.x,
       y: position.y,
@@ -2658,8 +3307,8 @@
       fireTimer: (0.65 + index * 0.32) * (game.roomModifier?.firstFireScale || 1),
       moveT: index * 1.15,
       moveAmp: enemyDef.moveAmp * (count === 1 ? 1 : count === 2 ? 0.88 : 0.74),
-      moveSpeed: enemyDef.moveSpeed * (count === 3 ? 0.9 : 1),
-      fireEvery: enemyDef.fireEvery * fireScale * (game.roomModifier?.fireEveryScale || 1),
+      moveSpeed: enemyDef.moveSpeed * (count === 3 ? 0.9 : 1) * betaDifficultyValue("speedScale", 1),
+      fireEvery: enemyDef.fireEvery * fireScale * (game.roomModifier?.fireEveryScale || 1) * betaDifficultyValue("fireEveryScale", 1),
       facingAngle: Math.PI / 2,
       backHitFlash: 0,
       shieldFlash: 0,
@@ -2707,7 +3356,6 @@
       pattern: enemyDef.pattern,
       mechanics: [...(enemyDef.mechanics || [])],
       roles: enemyRoles(enemyDef),
-      rewardWeapon: enemyDef.rewardWeapon || "",
       color: enemyDef.color,
       x: position.x,
       y: position.y,
@@ -2760,8 +3408,9 @@
     game.roomTitle = "自定义房间";
     game.roomModifier = null;
     game.encounter = null;
+    game.knowledgeSynergy = null;
     game.roomReward = null;
-    game.roomWeaponDrops = [];
+    game.roomRewardKinds = [];
     game.pendingChallenge = null;
     game.challengeCount = Math.min(3, total);
     game.defeatedInRoom = 0;
@@ -2797,6 +3446,7 @@
     restoreMissingHpOnRoomEnter(game.player);
     const rewardWeapon = pickChestWeapon(game.player);
     const rewardBuff = pickChestBuff();
+    const chestBuffBonusLevels = betaRewardBuffBonus();
 
     if (rewardWeapon) {
       const weaponName = weaponChoiceName(rewardWeapon);
@@ -2808,7 +3458,8 @@
           weaponId: rewardWeapon,
           altBuff: rewardBuff,
           buffIds: [rewardBuff],
-          title: `奖励选择：${weaponName} / ${rewardBuff}`,
+          title: `奖励选择：${weaponName} / ${rewardBuffDisplayName(rewardBuff, chestBuffBonusLevels)}`,
+          buffBonusLevels: chestBuffBonusLevels,
           acceptLabel: "选择武器",
           buffLabel: "选择增益",
           declineLabel: "都不拿",
@@ -2826,12 +3477,114 @@
       `宝箱里出现了增益「${rewardBuff}」。可以选择领取，也可以不拿。`,
       {
         buffIds: [rewardBuff],
-        title: `奖励选择：${rewardBuff}`,
+        title: `奖励选择：${rewardBuffDisplayName(rewardBuff, chestBuffBonusLevels)}`,
+        buffBonusLevels: chestBuffBonusLevels,
         buffLabel: "领取增益",
         declineLabel: "都不拿",
         buffText: `已选择增益：${rewardBuff}。`,
         declineText: "你没有领取宝箱奖励。",
       }
+    );
+  }
+
+  function betaRandomRoomType() {
+    if (!isBetaVersion()) {
+      return Math.random() < randomRoomMonsterChance ? "monster" : "chest";
+    }
+    const difficulty = betaDifficulty();
+    const eliteChance = Number(difficulty.eliteChance || 0);
+    const supplyChance = Number(difficulty.supplyChance || 0);
+    const forgeChance = Number(difficulty.forgeChance || 0);
+    const monsterChance = Number(difficulty.monsterChance || 0);
+    const roll = Math.random();
+    if (roll < eliteChance) return "elite";
+    if (roll < eliteChance + supplyChance) return "supply";
+    if (roll < eliteChance + supplyChance + forgeChance) return "forge";
+    if (roll < eliteChance + supplyChance + forgeChance + monsterChance) return "monster";
+    return "chest";
+  }
+
+  function createBetaEliteRoom(roomKey) {
+    const title = randomRoomTitle(roomKey);
+    const elitePool = randomMonsterPool.filter((enemy) => enemyRoles(enemy).includes("elite"));
+    const fallbackPool = randomMonsterPool.filter((enemy) => enemyRoles(enemy).includes("controller"));
+    const enemy = (elitePool.length ? elitePool : fallbackPool)[Math.floor(Math.random() * (elitePool.length || fallbackPool.length))] || randomMonsterPool[0];
+    return {
+      completedKey: roomKey,
+      knowledgeKey: enemy.kind,
+      allowMixedEnemies: true,
+      eliteRoom: true,
+      forceChallengeCount: 3,
+      rewardKinds: ["calculus", "geometry", "linear"],
+      title: `${title} · 精英房`,
+      label: `${title}：精英 ${enemy.name}`,
+      clearTitle: "精英投影被击败",
+      clearText: "你完成了一次高压精英遭遇，奖励将额外强化。",
+      enemy,
+    };
+  }
+
+  function startBetaEliteRoom(roomKey, room = null) {
+    const eliteRoom = room || createBetaEliteRoom(roomKey);
+    game.randomRooms[roomKey] = { type: "elite", room: eliteRoom };
+    game.pendingChallenge = { roomKey, room: eliteRoom };
+    beginMonsterChallenge(eliteRoom.forceChallengeCount || 3);
+  }
+
+  function openBetaSupplyRoom(roomKey) {
+    if (game.completed[roomKey]) return;
+    game.completed[roomKey] = true;
+    game.roomChallengeCounts[roomKey] = 0;
+    restoreMissingHpOnRoomEnter(game.player);
+    const first = pickBetaItem(game.betaItems);
+    const second = betaDifficultyMechanicLevel() >= 3 ? pickBetaItem([first]) : "";
+    const beforeCount = game.betaItems?.length || 0;
+    addBetaItem(first);
+    if (second) addBetaItem(second);
+    const addedCount = (game.betaItems?.length || 0) - beforeCount;
+    if (addedCount <= 0) {
+      game.credits = Math.max(0, Math.round(Number(game.credits || 0))) + 2 + betaCreditBonus();
+    }
+    const itemText = [first, second].filter(Boolean).map(betaItemName).join("、") || "备用学分";
+    showClear(
+      "补给房",
+      "补给包已整理",
+      addedCount > 0
+        ? `获得局内道具：${itemText}。按 F 使用队首道具，最多携带 ${betaItemLimit} 个。`
+        : `道具已满，改为获得学分补偿。当前学分：${game.credits || 0}。`,
+      null,
+    );
+  }
+
+  function openBetaForgeRoom(roomKey) {
+    if (game.completed[roomKey]) return;
+    game.completed[roomKey] = true;
+    game.roomChallengeCounts[roomKey] = 0;
+    restoreMissingHpOnRoomEnter(game.player);
+    const player = game.player;
+    const candidates = player?.weapons?.filter((weapon) => weapon.id !== "sword") || [];
+    const current = player?.weapon?.id !== "sword" ? player.weapon : null;
+    const target = current || candidates[Math.floor(Math.random() * candidates.length)];
+    if (target) {
+      upgradeWeapon(target);
+      const index = player.weapons.indexOf(target);
+      if (index >= 0) setWeaponIndex(index);
+      showClear(
+        "工坊房",
+        "装备校准完成",
+        `工坊强化了 ${displayWeaponName(target)}。它的伤害、弹匣或特性已提升。`,
+        null,
+      );
+      return;
+    }
+    const itemId = pickBetaItem(game.betaItems);
+    addBetaItem(itemId);
+    game.credits = Math.max(0, Math.round(Number(game.credits || 0))) + 1 + betaCreditBonus();
+    showClear(
+      "工坊房",
+      "没有可强化装备",
+      `你还没有额外武器，工坊改为提供 ${betaItemName(itemId)} 和学分补偿。`,
+      null,
     );
   }
 
@@ -2843,12 +3596,40 @@
       startMonsterRoom(roomKey, revealed.room);
       return;
     }
+    if (revealed?.type === "elite") {
+      startBetaEliteRoom(roomKey, revealed.room);
+      return;
+    }
+    if (revealed?.type === "supply") {
+      openBetaSupplyRoom(roomKey);
+      return;
+    }
+    if (revealed?.type === "forge") {
+      openBetaForgeRoom(roomKey);
+      return;
+    }
     if (revealed?.type === "chest") {
       openChestRoom(roomKey);
       return;
     }
-    const roll = Math.random();
-    if (roll < randomRoomMonsterChance) {
+    const roomType = betaRandomRoomType();
+    if (roomType === "elite") {
+      const room = createBetaEliteRoom(roomKey);
+      game.randomRooms[roomKey] = { type: "elite", room };
+      startBetaEliteRoom(roomKey, room);
+      return;
+    }
+    if (roomType === "supply") {
+      game.randomRooms[roomKey] = { type: "supply" };
+      openBetaSupplyRoom(roomKey);
+      return;
+    }
+    if (roomType === "forge") {
+      game.randomRooms[roomKey] = { type: "forge" };
+      openBetaForgeRoom(roomKey);
+      return;
+    }
+    if (roomType === "monster") {
       const sourceRoom = pickRandomMonsterRoomTemplate();
       const enemy = sourceRoom.enemy;
       const title = randomRoomTitle(roomKey);
@@ -2858,7 +3639,6 @@
         allowMixedEnemies: true,
         title,
         label: `${title}：${enemy.name}`,
-        rewardWeapon: enemy.rewardWeapon || sourceRoom.rewardWeapon,
         clearTitle: `${enemy.name}被击败`,
         clearText: `你在随机教室中完成了${sourceRoom.title || "知识点教室"}的同款测试。`,
         enemy,
@@ -2873,11 +3653,11 @@
   }
 
   function bossShieldForCore(coreId, direct) {
-    return direct ? 54 : 44;
+    return Math.round((direct ? 54 : 44) * betaDifficultyValue("bossShieldScale", 1));
   }
 
   function bossInitialCoreHp(direct) {
-    return Number(baseStats.bossCoreHp || 240);
+    return Math.round(Number(baseStats.bossCoreHp || 240) * betaDifficultyValue("bossHpScale", 1));
   }
 
   function ensureObstacleId(obstacle, prefix = "obstacle") {
@@ -2921,7 +3701,7 @@
 
   function startBossRoom(options = {}) {
     const bossOptions = options && typeof options === "object" ? options : {};
-    if (isBetaVersion() && !bossOptions.bypassShop) {
+    if (!bossOptions.bypassShop) {
       return openBetaBossShop();
     }
     mode = "combat";
@@ -2929,12 +3709,13 @@
     setCombatArena("boss");
     game.roomModifier = null;
     game.encounter = null;
+    game.knowledgeSynergy = null;
     game.pendingChallenge = null;
     game.challengeCount = 1;
     game.defeatedInRoom = 0;
     game.monsterClearDelay = 0;
     game.roomReward = null;
-    game.roomWeaponDrops = [];
+    game.roomRewardKinds = [];
     if (!bossOptions.skipRestore) restoreMissingHpOnRoomEnter(game.player);
     const centerX = arenaCenterX();
     const centerY = arenaCenterY();
@@ -3112,6 +3893,8 @@
     if (entry.scoreVersion !== leaderboardScoreVersion) return null;
     const score = Number(entry.score);
     if (!Number.isFinite(score) || score <= 0) return null;
+    const rawScore = Math.max(0, Math.round(Number(entry.rawScore || score)));
+    const difficultyMultiplier = Math.max(1, Math.round(Number(entry.difficultyMultiplier || 1) * 100) / 100);
     const seconds = Math.max(1, Math.round(Number(entry.seconds || entry.time || 0)));
     const playedAt = entry.playedAt || new Date().toISOString();
     const completedRooms = Array.isArray(entry.completedRooms)
@@ -3133,6 +3916,10 @@
       id: String(entry.id || `${playedAt}-${score}`),
       name: sanitizeLeaderboardName(entry.name),
       score: Math.round(score),
+      rawScore,
+      difficultyId: cleanList([entry.difficultyId], 1)[0] || "alpha",
+      difficultyLabel: cleanList([entry.difficultyLabel], 1)[0] || "",
+      difficultyMultiplier,
       seconds,
       kills: Math.max(0, Math.round(Number(entry.kills || 0))),
       weaponsFound,
@@ -3435,7 +4222,7 @@
   function completedRoomType(key) {
     if (["monster", "geometry", "linear"].includes(key)) return "combat";
     const revealedType = game.randomRooms[key]?.type;
-    if (revealedType === "monster") return "combat";
+    if (revealedType === "monster" || revealedType === "elite") return "combat";
     return "treasure";
   }
 
@@ -3575,11 +4362,16 @@
     const swordSpeedBonus = swordOnly ? Math.max(0, Math.round(720 - seconds * 1.6)) : 0;
     const swordDirectBonus = swordOnly && roomCount === 0 ? 300 : 0;
     const swordBonus = swordRouteBonus + swordSpeedBonus + swordDirectBonus;
-    const score = Math.max(1, Math.round(
+    const rawScore = Math.max(1, Math.round(
       bossClear + roomScore + killScore + buildScore + hpScore + speedScore + swordBonus - overtimePenalty
     ));
+    const difficultyMultiplier = clearScoreMultiplier();
+    const score = Math.max(1, Math.round(rawScore * difficultyMultiplier));
     return {
       score,
+      rawScore,
+      difficultyMultiplier,
+      difficultyLabel: betaDifficultyLabel(),
       roomCount,
       combatRoomCount: roomScoreDetails.combat,
       treasureRoomCount: roomScoreDetails.treasure,
@@ -3673,6 +4465,10 @@
       bossTopDamageWeaponName: bossTopDamageWeapon.name || (player.weapon ? displayWeaponName(player.weapon) : ""),
       bossTopDamageWeaponDamage: bossTopDamageWeapon.damage || 0,
       swordOnly: scoreDetails?.swordOnly ?? isSwordOnlyRun(),
+      rawScore: Math.max(0, Math.round(scoreDetails?.rawScore ?? score)),
+      difficultyId: game.versionChannel === "beta" ? game.betaDifficultyId || "standard" : "alpha",
+      difficultyLabel: scoreDetails?.difficultyLabel || betaDifficultyLabel(),
+      difficultyMultiplier: Number((scoreDetails?.difficultyMultiplier || 1).toFixed(2)),
       deathRoomKey,
       deathRoomName: deathRoomKey ? roomLabelForStats(deathRoomKey) : "",
       deathStage: win ? "" : currentFailureStage(),
@@ -3781,7 +4577,10 @@
 
   function resultStatMarkup(rows) {
     return rows
-      .map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`)
+      .map(([label, value]) => {
+        const className = label === "最终评分" ? ' class="result-stat-final"' : "";
+        return `<div${className}><span>${label}</span><strong>${value}</strong></div>`;
+      })
       .join("");
   }
 
@@ -3797,11 +4596,12 @@
     const buildText = scoreDetails.buildScore ? `+${scoreDetails.buildScore}` : "-";
     const route = scoreDetails.roomCount === 0 ? "直通 Boss" : `${scoreDetails.roomCount} / 6`;
     const speedText = `+${scoreDetails.speedScore}${scoreDetails.overtimePenalty ? ` / 超时 -${scoreDetails.overtimePenalty}` : ""}`;
+    const difficultyText = scoreDetails.difficultyMultiplier > 1 ? `x${scoreDetails.difficultyMultiplier.toFixed(2)}` : "x1.00";
     return `
       <div class="sword-ending-card">
         <div class="sword-mark" aria-hidden="true">∫</div>
         <div>
-          <span>圣剑榜资格确认</span>
+          <span>圣剑独行确认</span>
           <strong>${swordClearStyle(scoreDetails, seconds)}</strong>
           <p>你没有让第二件武器进入背包，也没有借用其他兵器完成最后一击。三核心被同一柄圣剑拆解，期末考场留下了一条很干净的通关记录。</p>
         </div>
@@ -3817,11 +4617,62 @@
           ["战斗用时", `${seconds} 秒`],
           ["速度修正", speedText],
           ["圣剑奖励", `+${scoreDetails.swordBonus}`],
-          ["圣剑榜", "已收录"],
-          ["最终评分", `${score}`],
+          ["最终评分", scoreDetails.difficultyMultiplier > 1 ? `${score} / ${difficultyText}` : `${score}`],
         ])}
       </div>
-      <p class="sword-ending-line">一柄剑，一张卷子，三枚核心。你把所有变量都留给了操作本身。</p>
+    `;
+  }
+
+  function normalResultMarkup(win, scoreDetails, score, seconds, player) {
+    const roomCount = scoreDetails?.roomCount ?? completedRoomNames().length;
+    const hpText = `${Math.max(0, Math.ceil(player.hp))} / ${player.maxHp}`;
+    const speedText = scoreDetails
+      ? `+${scoreDetails.speedScore}${scoreDetails.overtimePenalty ? ` / 超时 -${scoreDetails.overtimePenalty}` : ""}`
+      : "-";
+    const difficultyText = scoreDetails?.difficultyMultiplier > 1 ? `x${scoreDetails.difficultyMultiplier.toFixed(2)}` : "x1.00";
+    const routeText = roomCount === 0 ? "直通 Boss" : `${roomCount} / 6`;
+    const breakdownRows = scoreDetails
+      ? [
+        ["基础分", `+${scoreDetails.bossClear}`],
+        ["路线分", `+${scoreDetails.routeScore}`],
+        ["挑战分", `+${scoreDetails.challengeScore}`],
+        ["击败分", `+${scoreDetails.killScore}`],
+        ["构筑分", scoreDetails.buildScore ? `+${scoreDetails.buildScore}` : "-"],
+        ["生命分", `+${scoreDetails.hpScore}`],
+        ["速度修正", speedText],
+        ...(scoreDetails.difficultyMultiplier > 1 ? [["难度倍率", difficultyText]] : []),
+        ["击败小怪", `${game.kills}`],
+      ]
+      : [
+        ["击败小怪", `${game.kills}`],
+        ["获得武器", `${game.weaponsFound}`],
+        ["完成房间", routeText],
+        ["战斗用时", `${seconds} 秒`],
+      ];
+    return `
+      <div class="normal-result-card">
+        <div class="normal-result-score">
+          <span>${win ? "最终评分" : "本局得分"}</span>
+          <strong>${score}</strong>
+        </div>
+        <div class="normal-result-summary">
+          <div>
+            <span>战斗用时</span>
+            <strong>${seconds} 秒</strong>
+          </div>
+          <div>
+            <span>完成路线</span>
+            <strong>${routeText}</strong>
+          </div>
+          <div>
+            <span>剩余生命</span>
+            <strong>${hpText}</strong>
+          </div>
+        </div>
+      </div>
+      <div class="normal-result-breakdown">
+        ${resultStatMarkup(breakdownRows)}
+      </div>
     `;
   }
 
@@ -3833,33 +4684,15 @@
     const score = win
       ? scoreDetails.score
       : Math.max(0, game.kills * 80 + Math.max(0, game.weaponsFound - 1) * 25 - seconds * 2);
-    const speedText = scoreDetails
-      ? `+${scoreDetails.speedScore}${scoreDetails.overtimePenalty ? ` / 超时 -${scoreDetails.overtimePenalty}` : ""}`
-      : "-";
     const swordOnlyWin = Boolean(win && scoreDetails?.swordOnly);
     screens.result.classList.toggle("sword-ending", swordOnlyWin);
-    ui.resultStats.className = swordOnlyWin ? "result-stats sword-result-wrap" : "result-stats";
+    ui.resultStats.className = swordOnlyWin ? "result-stats sword-result-wrap" : "result-stats normal-result-wrap";
     ui.resultTitle.hidden = swordOnlyWin;
     ui.resultEyebrow.textContent = swordOnlyWin ? "圣剑独行" : win ? "绩点保住了" : "期末结算";
     ui.resultTitle.textContent = swordOnlyWin ? "一柄圣剑，斩过三位一体" : win ? "恭喜通过期末考试！" : "很遗憾，你挂科了。";
     ui.resultStats.innerHTML = swordOnlyWin
       ? swordOnlyResultMarkup(scoreDetails, score, seconds, player)
-      : resultStatMarkup([
-        ["基础分", scoreDetails ? `+${scoreDetails.bossClear}` : "-"],
-        ["路线分", scoreDetails ? `+${scoreDetails.routeScore}` : "-"],
-        ["挑战分", scoreDetails ? `+${scoreDetails.challengeScore}` : "-"],
-        ["击败分", scoreDetails ? `+${scoreDetails.killScore}` : "-"],
-        ["构筑分", scoreDetails ? `+${scoreDetails.buildScore}` : "-"],
-        ["生命分", scoreDetails ? `+${scoreDetails.hpScore}` : "-"],
-        ["击败小怪", `${game.kills}`],
-        ["完成房间", `${scoreDetails?.roomCount ?? completedRoomNames().length} / 6`],
-        ["剩余生命", `${Math.max(0, Math.ceil(player.hp))} / ${player.maxHp}`],
-        ["战斗用时", `${seconds} 秒`],
-        ["速度修正", speedText],
-        ["圣剑通关", scoreDetails?.swordOnly ? "是" : "否"],
-        ["圣剑奖励", scoreDetails?.swordOnly ? `+${scoreDetails.swordBonus}` : "-"],
-        ["最终评分", `${score}`],
-    ]);
+      : normalResultMarkup(Boolean(win), scoreDetails, score, seconds, player);
     hideLeaderboardNameForm();
     const statsEntry = makeRunStatsEntry(Boolean(win), score, seconds, scoreDetails);
     const canSaveRunStats = !game.developerModeUsed;
@@ -4284,7 +5117,7 @@
   }
 
   function enemyDamageMultiplier(enemy) {
-    let multiplier = 1;
+    let multiplier = betaDifficultyValue("damageScale", 1) * (enemy?.eliteRoom ? 1.08 : 1);
     if (hasEnemyMechanic(enemy, "gaussHalfField") && enemyInTopHalf(enemy)) {
       multiplier *= 2;
     }
@@ -4299,6 +5132,9 @@
     if (hasEnemyMechanic(enemy, "lhopitalBlade") && (!enemy.lhopitalInitialized || (enemy.lhopitalInvincibleTimer || 0) > 0)) {
       return 0;
     }
+    if (hasEnemyMechanic(enemy, "dashScatter") && ((enemy.euclidInvisible || 0) > 0 || (enemy.euclidFreezeTimer || 0) > 0)) {
+      return 0;
+    }
     if (hasEnemyMechanic(enemy, "lhopitalBlade") && (enemy.lhopitalRestTimer || 0) > 0) {
       multiplier *= 0.25;
     }
@@ -4308,10 +5144,28 @@
     if (hasEnemyMechanic(enemy, "gaussHalfField") && enemyInTopHalf(enemy)) {
       multiplier *= 0.5;
     }
+    if (linearSynergyGuardActive(enemy)) {
+      multiplier *= linearSynergyGuardMultiplier(enemy);
+    }
     if ((enemy.staggerTimer || 0) > 0) {
       multiplier *= staggerDamageMultiplier;
     }
     return multiplier;
+  }
+
+  function linearSynergyGuardActive(enemy) {
+    const state = game.knowledgeSynergy;
+    if (!enemy || state?.kind !== "linear" || !state.enemyIds?.includes(enemy.id)) return false;
+    if ((state.pauseTimer || 0) > 0 || (state.disabledTimer || 0) > 0 || enemy.synergyPivot) return false;
+    const pivot = enemyById(state.pivotEnemyId);
+    if (!pivot || pivot === enemy || (pivot.staggerTimer || 0) > 0) return false;
+    return distance(enemy, pivot) <= linearPivotGuardRadius;
+  }
+
+  function linearSynergyGuardMultiplier(enemy) {
+    const state = game.knowledgeSynergy;
+    const livingCount = linkedKnowledgeEnemies(state).length;
+    return state?.tier >= 3 && livingCount >= 3 ? linearPivotGuardMultiplier : linearPivotGuardMultiplierTwo;
   }
 
   function enemyById(id) {
@@ -4402,12 +5256,17 @@
       : Math.abs(player.y - laser.y) <= player.r + halfWidth;
   }
 
+  function lhopitalSlashDistance() {
+    return Math.min(430, Math.max(240, arena.width * 0.5));
+  }
+
   function beginLhopitalSlash(enemy) {
     const player = game.player || enemy;
     const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+    const dashDistance = lhopitalSlashDistance();
     const target = arenaPoint(
-      enemy.x + Math.cos(angle) * 86,
-      enemy.y + Math.sin(angle) * 86,
+      enemy.x + Math.cos(angle) * dashDistance,
+      enemy.y + Math.sin(angle) * dashDistance,
       38
     );
     enemy.lhopitalSlashAngle = angle;
@@ -4423,8 +5282,9 @@
   function startLhopitalSlash(enemy) {
     enemy.lhopitalSlashFromX = enemy.x;
     enemy.lhopitalSlashFromY = enemy.y;
-    enemy.lhopitalSlashActiveTimer = 0.24;
-    enemy.lhopitalSlashActiveMax = 0.24;
+    const dist = Math.hypot((enemy.lhopitalSlashTargetX || enemy.x) - enemy.x, (enemy.lhopitalSlashTargetY || enemy.y) - enemy.y);
+    enemy.lhopitalSlashActiveTimer = clamp(dist / 980, 0.26, 0.46);
+    enemy.lhopitalSlashActiveMax = enemy.lhopitalSlashActiveTimer;
     enemy.lhopitalTrailTimer = 0;
   }
 
@@ -4560,35 +5420,44 @@
     enemy.baseX = enemy.x;
     enemy.baseY = enemy.y;
     enemy.moveT = 0;
-    if (enemy.archimedesDashFromWall) {
-      enemy.archimedesWallDashCount = (enemy.archimedesWallDashCount || 0) + 1;
-    } else {
-      enemy.archimedesWallDashCount = 0;
-    }
+    enemy.archimedesDashTimer = archimedesDashInterval;
     enemy.archimedesRecoveryTimer = 0.85;
     enemy.counterWindowTimer = Math.max(enemy.counterWindowTimer || 0, 0.85);
   }
 
-  function updateArchimedesMarkDash(enemy, dt) {
-    if (!hasEnemyMechanic(enemy, "archimedesMarkDash")) return;
-    if ((enemy.archimedesDashActiveTimer || 0) > 0) return;
-    if ((enemy.archimedesDashWarnTimer || 0) > 0) {
-      enemy.archimedesDashWarnTimer = Math.max(0, enemy.archimedesDashWarnTimer - dt);
-      if (enemy.archimedesDashWarnTimer <= 0) startArchimedesDash(enemy);
+  function fireArchimedesSquareVolley(enemy) {
+    const start = Math.random() * Math.PI * 2;
+    for (let i = 0; i < archimedesSquareVolleyCount; i += 1) {
+      const angle = start + (Math.PI * 2 * i) / archimedesSquareVolleyCount;
+      fireEnemyShot(enemy, enemy.x, enemy.y, angle, 118 + (i % 2) * 18, 7.8, enemy.color || colors.cyan, {
+        r: 5.8,
+        shape: "square",
+        life: 3.4,
+        weaponSeal: true,
+        weaponSealSourceId: enemy.id,
+      });
     }
   }
 
-  function markArchimedesDashTarget(shot, obstacle) {
-    if (!shot?.archimedesMark) return false;
-    const enemy = enemyById(shot.ownerId);
-    if (!enemy || enemy.defeated || !hasEnemyMechanic(enemy, "archimedesMarkDash")) return false;
-    const center = obstacleCenter(obstacle);
-    obstacle.marked = true;
-    obstacle.markTimer = archimedesDashWarning;
-    obstacle.maxMarkTimer = archimedesDashWarning;
-    scheduleArchimedesDash(enemy, center, true);
-    burst(center.x, center.y, enemy.color || colors.cyan, 12);
-    return true;
+  function updateArchimedesMarkDash(enemy, dt) {
+    if (!hasEnemyMechanic(enemy, "archimedesMarkDash")) return;
+    if ((enemy.archimedesDashActiveTimer || 0) > 0 || (enemy.archimedesRecoveryTimer || 0) > 0) return;
+    if ((enemy.archimedesDashWarnTimer || 0) > 0) {
+      enemy.archimedesDashWarnTimer = Math.max(0, enemy.archimedesDashWarnTimer - dt);
+      if (enemy.archimedesDashWarnTimer <= 0) startArchimedesDash(enemy);
+      return;
+    }
+    enemy.archimedesDashTimer = enemy.archimedesDashTimer == null
+      ? archimedesDashInterval
+      : enemy.archimedesDashTimer - dt;
+    if (enemy.archimedesDashTimer <= 0) {
+      if (!canSpendEncounterPressure(enemy, 1.12)) {
+        enemy.archimedesDashTimer = 0.2 + Math.random() * 0.18;
+        return;
+      }
+      spendEncounterPressure(enemy, 1.12);
+      scheduleArchimedesDash(enemy, { x: game.player.x, y: game.player.y }, false, archimedesDashWarning);
+    }
   }
 
   function scheduleJacobiVolley(enemy, damageMultiplier = 1) {
@@ -4728,66 +5597,74 @@
 
   function updateDashScatter(enemy, dt) {
     if (!hasEnemyMechanic(enemy, "dashScatter")) return;
-    if (enemy.dashWarnTimer > 0) {
-      enemy.dashWarnTimer -= dt;
-      if (enemy.dashWarnTimer <= 0) {
-        enemy.dashFromX = enemy.x;
-        enemy.dashFromY = enemy.y;
-        enemy.dashActiveTimer = 0.34;
-        enemy.dashActiveMax = 0.34;
-        enemy.dashTrailTimer = 0;
-        enemy.dashHitPlayer = false;
-        fireEuclidDashVolley(enemy);
-      }
+    if ((enemy.dashActiveTimer || 0) > 0) return;
+    if ((enemy.euclidFreezeTimer || 0) > 0) {
+      enemy.euclidFreezeTimer = Math.max(0, enemy.euclidFreezeTimer - dt);
+      enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.18);
+      if (enemy.euclidFreezeTimer <= 0) startEuclidStrike(enemy);
       return;
     }
-    if ((enemy.dashActiveTimer || 0) > 0) return;
-    if (enemy.dashSequenceRemaining > 0) return;
-    const dashIntervalMultiplier = enemy.dashIntervalMultiplier || 1;
-    if (enemy.dashTimer == null) enemy.dashTimer = 3.0 * dashIntervalMultiplier;
-    enemy.dashTimer -= dt;
+    enemy.dashTimer = enemy.dashTimer == null
+      ? euclidBlinkInterval
+      : enemy.dashTimer - dt;
     if (enemy.dashTimer <= 0) {
-      if (!canSpendEncounterPressure(enemy, 1.05)) {
-        enemy.dashTimer = 0.18 + Math.random() * 0.16;
+      if (!canSpendEncounterPressure(enemy, 1.08)) {
+        enemy.dashTimer = 0.2 + Math.random() * 0.16;
         return;
       }
-      spendEncounterPressure(enemy, 1.05);
-      enemy.dashSequenceRemaining = 2;
-      enemy.dashSequenceDirection = Math.random() < 0.5 ? -1 : 1;
-      queueEuclidDashStep(enemy, 0.58);
+      spendEncounterPressure(enemy, 1.08);
+      blinkEuclidNearPlayer(enemy);
     }
   }
 
-  function queueEuclidDashStep(enemy, warningTime = 0.38) {
-    const player = game.player;
-    const baseAngle = player ? Math.atan2(player.y - enemy.y, player.x - enemy.x) : enemy.facingAngle || 0;
-    const sideAngle = baseAngle + (enemy.dashSequenceDirection || 1) * Math.PI / 2;
-    const target = arenaPoint(
-      enemy.x + Math.cos(baseAngle) * 38 + Math.cos(sideAngle) * 112,
-      enemy.y + Math.sin(baseAngle) * 38 + Math.sin(sideAngle) * 112,
-      36
-    );
-    enemy.facingAngle = baseAngle;
+  function euclidBlinkPoint(enemy) {
+    const player = game.player || enemy;
+    const base = Math.atan2(enemy.y - player.y, enemy.x - player.x);
+    let best = arenaPoint(player.x + Math.cos(base) * 120, player.y + Math.sin(base) * 120, 38);
+    let bestDistance = distance(best, player);
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const angle = base + (Math.random() - 0.5) * Math.PI * 1.4;
+      const radius = 92 + Math.random() * 58;
+      const candidate = arenaPoint(player.x + Math.cos(angle) * radius, player.y + Math.sin(angle) * radius, 38);
+      const candidateDistance = distance(candidate, player);
+      if (candidateDistance > bestDistance) {
+        best = candidate;
+        bestDistance = candidateDistance;
+      }
+    }
+    return best;
+  }
+
+  function blinkEuclidNearPlayer(enemy) {
+    const point = euclidBlinkPoint(enemy);
+    enemy.euclidInvisible = 0;
+    enemy.euclidFreezeTimer = euclidFreezeDuration;
+    enemy.x = point.x;
+    enemy.y = point.y;
+    enemy.baseX = point.x;
+    enemy.baseY = point.y;
+    enemy.moveT = 0;
+    enemy.dashTimer = euclidBlinkInterval;
+    enemy.dashHitPlayer = false;
+    enemy.facingAngle = Math.atan2((game.player?.y || enemy.y) - enemy.y, (game.player?.x || enemy.x) - enemy.x);
+    enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, euclidFreezeDuration);
+    burst(enemy.x, enemy.y, enemy.color || colors.cyan, 18);
+  }
+
+  function startEuclidStrike(enemy) {
+    const player = game.player || enemy;
+    const target = arenaPoint(player.x, player.y, 36);
+    const dist = Math.max(1, distance(enemy, target));
+    enemy.dashFromX = enemy.x;
+    enemy.dashFromY = enemy.y;
     enemy.dashTargetX = target.x;
     enemy.dashTargetY = target.y;
-    enemy.dashWarnTimer = warningTime;
-    enemy.dashWarnMax = warningTime;
-  }
-
-  function fireEuclidDashVolley(enemy) {
-    const base = enemy.facingAngle || 0;
-    const squareSlots = new Set([1, 4, 7].map((slot) => (slot + Math.floor(Math.random() * 10)) % 10));
-    for (let i = 0; i < 10; i += 1) {
-      const square = squareSlots.has(i);
-      const angle = base + (Math.PI * 2 * i) / 10;
-      fireEnemyShot(enemy, enemy.x, enemy.y, angle, square ? 142 : 126, square ? 8.5 : 6.5, enemy.color, {
-        r: square ? 7 : 4.5,
-        shape: square ? "square" : "circle",
-        weaponSeal: square,
-        weaponSealSourceId: square ? enemy.id : "",
-        life: 3.1,
-      });
-    }
+    enemy.dashActiveTimer = clamp(dist / 700, 0.22, 0.5);
+    enemy.dashActiveMax = enemy.dashActiveTimer;
+    enemy.dashTrailTimer = 0;
+    enemy.dashHitPlayer = false;
+    enemy.facingAngle = Math.atan2(target.y - enemy.y, target.x - enemy.x);
+    burst(enemy.x, enemy.y, enemy.color || colors.cyan, 10);
   }
 
   function updateGaussHalfField(enemy, dt) {
@@ -4941,6 +5818,266 @@
     updateJacobiBackBlink(enemy, dt);
     updateJordanDomain(enemy, dt);
     updateJordanHalfSlash(enemy, dt);
+    updateBetaShopGuard(enemy, dt);
+    updateBetaDifficultyMechanics(enemy, dt);
+  }
+
+  function updateBetaShopGuard(enemy, dt) {
+    if (!hasEnemyMechanic(enemy, "shopGuard") || enemy.defeated) return;
+    const level = Math.max(1, enemy.betaMechanicLevel || betaDifficultyMechanicLevel());
+    enemy.shopTaxTimer = (enemy.shopTaxTimer ?? betaShopGuardTaxInitial) - dt;
+    if (enemy.shopTaxTimer <= 0) {
+      enemy.shopTaxTimer = Math.max(2.05, betaShopGuardTaxReset - level * 0.36);
+      fireBetaPressureRing(enemy, 10 + level * 3);
+      showGuideOnce("shopTax", "商人不会扣学分，但会周期性释放账单弹幕。", 3.2);
+    }
+    enemy.shopPressureTimer = (enemy.shopPressureTimer ?? betaShopGuardPressureInitial) - dt;
+    if (enemy.shopPressureTimer <= 0) {
+      enemy.shopPressureTimer = Math.max(1.35, betaShopGuardPressureReset - level * 0.2);
+      fireBetaShopInvoiceTrap(enemy);
+    }
+    if (enemyHpRatio(enemy) <= 0.45 && !enemy.shopEnrage) {
+      enemy.shopEnrage = true;
+      enemy.fireEvery *= 0.68;
+      enemy.moveSpeed *= 1.18;
+      enemy.shopTaxTimer = Math.min(enemy.shopTaxTimer || 2, 1.15);
+      enemy.shopPressureTimer = Math.min(enemy.shopPressureTimer || 2, 0.75);
+      enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.8);
+      burst(enemy.x, enemy.y, enemy.color || colors.warning, 34);
+    }
+  }
+
+  function fireBetaShopInvoiceTrap(enemy) {
+    const player = game.player || enemy;
+    const level = Math.max(1, enemy.betaMechanicLevel || betaDifficultyMechanicLevel());
+    const baseAngle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+    const offsets = enemy.shopEnrage || level >= 3 ? [-0.34, -0.14, 0.14, 0.34] : [-0.22, 0, 0.22];
+    offsets.forEach((offset, index) => {
+      fireEnemyShot(enemy, enemy.x, enemy.y, baseAngle + offset, 136 + level * 14, 6.4 + level * 1.15, enemy.color || colors.warning, {
+        r: 5.8,
+        shape: "square",
+        label: "$",
+        pattern: "curve",
+        curveAmp: 16 + level * 4,
+        curveFreq: 3.4 + level * 0.25,
+        curvePhase: Math.random() * Math.PI,
+        side: index % 2 === 0 ? 1 : -1,
+        life: 4.0,
+        wallSplit: enemy.shopEnrage || level >= 2,
+        wallSplitDepth: 1,
+      });
+    });
+  }
+
+  function fireBetaFocusShot(enemy) {
+    const player = game.player || enemy;
+    const baseAngle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+    const level = Math.max(1, enemy.betaMechanicLevel || betaDifficultyMechanicLevel());
+    const count = level >= 3 ? 3 : level >= 2 ? 2 : 1;
+    for (let i = 0; i < count; i += 1) {
+      const offset = count === 1 ? 0 : (i - (count - 1) / 2) * 0.18;
+      fireEnemyShot(enemy, enemy.x, enemy.y, baseAngle + offset, 138 + level * 12, 6.5 + level * 1.3, enemy.color || colors.warning, {
+        r: 5 + level * 0.6,
+        life: 4.0,
+        shape: level >= 2 ? "square" : "circle",
+        label: level >= 2 ? "!" : "",
+      });
+    }
+  }
+
+  function fireBetaPressureRing(enemy, count = 8) {
+    const level = Math.max(1, enemy.betaMechanicLevel || betaDifficultyMechanicLevel());
+    const start = Math.random() * Math.PI * 2;
+    for (let i = 0; i < count; i += 1) {
+      fireEnemyShot(enemy, enemy.x, enemy.y, start + (Math.PI * 2 * i) / count, 96 + level * 8, 5.5 + level, enemy.color || colors.warning, {
+        r: 4.5,
+        life: 4.4,
+        pattern: "curve",
+        curveAmp: 12 + level * 3,
+        curveFreq: 2.2,
+      });
+    }
+    burst(enemy.x, enemy.y, enemy.color || colors.warning, 18 + count);
+  }
+
+  function betaExtraProjectileEligible(enemy) {
+    if (!enemy || enemy.defeated || enemy.splitChild || enemy.bossProjection || isDeveloperCustomRoom()) return false;
+    if (hasEnemyMechanic(enemy, "shopGuard")) return true;
+    if (
+      hasEnemyMechanic(enemy, "lhopitalBlade") ||
+      hasEnemyMechanic(enemy, "taylorTripleDash") ||
+      hasEnemyMechanic(enemy, "dashScatter") ||
+      hasEnemyMechanic(enemy, "archimedesMarkDash")
+    ) {
+      return false;
+    }
+    const roles = enemyRoles(enemy);
+    if (roles.includes("melee") || roles.includes("charger") || roles.includes("chaser")) return false;
+    return roles.includes("ranged") || roles.includes("controller") || roles.includes("summoner") || roles.includes("elite");
+  }
+
+  function finalBetaEnemyEligible(enemy) {
+    return (
+      isFinalBetaDifficulty() &&
+      (enemy.betaMechanicLevel || 0) >= 3 &&
+      betaExtraProjectileEligible(enemy)
+    );
+  }
+
+  function beginFinalEnemyPursuit(enemy, warning = finalEnemyPursuitWarning, revenge = false) {
+    const player = game.player || enemy;
+    const speedLead = revenge ? 10 : 16;
+    const target = arenaPoint(
+      player.x + ((player.vx || 0) * speedLead),
+      player.y + ((player.vy || 0) * speedLead),
+      34
+    );
+    enemy.finalPursuitTargetX = target.x;
+    enemy.finalPursuitTargetY = target.y;
+    enemy.finalPursuitWarnTimer = warning;
+    enemy.finalPursuitWarnMax = warning;
+    enemy.finalPursuitRevenge = revenge;
+    enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.22);
+  }
+
+  function fireFinalEnemyPursuit(enemy) {
+    const tx = enemy.finalPursuitTargetX ?? game.player?.x ?? enemy.x;
+    const ty = enemy.finalPursuitTargetY ?? game.player?.y ?? enemy.y;
+    const angle = Math.atan2(ty - enemy.y, tx - enemy.x);
+    const revenge = Boolean(enemy.finalPursuitRevenge);
+    fireEnemyShot(enemy, enemy.x, enemy.y, angle, revenge ? 178 : 188, revenge ? 8.4 : 9.2, enemy.color || colors.warning, {
+      r: revenge ? 5.2 : 5.8,
+      life: 3.9,
+      shape: "square",
+      pulse: 0.35,
+    });
+    if (!revenge) {
+      fireEnemyShot(enemy, enemy.x, enemy.y, angle + 0.16, 132, 6.2, enemy.color || colors.warning, {
+        r: 4.3,
+        life: 3.4,
+        pattern: "curve",
+        curveAmp: 16,
+        curveFreq: 2.1,
+        curvePhase: 0.8,
+      });
+      fireEnemyShot(enemy, enemy.x, enemy.y, angle - 0.16, 132, 6.2, enemy.color || colors.warning, {
+        r: 4.3,
+        life: 3.4,
+        pattern: "curve",
+        curveAmp: 16,
+        curveFreq: 2.1,
+        curvePhase: 2.2,
+      });
+    }
+    enemy.counterWindowTimer = Math.max(enemy.counterWindowTimer || 0, revenge ? 0.42 : 0.62);
+    enemy.finalPursuitRevenge = false;
+    burst(enemy.x, enemy.y, enemy.color || colors.warning, revenge ? 12 : 18);
+  }
+
+  function triggerFinalEnemyResolve(enemy) {
+    if (enemy.finalResolveTriggered || !finalBetaEnemyEligible(enemy)) return;
+    enemy.finalResolveTriggered = true;
+    enemy.finalResolveWarnTimer = finalEnemyResolveWarning;
+    enemy.finalResolveWarnMax = finalEnemyResolveWarning;
+    enemy.fireTimer = Math.max(enemy.fireTimer || 0, finalEnemyResolveWarning);
+    enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.7);
+    burst(enemy.x, enemy.y, enemy.color || colors.warning, 24);
+  }
+
+  function finishFinalEnemyResolve(enemy) {
+    if (enemy.finalResolveActive) return;
+    enemy.finalResolveActive = true;
+    enemy.moveSpeed *= 1.08;
+    enemy.fireEvery *= 0.88;
+    enemy.staggerMax = Math.max(enemy.staggerMax || 30, Math.round((enemy.staggerMax || 30) * 1.08));
+    enemy.stagger = Math.min(enemy.stagger || 0, (enemy.staggerMax || 30) * 0.45);
+    fireBetaPressureRing(enemy, 10);
+    beginFinalEnemyPursuit(enemy, finalEnemyPursuitWarning + 0.12, false);
+  }
+
+  function updateFinalBetaEnemyMechanics(enemy, dt) {
+    if (!finalBetaEnemyEligible(enemy)) return false;
+
+    if ((enemy.finalResolveWarnTimer || 0) > 0) {
+      enemy.finalResolveWarnTimer = Math.max(0, (enemy.finalResolveWarnTimer || 0) - dt);
+      enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.2);
+      if (enemy.finalResolveWarnTimer <= 0) finishFinalEnemyResolve(enemy);
+      return true;
+    }
+
+    if ((enemy.finalPursuitWarnTimer || 0) > 0) {
+      enemy.finalPursuitWarnTimer = Math.max(0, (enemy.finalPursuitWarnTimer || 0) - dt);
+      if (enemy.finalPursuitWarnTimer <= 0) fireFinalEnemyPursuit(enemy);
+      return true;
+    }
+
+    if (enemyHpRatio(enemy) <= 0.62) {
+      triggerFinalEnemyResolve(enemy);
+      return true;
+    }
+
+    enemy.finalPursuitTimer = enemy.finalPursuitTimer == null
+      ? finalEnemyPursuitInterval + Math.random() * 1.2
+      : enemy.finalPursuitTimer - dt;
+    if (enemy.finalPursuitTimer <= 0) {
+      if (canSpendEncounterPressure(enemy, 0.92)) {
+        spendEncounterPressure(enemy, 0.92);
+        beginFinalEnemyPursuit(enemy);
+        enemy.finalPursuitTimer = finalEnemyPursuitInterval + Math.random() * 1.1;
+      } else {
+        enemy.finalPursuitTimer = 0.24 + Math.random() * 0.18;
+      }
+    }
+    return false;
+  }
+
+  function queueFinalEnemyRevenge(defeatedEnemy) {
+    if (!isFinalBetaDifficulty() || !defeatedEnemy || defeatedEnemy.splitChild || defeatedEnemy.bossProjection || isDeveloperCustomRoom()) return;
+    if ((defeatedEnemy.betaMechanicLevel || 0) < 3) return;
+    const survivors = game.enemies.filter((enemy) => (
+      enemy !== defeatedEnemy &&
+      !enemy.defeated &&
+      !enemy.splitChild &&
+      !enemy.bossProjection &&
+      (enemy.betaMechanicLevel || 0) >= 3 &&
+      (enemy.staggerTimer || 0) <= 0
+    ));
+    survivors.slice(0, 3).forEach((enemy, index) => {
+      beginFinalEnemyPursuit(enemy, finalEnemyRevengeWarning + index * 0.08, true);
+      enemy.finalPursuitTimer = Math.max(enemy.finalPursuitTimer || 0, finalEnemyPursuitInterval);
+    });
+  }
+
+  function updateBetaDifficultyMechanics(enemy, dt) {
+    const level = enemy.betaMechanicLevel || 0;
+    if (!level || enemy.splitChild || enemy.bossProjection || enemy.defeated) return;
+    if (updateFinalBetaEnemyMechanics(enemy, dt)) return;
+    if (!betaExtraProjectileEligible(enemy)) return;
+    if ((enemy.betaPulseWarnTimer || 0) > 0) {
+      enemy.betaPulseWarnTimer = Math.max(0, (enemy.betaPulseWarnTimer || 0) - dt);
+      if (enemy.betaPulseWarnTimer <= 0) fireBetaFocusShot(enemy);
+      return;
+    }
+    if (enemy.betaPulseTimer == null) {
+      enemy.betaPulseTimer = Math.max(2.4, 7.4 - level * 0.9 + Math.random() * 1.2);
+    }
+    enemy.betaPulseTimer -= dt;
+    if (enemy.betaPulseTimer <= 0) {
+      if (canSpendEncounterPressure(enemy, 0.78 + level * 0.08)) {
+        spendEncounterPressure(enemy, 0.78 + level * 0.08);
+        enemy.betaPulseWarnTimer = 0.5;
+        enemy.betaPulseWarnMax = 0.5;
+        enemy.betaPulseTimer = Math.max(2.4, 7.2 - level * 0.9 + Math.random() * 1.0);
+        enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.22);
+      } else {
+        enemy.betaPulseTimer = 0.22 + Math.random() * 0.18;
+      }
+    }
+    if (level >= 2 && !enemy.betaHalfBurstDone && enemyHpRatio(enemy) <= 0.5) {
+      enemy.betaHalfBurstDone = true;
+      enemy.fireTimer = Math.max(enemy.fireTimer || 0, 0.58);
+      fireBetaPressureRing(enemy, level >= 3 ? 12 : 8);
+    }
   }
 
   function spawnDashTrail(enemy) {
@@ -5041,22 +6178,22 @@
         applyPlayerDamage(scaledIncomingDamage(15 * enemyDamageMultiplier(enemy)), enemy.color || colors.cyan);
         player.invuln = Math.max(player.invuln, 0.75);
         enemy.dashHitPlayer = true;
-        sealPlayerNonGeometryWeapons(weaponSealDuration);
       }
       if (enemy.dashActiveTimer <= 0) {
         enemy.baseX = enemy.x;
         enemy.baseY = enemy.y;
         enemy.moveT = 0;
-        if (hasEnemyMechanic(enemy, "dashScatter") && (enemy.dashSequenceRemaining || 0) > 1) {
-          enemy.dashSequenceRemaining -= 1;
-          enemy.dashSequenceDirection = -(enemy.dashSequenceDirection || 1);
-          queueEuclidDashStep(enemy, 0.26);
-        } else if (hasEnemyMechanic(enemy, "dashScatter")) {
-          enemy.dashSequenceRemaining = 0;
-          enemy.dashTimer = 3.0;
-          enemy.counterWindowTimer = Math.max(enemy.counterWindowTimer || 0, 0.95);
+        if (hasEnemyMechanic(enemy, "dashScatter")) {
+          enemy.euclidInvisible = 1;
+          enemy.dashTimer = euclidBlinkInterval;
+          enemy.counterWindowTimer = 0;
         }
       }
+      return;
+    }
+    if ((enemy.euclidInvisible || 0) > 0 || (enemy.euclidFreezeTimer || 0) > 0) {
+      enemy.x = enemy.baseX;
+      enemy.y = enemy.baseY;
       return;
     }
     if ((enemy.taylorRestTimer || 0) > 0) {
@@ -5176,6 +6313,10 @@
 
   function defeatEnemy(enemy) {
     triggerGaussDeathBeams(enemy);
+    if (betaDifficultyMechanicLevel() >= 3 && !enemy.splitChild && !enemy.bossProjection && !isDeveloperCustomRoom()) {
+      fireBetaPressureRing(enemy, 6);
+    }
+    queueFinalEnemyRevenge(enemy);
     const didSplit = spawnSplitEnemies(enemy);
     enemy.defeated = true;
     if (
@@ -5183,9 +6324,9 @@
       !isDeveloperCustomRoom() &&
       !enemy.splitChild &&
       !enemy.bossProjection &&
-      enemy.rewardWeapon
+      enemy.kind
     ) {
-      game.roomWeaponDrops.push(enemy.rewardWeapon);
+      game.roomRewardKinds.push(enemy.kind);
     }
     clearWeaponSealFromSource(enemy.id);
     game.kills += 1;
@@ -5203,12 +6344,36 @@
     return true;
   }
 
+  function completeBetaShopRaid(count = 1) {
+    const player = game.player;
+    if (game.activeRoomKey) {
+      game.completed[game.activeRoomKey] = true;
+      game.roomChallengeCounts[game.activeRoomKey] = count;
+    }
+    if (player) {
+      player.weaponSealSourceId = "";
+      player.weaponSealTimer = 0;
+    }
+    const shop = ensureBetaBossShopStock();
+    game.betaShopRaid = {
+      ...(game.betaShopRaid || {}),
+      started: true,
+      completed: true,
+      freeClaim: true,
+      refreshLocked: true,
+    };
+    shop.message = "商人已让步：本轮在售商品全部免费领取。也可以不拿，直接开始 Boss 战。";
+    enterMap("商人已让步，商店库存免费开放。");
+    openModal("betaShop");
+  }
+
   function updateMonsterRoom(dt) {
     if (!game.enemies.length) {
       tryCompleteMonsterChallenge(dt);
       return;
     }
     updateEncounterDirector(dt);
+    updateKnowledgeRoomSynergy(dt);
 
     game.enemies.forEach((enemy) => {
       if (enemy.defeated) return;
@@ -5268,22 +6433,38 @@
     const reward = game.roomReward || {};
     const player = game.player;
     const count = clamp(game.challengeCount || 1, 1, 3);
+    if (reward.specialReward === "shopRaid") {
+      completeBetaShopRaid(count);
+      return;
+    }
 
     game.completed[game.activeRoomKey] = true;
     game.roomChallengeCounts[game.activeRoomKey] = count;
     player.weaponSealSourceId = "";
     player.weaponSealTimer = 0;
 
-    const rewardWeapons = game.roomWeaponDrops.filter(Boolean).slice(0, count);
-    if (!rewardWeapons.length && reward.weapon) {
-      rewardWeapons.push(reward.weapon);
+    const rewardKinds = Array.isArray(reward.rewardKinds) && reward.rewardKinds.length
+      ? reward.rewardKinds
+      : game.roomRewardKinds.length
+        ? game.roomRewardKinds
+        : [reward.knowledgeKind].filter(Boolean);
+    const rewardWeapons = randomRewardWeaponsForKinds(rewardKinds, count);
+    if (!rewardWeapons.length && reward.knowledgeKind) {
+      rewardWeapons.push(...randomRewardWeaponsForKinds([reward.knowledgeKind], 1));
     }
-    const rewardBuffs = count >= 2 ? [pickChestBuff()].filter(Boolean) : [];
-    const rewardBonusLevels = count >= 3 ? 1 : 0;
+    const betaBuffChance = isBetaVersion() ? Number(betaDifficulty()?.oneRoomBuffChance || 0) : 0;
+    const shouldOfferBuff = count >= 2 || reward.eliteRoom || reward.specialReward === "shopRaid" || (isBetaVersion() && Math.random() < betaBuffChance);
+    const buffSlotCount = shouldOfferBuff && isBetaVersion() && betaDifficultyMechanicLevel() >= 2 && count <= 2 ? 2 : shouldOfferBuff ? 1 : 0;
+    const rewardBuffs = shouldOfferBuff ? sampleUnique(buffRewardIds, buffSlotCount).filter(Boolean) : [];
+    const rewardWeaponBonusLevels = (count >= 3 ? 1 : 0) + (reward.eliteRoom ? 1 : 0);
+    const rewardBuffBonusLevels = (count >= 3 ? 1 : 0) + betaRewardBuffBonus() + (reward.eliteRoom ? 1 : 0);
     const passiveChoice = createChallengePassiveChoice(count);
-    const weaponNames = rewardWeapons.map((id) => rewardWeaponDisplayName(id, rewardBonusLevels));
-    const buffNames = rewardBuffs.map((id) => rewardBuffDisplayName(id, rewardBonusLevels));
+    const weaponNames = rewardWeapons.map((id) => rewardWeaponDisplayName(id, rewardWeaponBonusLevels));
+    const buffNames = rewardBuffs.map((id) => rewardBuffDisplayName(id, rewardBuffBonusLevels));
     awardBetaKnowledgeCredits(game.activeRoomKey, count);
+    if (reward.eliteRoom) {
+      game.credits = Math.max(0, Math.round(Number(game.credits || 0))) + 2 + betaCreditBonus();
+    }
     const optionCount = rewardWeapons.length + rewardBuffs.length;
     const rewardPickText = optionCount
       ? "请从下方选择一项作为奖励。"
@@ -5300,8 +6481,8 @@
           weaponIds: rewardWeapons,
           buffIds: rewardBuffs,
           allowWeaponWithBuff: false,
-          weaponBonusLevels: rewardBonusLevels,
-          buffBonusLevels: rewardBonusLevels,
+          weaponBonusLevels: rewardWeaponBonusLevels,
+          buffBonusLevels: rewardBuffBonusLevels,
           title: `奖励掉落：${[...weaponNames, ...buffNames].join(" / ")}`,
           introText: rewardIntroText,
           confirmLabel: "确认",
@@ -5356,18 +6537,31 @@
       }
       return;
     }
-    if (enemy.pattern === "archimedesTriangle") {
-      if ((enemy.archimedesDashWarnTimer || 0) > 0 || (enemy.archimedesDashActiveTimer || 0) > 0) return;
-      if ((enemy.archimedesWallDashCount || 0) >= archimedesWallDashLimit) {
-        scheduleArchimedesDash(enemy, { x: game.player.x, y: game.player.y }, false, archimedesPlayerLockWarning);
-        return;
+    if (enemy.pattern === "shopGuard") {
+      const level = Math.max(1, betaDifficultyMechanicLevel());
+      for (let i = -3; i <= 3; i += 1) {
+        const outer = Math.abs(i) === 3;
+        fire(enemy.x, enemy.y, baseAngle + i * 0.15, 184 + Math.abs(i) * 16, 8.6 + level * 1.05, enemy.color, {
+          r: i === 0 ? 7.2 : outer ? 5.6 : 5,
+          shape: i === 0 || outer ? "square" : "circle",
+          label: i === 0 ? "$" : "",
+          life: 4.2,
+          pattern: outer ? "curve" : "straight",
+          curveAmp: outer ? 13 + level * 2 : 0,
+          curveFreq: 4.1,
+          curvePhase: i,
+          side: i < 0 ? -1 : 1,
+          wallSplit: outer && (enemy.shopEnrage || level >= 2),
+          wallSplitDepth: 1,
+        });
       }
-      fire(enemy.x, enemy.y, baseAngle, 298, 10.5, enemy.color, {
-        shape: "triangle",
-        r: 8,
-        life: 3.0,
-        archimedesMark: true,
-      });
+      if (enemyHpRatio(enemy) <= 0.55) {
+        fireBetaPressureRing(enemy, 12 + level * 3);
+      }
+      return;
+    }
+    if (enemy.pattern === "archimedesTriangle") {
+      fireArchimedesSquareVolley(enemy);
       return;
     }
     if (enemy.pattern === "axisLaser") {
@@ -6131,7 +7325,7 @@
   }
 
   function bossAttackDamage(core, baseDamage) {
-    return baseDamage * (core?.domainDamageMultiplier || 1) * (core?.fullPowerDamageMultiplier || 1);
+    return baseDamage * (core?.domainDamageMultiplier || 1) * (core?.fullPowerDamageMultiplier || 1) * betaDifficultyValue("damageScale", 1);
   }
 
   function restoreCoreToQuarter(core, minimumRatio = 0.25) {
@@ -6548,9 +7742,6 @@
     if (shot.cauchyMarksWall) {
       decorateCauchyDomainWall(obstacle);
     }
-    if (shot.archimedesMark) {
-      markArchimedesDashTarget(shot, obstacle);
-    }
     if (shot.wallSplit && (shot.wallSplitDepth || 0) > 0 && !shot.wallSplitDone) {
       splitEnemyShotFromObstacle(shot, obstacle);
     }
@@ -6628,7 +7819,7 @@
 
     if (type === "enemy") {
       game.enemies.forEach((enemy) => {
-        if (enemy.defeated || enemy === target || shot.hitIds.has(enemy.id)) return;
+        if (enemy.defeated || enemy.euclidInvisible || enemy === target || shot.hitIds.has(enemy.id)) return;
         if (distance(enemy, target) > radius + enemy.r) return;
         enemy.hp -= splashDamage;
         onMonsterDamaged(enemy, splashDamage, { blast: true });
@@ -6652,6 +7843,7 @@
   }
 
   function applyPlayerDamageToCircle(target, type, coreRef) {
+    if (target?.euclidInvisible) return;
     const targetId = coreRef?.id || target.id || type;
     game.playerShots.forEach((shot) => {
       if (shot.hit) return;
@@ -6898,7 +8090,6 @@
       cauchySlow: Boolean(options.cauchySlow),
       cauchyMarksWall: Boolean(options.cauchyMarksWall),
       gaussZone: Boolean(options.gaussZone),
-      archimedesMark: Boolean(options.archimedesMark),
       harmless: Boolean(options.harmless),
       ignoresObstacles: Boolean(options.ignoresObstacles),
       wallSplit: Boolean(options.wallSplit),
@@ -7203,6 +8394,77 @@
     }
   }
 
+  function drawKnowledgeSynergyFloor() {
+    const state = game.knowledgeSynergy;
+    if (!state) return;
+    const enemies = linkedKnowledgeEnemies(state);
+    if (enemies.length < 2) return;
+
+    if (state.kind === "geometry" && (state.phase === "warn" || state.phase === "active")) {
+      const active = state.phase === "active";
+      const progress = active
+        ? 1 - clamp((state.activeTimer || 0) / Math.max(0.01, geometryLinkActive), 0, 1)
+        : 1 - clamp((state.warnTimer || 0) / Math.max(0.01, geometryLinkWarning), 0, 1);
+      ctx.save();
+      ctx.globalAlpha = active ? 0.42 + Math.sin(performance.now() * 0.012) * 0.06 : 0.18 + progress * 0.22;
+      ctx.strokeStyle = colors.cyan;
+      ctx.lineWidth = active ? 3.2 : 2.1 + progress * 1.2;
+      ctx.setLineDash(active ? [12, 6] : [5, 8]);
+      ctx.beginPath();
+      geometryLinkPairs(enemies).forEach(([a, b]) => {
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+      });
+      ctx.stroke();
+      ctx.globalAlpha = active ? 0.16 : 0.08 + progress * 0.08;
+      ctx.fillStyle = colors.cyan;
+      geometryLinkPairs(enemies).forEach(([a, b]) => {
+        const mx = (a.x + b.x) / 2;
+        const my = (a.y + b.y) / 2;
+        circle(mx, my, 12 + progress * 8);
+      });
+      ctx.restore();
+    }
+  }
+
+  function drawEnemySynergyMarker(enemy) {
+    if (!enemy.knowledgeSynergy) return;
+    const flash = enemy.synergyFlash || 0;
+    const guarded = Boolean(enemy.synergyGuarded);
+    const pivot = Boolean(enemy.synergyPivot);
+    if (!flash && !guarded && !pivot) return;
+
+    ctx.save();
+    if (pivot) {
+      ctx.globalAlpha = 0.34 + Math.sin((enemy.moveT || 0) * 8) * 0.08;
+      ctx.strokeStyle = colors.warning;
+      ctx.lineWidth = Math.max(1, 2.6 * characterSizeScale);
+      ctx.setLineDash([4, 5]);
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, enemy.r + 23 * characterSizeScale, Math.PI / 4, Math.PI * 2 + Math.PI / 4);
+      ctx.stroke();
+      ctx.save();
+      ctx.translate(enemy.x, enemy.y - enemy.r - 30 * characterSizeScale);
+      ctx.rotate(Math.PI / 4 + (enemy.moveT || 0) * 0.8);
+      ctx.strokeRect(-5 * characterSizeScale, -5 * characterSizeScale, 10 * characterSizeScale, 10 * characterSizeScale);
+      ctx.restore();
+    } else if (guarded) {
+      ctx.globalAlpha = 0.18 + Math.sin((enemy.moveT || 0) * 7) * 0.035;
+      ctx.strokeStyle = colors.paper;
+      ctx.lineWidth = Math.max(1, 2 * characterSizeScale);
+      ctx.setLineDash([8, 7]);
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, enemy.r + 18 * characterSizeScale, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (flash > 0) {
+      ctx.globalAlpha = clamp(flash / 0.75, 0, 1) * 0.24;
+      ctx.fillStyle = pivot ? colors.warning : enemy.color || colors.paper;
+      circle(enemy.x, enemy.y, enemy.r + (18 + flash * 12) * characterSizeScale);
+    }
+    ctx.restore();
+  }
+
   function drawEnemyTelegraphs(enemy) {
     if (enemy.quadrantWarnTimer > 0) {
       const progress = 1 - clamp(enemy.quadrantWarnTimer / Math.max(0.01, enemy.quadrantWarnMax || 0.58), 0, 1);
@@ -7307,10 +8569,54 @@
       ctx.stroke();
       ctx.restore();
     }
+    if ((enemy.betaPulseWarnTimer || 0) > 0) {
+      const progress = 1 - clamp(enemy.betaPulseWarnTimer / Math.max(0.01, enemy.betaPulseWarnMax || 0.5), 0, 1);
+      ctx.save();
+      ctx.globalAlpha = 0.18 + progress * 0.36;
+      ctx.strokeStyle = colors.paper;
+      ctx.lineWidth = 2 + progress * 2;
+      ctx.setLineDash([4, 5]);
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, enemy.r + 18 * characterSizeScale + progress * 12, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if ((enemy.finalPursuitWarnTimer || 0) > 0) {
+      const progress = 1 - clamp(enemy.finalPursuitWarnTimer / Math.max(0.01, enemy.finalPursuitWarnMax || finalEnemyPursuitWarning), 0, 1);
+      const tx = enemy.finalPursuitTargetX ?? enemy.x;
+      const ty = enemy.finalPursuitTargetY ?? enemy.y;
+      ctx.save();
+      ctx.globalAlpha = 0.2 + progress * 0.42;
+      ctx.strokeStyle = enemy.finalPursuitRevenge ? colors.paper : enemy.color || colors.warning;
+      ctx.lineWidth = 2 + progress * 2.2;
+      ctx.setLineDash(enemy.finalPursuitRevenge ? [5, 7] : [13, 7]);
+      ctx.beginPath();
+      ctx.moveTo(enemy.x, enemy.y);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(tx, ty, 18 + progress * 18, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if ((enemy.finalResolveWarnTimer || 0) > 0) {
+      const progress = 1 - clamp(enemy.finalResolveWarnTimer / Math.max(0.01, enemy.finalResolveWarnMax || finalEnemyResolveWarning), 0, 1);
+      ctx.save();
+      ctx.globalAlpha = 0.16 + progress * 0.34;
+      ctx.strokeStyle = colors.warning;
+      ctx.lineWidth = 2 + progress * 3;
+      ctx.setLineDash([7, 5]);
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, enemy.r + 36 * characterSizeScale - progress * 12, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   function drawMonsterEnemy(enemy) {
+    if (enemy.euclidInvisible) return;
     drawEnemyTelegraphs(enemy);
+    drawEnemySynergyMarker(enemy);
     if (enemy.jordanDomainActive) {
       ctx.save();
       ctx.globalAlpha = 0.13 + Math.sin((enemy.moveT || 0) * 3) * 0.025;
@@ -7398,6 +8704,7 @@
 
   function drawMonsterRoom() {
     drawMonsterMechanicFloor();
+    drawKnowledgeSynergyFloor();
     game.enemies.forEach(drawMonsterEnemy);
     ctx.textAlign = "start";
   }
@@ -8048,6 +9355,12 @@
       hud.ammo.textContent = ammoLabel(player.weapon);
       hud.ammo.title = player.weapon.infiniteAmmo ? "该武器没有弹药限制" : "按 R 手动换弹；打空后自动换弹";
     }
+    if (hud.item) {
+      const nextItem = game.betaItems?.[0] || "";
+      const itemCount = game.betaItems?.length || 0;
+      hud.item.textContent = nextItem ? `${betaItemName(nextItem)}${itemCount > 1 ? ` x${itemCount}` : ""}` : "无";
+      hud.item.title = nextItem ? `按 F 使用：${betaItemMap[nextItem]?.effect || ""}` : "β 补给房可能获得一次性局内道具";
+    }
     if (hud.inventory) {
       hud.inventory.title = `按 B 打开背包；击败 ${game.kills}，拥有武器 ${game.weaponsFound}`;
     }
@@ -8428,6 +9741,30 @@
     `;
   }
 
+  function betaItemInfoMarkup() {
+    if (!isBetaVersion()) {
+      return `<p class="buff-empty">局内道具为 β 随机房系统内容。</p>`;
+    }
+    const held = game.betaItems || [];
+    const heldList = held.length
+      ? held.map((id, index) => `<li>${index + 1}. ${escapeHtml(betaItemName(id))}</li>`).join("")
+      : "<li>暂无道具。</li>";
+    const catalog = betaItemDefs.map((item) => `
+      <article class="buff-card">
+        <header>
+          <strong>${escapeHtml(item.name)}</strong>
+          <span>${escapeHtml(item.type)}</span>
+        </header>
+        <p>${escapeHtml(item.effect)}</p>
+        <small>按 F 使用队首道具，最多携带 ${betaItemLimit} 个。</small>
+      </article>
+    `).join("");
+    return `
+      <ul class="inventory-item-list">${heldList}</ul>
+      <div class="buff-list">${catalog}</div>
+    `;
+  }
+
   function inventoryMarkup() {
     const weaponsBlock = ownedWeaponStatsMarkup({ heading: false }) || `<p class="buff-empty">当前还没有可查看的武器。</p>`;
     return `
@@ -8443,6 +9780,10 @@
         <section class="inventory-section">
           <h3>挑战被动</h3>
           ${passiveInfoMarkup()}
+        </section>
+        <section class="inventory-section">
+          <h3>局内道具</h3>
+          ${betaItemInfoMarkup()}
         </section>
       </div>
     `;
@@ -8516,6 +9857,41 @@
         ],
       },
       {
+        title: "β 特殊事件",
+        entries: [
+          {
+            name: "β 难度",
+            meta: "标准 / 高压 / 危机 / 终局",
+            body: "进入 β 后需要先选择模拟强度。难度越高，敌人血量、伤害、攻击节奏、移动速度、遭遇压力和 Boss 血盾都会提高，同时增益强化、学分收益和高价值随机事件也会提高。",
+            tip: "第一次试玩建议从标准或高压开始；危机以上更适合熟悉背击、破防和道具救场后挑战。",
+          },
+          {
+            name: "精英房",
+            meta: "随机房 / 高风险高收益",
+            body: "β 随机房可能变为精英房，自动触发三人规模的高压遭遇。精英房的敌人更耐打，奖励武器和增益都会获得额外强化，并额外返还学分。",
+            tip: "精英房不要急着贴脸抢输出，先观察房间词条和精英机制，再用障碍物拆弹幕节奏。",
+          },
+          {
+            name: "商人",
+            meta: "抢商店 / 特殊精英",
+            body: "β 的 Boss 前商店可以选择挑战商人。触发后会进入特殊战斗，商人会发射账单弹与环形警报弹；击败后回到商店，当前四件商品免费领取，并锁定刷新。",
+            tip: "挑战商人适合血量和武器都够时争取最后补强。打赢后可以免费拿货，也可以什么都不拿直接进入 Boss 战。",
+          },
+          {
+            name: "局内道具",
+            meta: "补给房 / F 使用",
+            body: "β 补给房会获得一次性道具，最多携带三个。急救包回复已损失生命，粉笔烟幕清弹并压制敌人，备用弹匣立刻装填并给战术专注，学分券直接获得学分。",
+            tip: "道具是高难容错来源，不要等到已经被弹幕围死才使用。",
+          },
+          {
+            name: "工坊房",
+            meta: "随机房 / 武器强化",
+            body: "β 随机房可能变为工坊房。若拥有非圣剑武器，工坊会优先强化当前非圣剑武器；没有可强化武器时，会改为提供局内道具和学分补偿。",
+            tip: "准备进 Boss 前遇到工坊房时，可以先切到最想强化的武器再进入。",
+          },
+        ],
+      },
+      {
         title: "Boss 核心",
         entries: [
           {
@@ -8573,10 +9949,20 @@
     const hp = Math.max(0, Math.ceil(game.player?.hp || 0));
     const credits = Math.max(0, Math.round(Number(game.credits || 0)));
     const refreshCost = Math.max(1, Math.round(Number(shop.refreshCost || 1)));
-    const canBuy = hp > betaShopItemHpCost;
+    const freeClaim = Boolean(game.betaShopRaid?.freeClaim);
+    const refreshLocked = Boolean(game.betaShopRaid?.refreshLocked);
+    const canBuy = freeClaim || hp > betaShopItemHpCost;
+    const canRaidShop = isBetaVersion() && !game.betaShopRaid?.started;
+    const raidLabel = game.betaShopRaid?.completed
+      ? "商人已让步"
+      : game.betaShopRaid?.started
+        ? "商人战已触发"
+        : "挑战商人";
+    const refreshLabel = refreshLocked ? "刷新已锁定" : `刷新商店（${refreshCost} 学分）`;
     const cards = shop.stock.map((item, index) => {
       const name = betaShopItemName(item);
       const weapon = item.type === "weapon" ? weapons[item.id] : null;
+      const buyLabel = item.purchased ? "已领取" : freeClaim ? "免费领取" : `${betaShopItemHpCost} 生命兑换`;
       const meta = item.type === "weapon"
         ? `${weaponKindLabel(weapon?.kind)} / ${weapon?.ranged ? "远程" : "近战"} / ${weaponDamageLabel(weapon)}`
         : `${buffDetails[item.id]?.type || "增益"} / ${buffBriefText(item.id)}`;
@@ -8591,26 +9977,30 @@
           </header>
           <p>${escapeHtml(meta)}</p>
           <small>${escapeHtml(detail)}</small>
-          <button type="button" data-beta-shop-buy="${index}" ${item.purchased || !canBuy ? "disabled" : ""}>
+          <button type="button" data-beta-shop-buy="${index}" data-label="${escapeHtml(buyLabel)}" ${item.purchased || !canBuy ? "disabled" : ""}>
             ${item.purchased ? "已兑换" : `${betaShopItemHpCost} 生命兑换`}
           </button>
         </article>
       `;
     }).join("");
     return `
-      <div class="beta-shop">
+      <div class="beta-shop${freeClaim ? " beta-shop-free" : ""}">
         <div class="beta-shop-status">
+          ${isBetaVersion() ? `<span>难度 <strong>${escapeHtml(betaDifficultyLabel())}</strong></span>` : ""}
           <span>学分 <strong>${credits}</strong></span>
           <span>生命 <strong>${hp}</strong></span>
           <span>刷新 <strong>${refreshCost}</strong></span>
         </div>
         <p class="beta-shop-note">每件商品消耗 ${betaShopItemHpCost} 生命；刷新只消耗学分，费用依次为 1、3、5 学分，之后保持 5 学分。进入商店时的房间回血已经结算，开始 Boss 战后不会再次回血。</p>
         <div class="beta-shop-grid">${cards}</div>
-        <div class="beta-shop-actions">
-          <button type="button" data-beta-shop-action="refresh" ${credits < refreshCost ? "disabled" : ""}>刷新商店（${refreshCost} 学分）</button>
-          <button class="primary-action" type="button" data-beta-shop-action="start">开始 Boss 战</button>
+        <div class="beta-shop-footer">
+          <p class="beta-shop-message">${escapeHtml(shop.message || "可以直接开始 Boss 战，也可以用生命和学分做最后准备。")}</p>
+          <div class="beta-shop-actions">
+            <button type="button" data-beta-shop-action="refresh" ${refreshLocked || credits < refreshCost ? "disabled" : ""}>${escapeHtml(refreshLabel)}</button>
+            ${isBetaVersion() ? `<button type="button" data-beta-shop-action="raid" ${canRaidShop ? "" : "disabled"}>${escapeHtml(raidLabel)}</button>` : ""}
+            <button class="primary-action" type="button" data-beta-shop-action="start">开始 Boss 战</button>
+          </div>
         </div>
-        <p class="beta-shop-message">${escapeHtml(shop.message || "可以直接开始 Boss 战，也可以用生命和学分做最后准备。")}</p>
       </div>
     `;
   }
@@ -9030,7 +10420,7 @@
         body: developerMarkup(),
       },
       betaShop: {
-        title: "β 学分商店",
+        title: "学分商店",
         body: betaBossShopMarkup(),
       },
       leaderboard: {
@@ -9046,6 +10436,7 @@
     }[kind];
     ui.modal.dataset.kind = kind;
     ui.modalPanel.classList.toggle("modal-panel-wide", kind === "weapons" || kind === "enemyCodex" || kind === "inventory" || kind === "leaderboard" || kind === "funFacts" || kind === "developer" || kind === "betaShop");
+    ui.modalPanel.classList.toggle("modal-panel-shop", kind === "betaShop");
     ui.modalPanel.classList.toggle("modal-panel-no-title", kind === "funFacts");
     if (kind === "funFacts") {
       ui.modalPanel.setAttribute("aria-label", content.title);
@@ -9136,6 +10527,17 @@
   function onMonsterDamaged(enemy, amount, source = {}) {
     if (!enemy || amount <= 0) return;
     addEnemyStagger(enemy, amount, source);
+    const state = game.knowledgeSynergy;
+    if (
+      state?.kind === "linear" &&
+      state.pivotEnemyId === enemy.id &&
+      !source.absorbed
+    ) {
+      state.disabledTimer = Math.max(state.disabledTimer || 0, 1.65);
+      state.pivotTimer = Math.min(state.pivotTimer || linearPivotInterval, 0.55);
+      enemy.synergyFlash = Math.max(enemy.synergyFlash || 0, 0.72);
+      enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.22);
+    }
     if (hasEnemyMechanic(enemy, "taylorTripleDash") && (enemy.taylorRestTimer || 0) > 0) {
       applyEnemySlow(0.86, 2.4);
       enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.25);
@@ -9175,6 +10577,10 @@
     mode = "menu";
     showScreen("menu");
   });
+  ui.difficultyOptions?.forEach((button) => {
+    button.addEventListener("click", () => startBetaDifficulty(button.dataset.betaDifficulty || "standard"));
+  });
+  ui.difficultyBack?.addEventListener("click", openVersionSelect);
   hud.inventory?.addEventListener("click", () => openModal("inventory"));
   ui.ingameHelp?.addEventListener("click", () => openModal("weapons"));
   ui.enemyCodex?.addEventListener("click", () => openModal("enemyCodex"));
@@ -9195,6 +10601,7 @@
     if (betaShopAction && ui.modal.dataset.kind === "betaShop") {
       const action = betaShopAction.dataset.betaShopAction;
       if (action === "refresh") refreshBetaBossShop();
+      if (action === "raid") startBetaShopRaid();
       if (action === "start") startBossFromBetaShop();
       return;
     }
@@ -9323,6 +10730,11 @@
       updateHud();
       return;
     }
+    if (event.code === "KeyF") {
+      event.preventDefault();
+      useBetaItem();
+      return;
+    }
     keys.add(event.code);
   });
   window.addEventListener("keyup", (event) => {
@@ -9360,6 +10772,7 @@
     resetGame,
     openVersionSelect,
     startVersion,
+    startBetaDifficulty,
     startMonsterRoom,
     openChestRoom,
     startBossRoom,
@@ -9517,6 +10930,18 @@
       startBossFromBetaShop();
       return this.state();
     },
+    startBetaShopRaidForVerify() {
+      startBetaShopRaid();
+      return this.state();
+    },
+    addBetaItemForVerify(id = "firstAid") {
+      addBetaItem(String(id || "firstAid"));
+      return this.state();
+    },
+    useBetaItemForVerify() {
+      useBetaItem();
+      return this.state();
+    },
     toggleDeveloperModeForVerify() {
       toggleDeveloperMode();
       return this.state();
@@ -9577,6 +11002,59 @@
       updateHud();
       return this.state();
     },
+    setEnemyHpRatioForVerify(index = 0, ratio = 1) {
+      const enemy = game.enemies[Math.max(0, Math.round(Number(index) || 0))];
+      if (enemy) {
+        const maxHp = Math.max(1, Number(enemy.maxHp || enemy.hp || 1));
+        enemy.hp = clamp(maxHp * Number(ratio || 0), 1, maxHp);
+      }
+      return this.state();
+    },
+    tickMonsterRoomForVerify(seconds = 0.1) {
+      let remaining = Math.max(0, Number(seconds) || 0);
+      let guard = 0;
+      while (remaining > 0 && guard < 240) {
+        const dt = Math.min(1 / 30, remaining);
+        if (game.activeRoom === "monster" && mode === "combat") {
+          updateMonsterRoom(dt);
+        }
+        remaining -= dt;
+        guard += 1;
+      }
+      updateHud();
+      return this.state();
+    },
+    forceMonsterMechanicForVerify(index = 0, mechanic = "") {
+      const enemy = game.enemies[Math.max(0, Math.round(Number(index) || 0))];
+      const action = String(mechanic || "");
+      if (!enemy || enemy.defeated) return this.state();
+      if (action === "lhopitalSlash" && hasEnemyMechanic(enemy, "lhopitalBlade")) {
+        beginLhopitalSlash(enemy);
+      } else if (action === "archimedesVolley" && hasEnemyMechanic(enemy, "archimedesMarkDash")) {
+        fireArchimedesSquareVolley(enemy);
+      } else if (action === "archimedesDash" && hasEnemyMechanic(enemy, "archimedesMarkDash")) {
+        scheduleArchimedesDash(enemy, { x: game.player.x, y: game.player.y }, false, archimedesDashWarning);
+      } else if (action === "euclidBlink" && hasEnemyMechanic(enemy, "dashScatter")) {
+        blinkEuclidNearPlayer(enemy);
+      } else if (action === "euclidStrike" && hasEnemyMechanic(enemy, "dashScatter")) {
+        startEuclidStrike(enemy);
+      }
+      updateHud();
+      return this.state();
+    },
+    lhopitalSlashDistanceForVerify() {
+      return lhopitalSlashDistance();
+    },
+    forceFinalEnemyPursuitForVerify(index = 0) {
+      const preferred = game.enemies[Math.max(0, Math.round(Number(index) || 0))];
+      const enemy = finalBetaEnemyEligible(preferred)
+        ? preferred
+        : game.enemies.find((item) => finalBetaEnemyEligible(item));
+      if (enemy && finalBetaEnemyEligible(enemy)) {
+        beginFinalEnemyPursuit(enemy);
+      }
+      return this.state();
+    },
     setPlayerPositionForVerify(x, y) {
       if (game.player) {
         const point = arenaPoint(Number(x) || game.player.x, Number(y) || game.player.y, 20);
@@ -9635,6 +11113,8 @@
     dropModelForVerify,
     scoreForVerify(options = {}) {
       const previous = {
+        versionChannel: game.versionChannel,
+        betaDifficultyId: game.betaDifficultyId,
         kills: game.kills,
         weaponsFound: game.weaponsFound,
         usedNonSwordWeapon: game.usedNonSwordWeapon,
@@ -9649,6 +11129,12 @@
         weapon: game.player?.weapon ? { ...game.player.weapon } : null,
         weaponIndex: game.player?.weaponIndex,
       };
+      if (options.versionChannel) {
+        game.versionChannel = String(options.versionChannel);
+      }
+      if (options.betaDifficultyId) {
+        game.betaDifficultyId = betaDifficultyMap[options.betaDifficultyId] ? options.betaDifficultyId : game.betaDifficultyId;
+      }
       const completedKeys = new Set(options.completedKeys || []);
       completedRoomKeys.forEach((key) => {
         game.completed[key] = completedKeys.has(key);
@@ -9700,6 +11186,8 @@
         player.weapon = player.weapons[0];
       }
       const score = calculateClearScore(Math.max(1, Math.round(Number(options.seconds || 1))), player);
+      game.versionChannel = previous.versionChannel;
+      game.betaDifficultyId = previous.betaDifficultyId;
       game.kills = previous.kills;
       game.weaponsFound = previous.weaponsFound;
       game.usedNonSwordWeapon = previous.usedNonSwordWeapon;
@@ -9739,7 +11227,13 @@
     state: () => ({
       mode,
       versionChannel: game.versionChannel || "alpha",
+      betaDifficultyId: game.betaDifficultyId || "standard",
+      betaDifficultyLabel: betaDifficultyLabel(),
+      betaScoreMultiplier: clearScoreMultiplier(),
       credits: game.credits || 0,
+      betaItems: [...(game.betaItems || [])],
+      betaItemNames: (game.betaItems || []).map(betaItemName),
+      betaShopRaid: { ...(game.betaShopRaid || {}) },
       betaBossShopEntered: Boolean(game.betaBossShop?.entered),
       betaBossShopRefreshCost: game.betaBossShop?.refreshCost || 1,
       betaBossShopMessage: game.betaBossShop?.message || "",
@@ -9864,6 +11358,17 @@
       defeatedInRoom: game.defeatedInRoom,
       monsterClearDelay: game.monsterClearDelay || 0,
       enemyCount: game.enemies.length,
+      knowledgeSynergy: game.knowledgeSynergy ? {
+        kind: game.knowledgeSynergy.kind,
+        tier: game.knowledgeSynergy.tier || 0,
+        roomKey: game.knowledgeSynergy.roomKey,
+        phase: game.knowledgeSynergy.phase || "idle",
+        enemyIds: [...(game.knowledgeSynergy.enemyIds || [])],
+        livingCount: linkedKnowledgeEnemies(game.knowledgeSynergy).length,
+        pivotEnemyId: game.knowledgeSynergy.pivotEnemyId || "",
+        pauseTimer: Number((game.knowledgeSynergy.pauseTimer || 0).toFixed(3)),
+        disabledTimer: Number((game.knowledgeSynergy.disabledTimer || 0).toFixed(3)),
+      } : null,
       enemyMechanics: game.enemies.map((enemy) => ({
         id: enemy.id,
         name: enemy.name || "",
@@ -9871,7 +11376,20 @@
         pattern: enemy.pattern,
         mechanics: [...(enemy.mechanics || [])],
         roles: [...(enemy.roles || [])],
-        rewardWeapon: enemy.rewardWeapon || "",
+        betaExtraProjectileEligible: betaExtraProjectileEligible(enemy),
+        knowledgeSynergy: enemy.knowledgeSynergy || "",
+        synergyPivot: Boolean(enemy.synergyPivot),
+        synergyGuarded: Boolean(enemy.synergyGuarded),
+        eliteRoom: Boolean(enemy.eliteRoom),
+        betaMechanicLevel: enemy.betaMechanicLevel || 0,
+        betaPulseWarn: enemy.betaPulseWarnTimer || 0,
+        finalResolve: Boolean(enemy.finalResolveActive),
+        finalResolveWarn: Number((enemy.finalResolveWarnTimer || 0).toFixed(3)),
+        finalPursuitWarn: Number((enemy.finalPursuitWarnTimer || 0).toFixed(3)),
+        finalPursuitRevenge: Boolean(enemy.finalPursuitRevenge),
+        shopTaxTimer: enemy.shopTaxTimer || 0,
+        shopPressureTimer: Number((enemy.shopPressureTimer || 0).toFixed(3)),
+        shopEnrage: Boolean(enemy.shopEnrage),
         splitChild: Boolean(enemy.splitChild),
         randomDrift: Boolean(enemy.randomDrift),
         fireEvery: Number((enemy.fireEvery || 0).toFixed(3)),
@@ -9892,10 +11410,12 @@
         quadrantWarn: enemy.quadrantWarnTimer || 0,
         dashWarn: enemy.dashWarnTimer || 0,
         dashActive: enemy.dashActiveTimer || 0,
-        dashSequenceRemaining: enemy.dashSequenceRemaining || 0,
+        euclidInvisible: Boolean(enemy.euclidInvisible),
+        euclidFreezeTimer: Number((enemy.euclidFreezeTimer || 0).toFixed(3)),
+        euclidBlinkTimer: Number((hasEnemyMechanic(enemy, "dashScatter") ? enemy.dashTimer || 0 : 0).toFixed(3)),
         archimedesDashWarn: enemy.archimedesDashWarnTimer || 0,
         archimedesDashActive: enemy.archimedesDashActiveTimer || 0,
-        archimedesWallDashCount: enemy.archimedesWallDashCount || 0,
+        archimedesDashTimer: Number((enemy.archimedesDashTimer || 0).toFixed(3)),
         taylorDashWarn: enemy.taylorDashWarnTimer || 0,
         taylorDashActive: enemy.taylorDashActiveTimer || 0,
         taylorRest: enemy.taylorRestTimer || 0,
