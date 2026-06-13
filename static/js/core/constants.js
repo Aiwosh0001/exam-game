@@ -1,14 +1,14 @@
 (function (global) {
   const colors = {
-    paper: "#f4f0e6",
-    chalk: "#8fd19e",
-    mint: "#b8f0c4",
-    danger: "#e76f61",
-    warning: "#f0c35d",
-    cyan: "#82c8d8",
-    muted: "#bbc4bd",
-    ink: "#151718",
-    line: "rgba(255,255,255,0.16)",
+    paper: "#f4e8bd",
+    chalk: "#59f06c",
+    mint: "#9dffad",
+    danger: "#ff5f5f",
+    warning: "#ffc45d",
+    cyan: "#5ee7d6",
+    muted: "#a9b9a6",
+    ink: "#050806",
+    line: "rgba(171,202,156,0.24)",
   };
 
   const leaderboardScoreVersion = "combat-time-v2";
@@ -18,7 +18,7 @@
   const randomRoomMonsterChance = 1 / 3;
   const randomRoomChestChance = 2 / 3;
   const completedRoomKeys = ["monster", "chest", "geometry", "linear", "randomB", "randomC"];
-  const characterSizeScale = 0.65;
+  const characterSizeScale = 0.39;
   const bossDamageScale = 0.85;
   const bossSizeScale = 0.65;
   const bossCoreOrbitRadius = 92 * bossSizeScale;
@@ -32,6 +32,8 @@
   const cauchyExplosionBulletCount = 9;
   const cauchyFullPowerWallCount = 7;
   const cauchyFullPowerCycle = 7;
+  const bossBreakWindowDuration = 2.6;
+  const bossBreakDamageMultiplier = 1.35;
   const bossProjectionHp = 20;
   const bossProjectionLimit = 4;
   const gaussZoneBaseCount = 4;
@@ -40,7 +42,7 @@
   const gaussZoneDuration = 7;
   const gaussZoneFireEvery = 2;
   const gaussZoneDebuffDuration = 5;
-  const bossCoreInvisibleDuration = 11;
+  const bossCoreInvisibleDuration = 18;
   const bossCoreRevealDuration = 2.8;
   const gaussFullPowerStealthEvery = 5;
   const gaussFullPowerStealthDuration = 5.8;
@@ -91,6 +93,8 @@
       cauchyExplosionBulletCount,
       cauchyFullPowerWallCount,
       cauchyFullPowerCycle,
+      bossBreakWindowDuration,
+      bossBreakDamageMultiplier,
       bossProjectionHp,
       bossProjectionLimit,
       gaussZoneBaseCount,

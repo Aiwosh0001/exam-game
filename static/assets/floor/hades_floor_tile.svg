@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Hades-like dark green isometric dungeon floor tile">
+  <rect width="512" height="512" fill="#ffffff"/>
+  <g stroke="#010101" stroke-linejoin="miter" stroke-linecap="butt">
+    <path d="M28 78 L146 44 L239 84 L116 126 Z" fill="#173f34" stroke-width="7"/>
+    <path d="M146 44 L239 84 L212 100 L96 64 Z" fill="#275c4b" stroke-width="0"/>
+    <path d="M116 126 L239 84 L228 116 L119 154 Z" fill="#071411" opacity=".55" stroke-width="0"/>
+    <path d="M274 64 L438 96 L478 162 L313 133 Z" fill="#20365a" stroke-width="7"/>
+    <path d="M294 77 L429 104 L449 136 L320 116 Z" fill="#2d4e79" stroke-width="0"/>
+    <path d="M313 133 L478 162 L424 184 L287 153 Z" fill="#071411" opacity=".62" stroke-width="0"/>
+    <path d="M54 194 L190 157 L275 202 L136 250 Z" fill="#1c4b3e" stroke-width="7"/>
+    <path d="M74 203 L183 173 L250 207 L141 238 Z" fill="#286751" stroke-width="0"/>
+    <path d="M136 250 L275 202 L260 236 L137 281 Z" fill="#071411" opacity=".58" stroke-width="0"/>
+    <path d="M308 218 L460 182 L492 248 L333 293 Z" fill="#12332d" stroke-width="7"/>
+    <path d="M331 226 L448 199 L470 241 L344 273 Z" fill="#1a4d3e" stroke-width="0"/>
+    <path d="M333 293 L492 248 L467 282 L332 322 Z" fill="#071411" opacity=".6" stroke-width="0"/>
+    <path d="M17 339 L157 294 L260 350 L107 402 Z" fill="#241a3b" stroke-width="7"/>
+    <path d="M47 344 L153 312 L232 353 L112 389 Z" fill="#3a2365" stroke-width="0"/>
+    <path d="M107 402 L260 350 L231 389 L99 432 Z" fill="#071411" opacity=".62" stroke-width="0"/>
+    <path d="M278 369 L442 316 L500 386 L332 456 Z" fill="#173f34" stroke-width="7"/>
+    <path d="M304 374 L433 333 L474 383 L339 437 Z" fill="#2b6b54" stroke-width="0"/>
+    <path d="M332 456 L500 386 L459 431 L326 484 Z" fill="#071411" opacity=".64" stroke-width="0"/>
+  </g>
+  <g stroke-width="4" stroke-linecap="square">
+    <path d="M57 86 L121 66" stroke="#fff0a3" opacity=".36"/>
+    <path d="M331 91 L420 110" stroke="#39f4dd" opacity=".38"/>
+    <path d="M91 215 L162 194" stroke="#fff0a3" opacity=".32"/>
+    <path d="M350 236 L432 213" stroke="#6cff3f" opacity=".36"/>
+    <path d="M58 354 L139 330" stroke="#ff3fa6" opacity=".24"/>
+    <path d="M325 382 L421 351" stroke="#fff0a3" opacity=".3"/>
+  </g>
+  <g stroke="#010101" stroke-width="3" opacity=".55">
+    <path d="M83 105 L113 95"/>
+    <path d="M167 73 L196 84"/>
+    <path d="M357 119 L395 126"/>
+    <path d="M101 237 L142 225"/>
+    <path d="M196 198 L235 211"/>
+    <path d="M375 276 L425 260"/>
+    <path d="M64 381 L118 363"/>
+    <path d="M157 341 L213 363"/>
+    <path d="M365 439 L425 413"/>
+  </g>
+  <g fill="#010101" opacity=".46">
+    <rect x="197" y="96" width="26" height="8" transform="rotate(-18 210 100)"/>
+    <rect x="430" y="148" width="31" height="7" transform="rotate(13 445 152)"/>
+    <rect x="216" y="231" width="28" height="8" transform="rotate(-20 230 235)"/>
+    <rect x="423" y="273" width="28" height="8" transform="rotate(-18 437 277)"/>
+    <rect x="189" y="385" width="34" height="8" transform="rotate(-20 206 389)"/>
+    <rect x="441" y="424" width="28" height="7" transform="rotate(-22 455 428)"/>
+  </g>
+</svg>

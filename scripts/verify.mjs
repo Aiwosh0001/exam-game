@@ -67,6 +67,19 @@ const verifyWeaponKinds = {
   determinantLaser: "linear",
 };
 
+const expectedQLearningProfiles = [
+  "merchant",
+  "lagrange",
+  "lhopital",
+  "taylor",
+  "descartes",
+  "archimedes",
+  "euclid",
+  "gauss",
+  "jacobi",
+  "jordan",
+];
+
 function rewardOptionsMatchKind(weaponIds, kind, count) {
   return (
     weaponIds.length === count &&
@@ -194,6 +207,24 @@ async function chooseChallenge(cdp, count) {
     throw new Error(`Multi-enemy knowledge rooms should enable linked enemy synergy: ${JSON.stringify(state)}`);
   }
   return state;
+}
+
+function assertQLearningProfiles(state, profiles, context) {
+  const enemies = state.enemyMechanics || [];
+  const missing = profiles.filter((profile) => !enemies.some((enemy) => enemy.qLearningProfile === profile));
+  const inactive = profiles.filter((profile) => {
+    const enemy = enemies.find((item) => item.qLearningProfile === profile);
+    return (
+      !enemy ||
+      !enemy.qLearningAi ||
+      !enemy.qLearningState ||
+      enemy.qLearningState.split("_").length !== 9 ||
+      !enemy.qLearningAction
+    );
+  });
+  if (missing.length || inactive.length) {
+    throw new Error(`${context} should bind active Q-learning profiles: ${JSON.stringify({ missing, inactive, enemies })}`);
+  }
 }
 
 async function resolvePendingWeapon(cdp, accept = true) {
@@ -413,7 +444,7 @@ async function main() {
     });
     await cdp.send("Page.navigate", { url: `http://127.0.0.1:${port}/` });
     await wait(600);
-    await evaluate(cdp, "localStorage.removeItem('examGameLeaderboardV1'); localStorage.removeItem('examGameLeaderboardCombatTimeV1'); localStorage.removeItem('examGameLeaderboardCombatTimeV2')");
+    await evaluate(cdp, "localStorage.removeItem('examGameLeaderboardV1'); localStorage.removeItem('examGameLeaderboardCombatTimeV1'); localStorage.removeItem('examGameLeaderboardCombatTimeV2'); localStorage.removeItem('examGameMechanicTutorialSeenV1'); localStorage.removeItem('examGameOnboardingSeenV2')");
 
     const title = await evaluate(cdp, "document.title");
     const hasGame = await evaluate(cdp, "Boolean(window.__examGame)");
@@ -422,6 +453,85 @@ async function main() {
       throw new Error("Initial menu did not load correctly");
     }
     const menuShot = await screenshot(cdp, "menu.png");
+
+    const onboardingOpenState = await evaluate(cdp, `(() => {
+      window.__examGame.resetOnboardingGuideForVerify();
+      window.__examGame.showOnboardingGuideForVerify();
+      return {
+        hidden: document.getElementById('modal').hidden,
+        kind: document.getElementById('modal').dataset.kind,
+        closeHidden: document.getElementById('modalCloseBtn').hidden,
+        confirmCount: document.querySelectorAll('[data-onboarding-confirm]').length,
+        skipCount: document.querySelectorAll('[data-onboarding-skip-all]').length,
+        seen: window.__examGame.state().onboardingGuideSeen,
+        body: document.getElementById('modalBody').textContent
+      };
+    })()`);
+    if (
+      onboardingOpenState.hidden ||
+      onboardingOpenState.kind !== "onboardingGuide" ||
+      !onboardingOpenState.closeHidden ||
+      onboardingOpenState.confirmCount !== 1 ||
+      onboardingOpenState.skipCount !== 1 ||
+      onboardingOpenState.seen ||
+      !onboardingOpenState.body.includes("localStorage") && !onboardingOpenState.body.includes("浏览器")
+    ) {
+      throw new Error(`Onboarding guide modal did not open correctly: ${JSON.stringify(onboardingOpenState)}`);
+    }
+    await evaluate(cdp, "document.getElementById('modal').click()");
+    await wait(50);
+    const onboardingBackdropState = await evaluate(cdp, "document.getElementById('modal').hidden");
+    if (onboardingBackdropState) {
+      throw new Error("Onboarding guide should not close from a backdrop click");
+    }
+    await evaluate(cdp, "document.querySelector('[data-onboarding-confirm]').click()");
+    await wait(80);
+    const onboardingClosedState = await evaluate(cdp, `({
+      hidden: document.getElementById('modal').hidden,
+      seen: Boolean(window.__examGame.state().onboardingGuideSeen),
+      version: window.__examGame.state().onboardingGuideVersion
+    })`);
+    if (!onboardingClosedState.hidden || !onboardingClosedState.seen || !onboardingClosedState.version) {
+      throw new Error(`Onboarding guide confirm did not close and persist seen state: ${JSON.stringify(onboardingClosedState)}`);
+    }
+
+    const tutorialOpenState = await evaluate(cdp, `(() => {
+      window.__examGame.showMechanicTutorialForVerify('stagger');
+      return {
+        hidden: document.getElementById('modal').hidden,
+        kind: document.getElementById('modal').dataset.kind,
+        title: document.getElementById('modalTitle').textContent,
+        closeHidden: document.getElementById('modalCloseBtn').hidden,
+        confirmCount: document.querySelectorAll('[data-mechanic-tutorial-confirm]').length,
+        body: document.getElementById('modalBody').textContent
+      };
+    })()`);
+    if (
+      tutorialOpenState.hidden ||
+      tutorialOpenState.kind !== "mechanicTutorial" ||
+      tutorialOpenState.title !== "韧性与破防" ||
+      !tutorialOpenState.closeHidden ||
+      tutorialOpenState.confirmCount !== 1 ||
+      !tutorialOpenState.body.includes("确定")
+    ) {
+      throw new Error(`Mechanic tutorial modal did not open correctly: ${JSON.stringify(tutorialOpenState)}`);
+    }
+    await evaluate(cdp, "document.getElementById('modal').click()");
+    await wait(50);
+    const tutorialBackdropState = await evaluate(cdp, "document.getElementById('modal').hidden");
+    if (tutorialBackdropState) {
+      throw new Error("Mechanic tutorial should not close from a backdrop click");
+    }
+    await evaluate(cdp, "document.querySelector('[data-mechanic-tutorial-confirm]').click()");
+    await wait(80);
+    const tutorialClosedState = await evaluate(cdp, `({
+      hidden: document.getElementById('modal').hidden,
+      seen: Boolean(window.__examGame.state().mechanicTutorialSeen.stagger)
+    })`);
+    if (!tutorialClosedState.hidden || !tutorialClosedState.seen) {
+      throw new Error(`Mechanic tutorial confirm did not close and persist seen state: ${JSON.stringify(tutorialClosedState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.markAllMechanicTutorialsSeenForVerify()");
 
     const menuWeaponInfoState = await evaluate(cdp, `({
       hasHomepageButton: Boolean(document.getElementById('weaponStatsBtn')),
@@ -453,6 +563,28 @@ async function main() {
       !enemyCodexState.body.includes("高斯核心")
     ) {
       throw new Error(`Enemy codex did not render correctly: ${JSON.stringify(enemyCodexState)}`);
+    }
+    await evaluate(cdp, "document.getElementById('modalCloseBtn').click()");
+    await wait(100);
+
+    await evaluate(cdp, "document.getElementById('knowledgeCodexBtn').click()");
+    await wait(100);
+    const knowledgeCodexState = await evaluate(cdp, `({
+      hidden: document.getElementById('modal').hidden,
+      title: document.getElementById('modalTitle').textContent,
+      wide: document.getElementById('modalPanel').classList.contains('modal-panel-wide'),
+      cards: document.querySelectorAll('.knowledge-codex-card').length,
+      body: document.querySelector('.knowledge-codex-grid')?.textContent || ''
+    })`);
+    if (
+      knowledgeCodexState.hidden ||
+      knowledgeCodexState.title !== "知识图鉴" ||
+      !knowledgeCodexState.wide ||
+      knowledgeCodexState.cards !== 8 ||
+      !knowledgeCodexState.body.includes("随机算法与过程生成") ||
+      !knowledgeCodexState.body.includes("Web 系统与工程实现")
+    ) {
+      throw new Error(`Knowledge codex did not render correctly: ${JSON.stringify(knowledgeCodexState)}`);
     }
     await evaluate(cdp, "document.getElementById('modalCloseBtn').click()");
     await wait(100);
@@ -582,6 +714,11 @@ async function main() {
     if (betaKnowledgeCombatState.knowledgeSynergy?.kind !== "calculus" || betaKnowledgeCombatState.knowledgeSynergy?.livingCount !== 3) {
       throw new Error(`Three-person calculus room should start with linked enemy synergy: ${JSON.stringify(betaKnowledgeCombatState)}`);
     }
+    const betaKnowledgeQState = await evaluate(cdp, `(() => {
+      for (let index = 0; index < 3; index += 1) window.__examGame.forceQLearningDecisionForVerify(index);
+      return window.__examGame.state();
+    })()`);
+    assertQLearningProfiles(betaKnowledgeQState, ["lagrange", "lhopital", "taylor"], "Calculus projections");
     await evaluate(cdp, "window.__examGame.completeActiveRoom()");
     await wait(120);
     const betaCreditState = await evaluate(cdp, "window.__examGame.state()");
@@ -623,18 +760,34 @@ async function main() {
       betaShopOpenState.modalKind !== "betaShop" ||
       betaShopOpenState.title !== "学分商店" ||
       betaShopOpenState.shopCards !== 4 ||
-      betaShopOpenState.shopBuyButtons !== 4
+      betaShopOpenState.shopBuyButtons !== 4 ||
+      betaShopOpenState.betaBossShopStock.some((item) => item.bonusLevels < 0 || item.bonusLevels > 5 || item.hpCost < 40)
     ) {
       throw new Error(`Alpha boss entry should open the credit shop after one room-enter heal: ${JSON.stringify(betaShopOpenState)}`);
     }
     const betaShopShot = await screenshot(cdp, "beta-shop.png");
+    const betaShopLevelState = await evaluate(cdp, "window.__examGame.setBetaShopItemLevelForVerify(0, 2)");
+    if (
+      betaShopLevelState.betaBossShopStock[0]?.bonusLevels !== 2 ||
+      betaShopLevelState.betaBossShopStock[0]?.hpCost !== 90
+    ) {
+      throw new Error(`Credit shop item levels should scale price by 50% per level: ${JSON.stringify(betaShopLevelState.betaBossShopStock[0])}`);
+    }
+    const betaShopBlockedBuyState = await evaluate(cdp, "window.__examGame.buyBetaShopItemForVerify(0)");
+    if (
+      Math.abs(betaShopBlockedBuyState.hp - 70) > 0.001 ||
+      betaShopBlockedBuyState.betaBossShopStock[0]?.purchased
+    ) {
+      throw new Error(`Credit shop should block items that would leave less than one HP: ${JSON.stringify(betaShopBlockedBuyState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.setBetaShopItemLevelForVerify(0, 0)");
     const betaShopBuyState = await evaluate(cdp, "window.__examGame.buyBetaShopItemForVerify(0)");
     if (
-      Math.abs(betaShopBuyState.hp - 40) > 0.001 ||
+      Math.abs(betaShopBuyState.hp - 30) > 0.001 ||
       !betaShopBuyState.betaBossShopStock[0]?.purchased ||
       betaShopBuyState.betaBossShopStock.slice(1).some((item) => item.purchased)
     ) {
-      throw new Error(`Credit shop purchases should cost 30 HP and mark only the bought item: ${JSON.stringify(betaShopBuyState)}`);
+      throw new Error(`Credit shop purchases should cost 40 HP and mark only the bought item: ${JSON.stringify(betaShopBuyState)}`);
     }
     const betaShopRefreshOne = await evaluate(cdp, "window.__examGame.refreshBetaShopForVerify()");
     if (
@@ -660,7 +813,7 @@ async function main() {
     if (
       betaBossFromShopState.mode !== "combat" ||
       betaBossFromShopState.activeRoom !== "boss" ||
-      Math.abs(betaBossFromShopState.hp - 40) > 0.001 ||
+      Math.abs(betaBossFromShopState.hp - 30) > 0.001 ||
       !betaBossFromShopState.bossIntroActive
     ) {
       throw new Error(`Starting beta boss from shop should not trigger a second room-enter heal: ${JSON.stringify(betaBossFromShopState)}`);
@@ -675,6 +828,50 @@ async function main() {
     if (betaItemUseState.credits !== 3 || betaItemUseState.betaItems.length) {
       throw new Error(`Beta credit voucher should grant difficulty-scaled credits and consume the item: ${JSON.stringify(betaItemUseState)}`);
     }
+    const betaSupplyChoiceState = await evaluate(cdp, "window.__examGame.openBetaSupplyRoomForVerify('randomB')");
+    if (
+      betaSupplyChoiceState.mode !== "clear" ||
+      betaSupplyChoiceState.pendingPassiveChoiceKind !== "item" ||
+      betaSupplyChoiceState.pendingPassiveOptions.length !== 3 ||
+      betaSupplyChoiceState.pendingWeaponChoice
+    ) {
+      throw new Error(`Beta supply rooms should offer a three-choice item reward: ${JSON.stringify(betaSupplyChoiceState)}`);
+    }
+    await evaluate(cdp, "document.getElementById('passiveOptionA').click(); document.getElementById('confirmPassiveBtn').click()");
+    await wait(100);
+    const betaSupplyItemTakenState = await evaluate(cdp, "window.__examGame.state()");
+    if (betaSupplyItemTakenState.pendingPassiveChoice || betaSupplyItemTakenState.betaItems.length < 1) {
+      throw new Error(`Confirming a supply choice should add the selected item: ${JSON.stringify(betaSupplyItemTakenState)}`);
+    }
+    const betaCycleState = await evaluate(cdp, "window.__examGame.startBetaDifficulty('crisis'); window.__examGame.addBetaItemForVerify('firstAid'); window.__examGame.addBetaItemForVerify('chalkSmoke'); const before = window.__examGame.state().betaItems[0]; const after = window.__examGame.cycleBetaItemForVerify(); ({ before, afterFirst: after.betaItems[0], count: after.betaItems.length })");
+    if (betaCycleState.count < 2 || betaCycleState.before === betaCycleState.afterFirst) {
+      throw new Error(`G-style item cycling should rotate the current item: ${JSON.stringify(betaCycleState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.startBetaDifficulty('crisis'); window.__examGame.startBossRoom({ bypassShop: true }); window.__examGame.tickBossRoomForVerify(7); window.__examGame.addBetaItemForVerify('chalkSmoke')");
+    const betaSmokeBossState = await evaluate(cdp, "window.__examGame.useBetaItemForVerify()");
+    if (!betaSmokeBossState.bossRevealedCoreIds.length || betaSmokeBossState.bossAttackPauseTimer <= 0) {
+      throw new Error(`Chalk smoke should reveal and briefly suppress boss cores: ${JSON.stringify(betaSmokeBossState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.startBetaDifficulty('final'); window.__examGame.startBetaEliteRoomForVerify('randomC'); window.__examGame.completeActiveRoom()");
+    await wait(120);
+    const betaElitePassiveState = await evaluate(cdp, "window.__examGame.state()");
+    if (betaElitePassiveState.pendingPassiveChoiceKind !== "passive" || !betaElitePassiveState.pendingWeaponChoice) {
+      throw new Error(`Elite rooms should still show the challenge passive before the item bonus: ${JSON.stringify(betaElitePassiveState)}`);
+    }
+    await evaluate(cdp, "document.getElementById('passiveOptionA').click(); document.getElementById('confirmPassiveBtn').click()");
+    await wait(100);
+    const betaEliteItemState = await evaluate(cdp, "window.__examGame.state()");
+    if (betaEliteItemState.pendingPassiveChoiceKind !== "item" || !betaEliteItemState.pendingWeaponChoice || betaEliteItemState.pendingPassiveOptions.length !== 3) {
+      throw new Error(`Elite rooms should insert an extra item choice before normal rewards: ${JSON.stringify(betaEliteItemState)}`);
+    }
+    await evaluate(cdp, "document.getElementById('passiveOptionB').click(); document.getElementById('confirmPassiveBtn').click()");
+    await wait(100);
+    const betaEliteRewardState = await evaluate(cdp, "window.__examGame.state()");
+    if (betaEliteRewardState.pendingPassiveChoice || !betaEliteRewardState.pendingWeaponChoice || betaEliteRewardState.betaItems.length < 1) {
+      throw new Error(`Elite item choice should resolve into the normal reward choice: ${JSON.stringify(betaEliteRewardState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.startBetaDifficulty('crisis')");
+    await wait(120);
     await evaluate(cdp, "window.__examGame.setCreditsForVerify(6); window.__examGame.setPlayerHp(80); window.__examGame.openBetaBossShopForVerify()");
     await wait(100);
     const betaRaidButtonState = await evaluate(cdp, `({
@@ -698,6 +895,34 @@ async function main() {
     if (!betaRaidGuard || betaRaidGuard.maxHp < 330 || betaRaidGuard.fireEvery > 0.72) {
       throw new Error(`Beta shop guard should be tougher and faster on crisis difficulty: ${JSON.stringify(betaRaidGuard)}`);
     }
+    const qLearningPolicyInfo = await evaluate(cdp, "window.__examGame.qLearningPolicyForVerify()");
+    const missingProfiles = expectedQLearningProfiles.filter((profile) => !qLearningPolicyInfo.profiles.includes(profile));
+    const incompleteProfiles = expectedQLearningProfiles.filter((profile) => (qLearningPolicyInfo.profileStateCounts?.[profile] || 0) !== 768);
+    const weakProfiles = expectedQLearningProfiles.filter((profile) => {
+      const trained = qLearningPolicyInfo.profileEvaluations?.[profile]?.averageReward || 0;
+      const random = qLearningPolicyInfo.profileRandomBaselines?.[profile]?.averageReward || 0;
+      return trained <= random;
+    });
+    if (
+      !qLearningPolicyInfo.loaded ||
+      qLearningPolicyInfo.states !== 768 ||
+      missingProfiles.length ||
+      incompleteProfiles.length ||
+      weakProfiles.length
+    ) {
+      throw new Error(`Q-learning profile bundle should load five complete trained policies: ${JSON.stringify({ qLearningPolicyInfo, missingProfiles, incompleteProfiles, weakProfiles })}`);
+    }
+    if (!betaRaidState.qLearningPolicyLoaded || betaRaidState.qLearningPolicyStates !== 768 || !betaRaidGuard.qLearningAi || betaRaidGuard.qLearningProfile !== "merchant") {
+      throw new Error(`Merchant should load and opt into the merchant Q-learning profile: ${JSON.stringify({ qLearningPolicyLoaded: betaRaidState.qLearningPolicyLoaded, qLearningPolicyStates: betaRaidState.qLearningPolicyStates, betaRaidGuard })}`);
+    }
+    const betaRaidWarnState = await evaluate(cdp, "window.__examGame.tickMonsterRoomForVerify(1.25)");
+    const betaRaidWarnGuard = betaRaidWarnState.enemyMechanics.find((enemy) => enemy.mechanics.includes("shopGuard"));
+    if (!betaRaidWarnGuard || betaRaidWarnGuard.shopPressureWarnTimer <= 0) {
+      throw new Error(`Merchant should telegraph invoice traps before firing: ${JSON.stringify(betaRaidWarnGuard)}`);
+    }
+    if (!betaRaidWarnGuard.qLearningState || betaRaidWarnGuard.qLearningState.split("_").length !== 9 || !betaRaidWarnGuard.qLearningAction || betaRaidWarnGuard.qLearningDecisionCount <= 0) {
+      throw new Error(`Merchant should make live Q-learning decisions during combat: ${JSON.stringify(betaRaidWarnGuard)}`);
+    }
     const betaRaidPressureState = await evaluate(cdp, "window.__examGame.tickMonsterRoomForVerify(1.9)");
     if (
       !betaRaidPressureState.enemyShotPatterns.includes("curve") ||
@@ -709,6 +934,11 @@ async function main() {
     const betaRaidNoTaxState = await evaluate(cdp, "window.__examGame.tickMonsterRoomForVerify(1.6)");
     if (betaRaidNoTaxState.credits !== 6) {
       throw new Error(`Merchant fight should no longer deduct credits over time: ${JSON.stringify(betaRaidNoTaxState)}`);
+    }
+    const betaRaidEnrageState = await evaluate(cdp, "window.__examGame.setEnemyHpRatioForVerify(0, 0.44); window.__examGame.tickMonsterRoomForVerify(0.08)");
+    const betaRaidEnrageGuard = betaRaidEnrageState.enemyMechanics.find((enemy) => enemy.mechanics.includes("shopGuard"));
+    if (!betaRaidEnrageGuard?.shopEnrage || betaRaidEnrageGuard.shopEnrageIntroTimer <= 0 || betaRaidEnrageState.screenShake <= 0) {
+      throw new Error(`Merchant should clearly enter a telegraphed enrage state at low HP: ${JSON.stringify({ betaRaidEnrageGuard, screenShake: betaRaidEnrageState.screenShake })}`);
     }
     const betaRaidClearState = await evaluate(cdp, "window.__examGame.completeActiveRoom()");
     await wait(100);
@@ -752,7 +982,7 @@ async function main() {
     ) {
       throw new Error(`Beta final difficulty should start enemies at mechanic level 3: ${JSON.stringify(betaFinalFightState)}`);
     }
-    const finalMeleeMechanics = ["lhopitalBlade", "taylorTripleDash", "dashScatter", "archimedesMarkDash"];
+    const finalMeleeMechanics = ["lhopitalBlade", "taylorTripleDash", "dashScatter", "archimedesMarkDash", "jordanOrbitDash"];
     if (betaFinalFightState.enemyMechanics.some((enemy) => enemy.betaExtraProjectileEligible && enemy.mechanics.some((mechanic) => finalMeleeMechanics.includes(mechanic)))) {
       throw new Error(`Beta final global projectile add-ons should not override melee or dash enemies: ${JSON.stringify(betaFinalFightState.enemyMechanics)}`);
     }
@@ -767,6 +997,13 @@ async function main() {
     const betaFinalResolveState = await evaluate(cdp, "window.__examGame.setEnemyHpRatioForVerify(0, 0.5); window.__examGame.tickMonsterRoomForVerify(0.08)");
     if (!betaFinalResolveState.enemyMechanics.some((enemy) => enemy.finalResolveWarn > 0 || enemy.finalResolve)) {
       throw new Error(`Beta final enemies should trigger a low-HP resolve phase: ${JSON.stringify(betaFinalResolveState.enemyMechanics)}`);
+    }
+    await evaluate(cdp, "window.__examGame.completeActiveRoom()");
+    await wait(120);
+    await choosePendingPassive(cdp, 0);
+    const betaFinalRewardState = await evaluate(cdp, "window.__examGame.state()");
+    if (!betaFinalRewardState.pendingWeaponChoice || betaFinalRewardState.pendingBuffBonusLevels !== 1) {
+      throw new Error(`Beta final three-person room buffs should still be only +1: ${JSON.stringify(betaFinalRewardState)}`);
     }
     await evaluate(cdp, "window.__examGame.startBetaDifficulty('crisis'); window.__examGame.startMonsterRoom('monster')");
     await wait(160);
@@ -912,15 +1149,15 @@ async function main() {
     }
 
     const cramState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('临时抱佛脚')");
-    if (cramState.maxHp !== 125 || cramState.hp !== 125) {
-      throw new Error(`Temporary cramming should raise max HP by 25% and fill the bonus HP: ${JSON.stringify(cramState)}`);
+    if (cramState.maxHp !== 120 || cramState.hp !== 120) {
+      throw new Error(`Temporary cramming should raise max HP by 20% and fill the bonus HP: ${JSON.stringify(cramState)}`);
     }
     const coffeeState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('熬夜咖啡')");
-    if (Math.abs(coffeeState.movementSpeedMultiplier - 1.5) > 0.001) {
-      throw new Error("Overnight coffee should raise movement speed by 50%");
+    if (Math.abs(coffeeState.movementSpeedMultiplier - 1.25) > 0.001) {
+      throw new Error("Overnight coffee should raise movement speed by 25%");
     }
     const coffeeStackState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('熬夜咖啡')");
-    if (Math.abs(coffeeStackState.movementSpeedMultiplier - 2.25) > 0.001) {
+    if (Math.abs(coffeeStackState.movementSpeedMultiplier - (1.25 ** 2)) > 0.001) {
       throw new Error(`Duplicate coffee should stack multiplicatively: ${JSON.stringify(coffeeStackState)}`);
     }
     if (coffeeStackState.tacticalFocusDamageMultiplier <= coffeeState.tacticalFocusDamageMultiplier) {
@@ -963,26 +1200,34 @@ async function main() {
     ) {
       throw new Error(`Duplicate draft paper should stack reload reduction multiplicatively: ${JSON.stringify(draftPaperReload)}`);
     }
-    const chickenPreState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('鸡煲'); window.__examGame.grantBuffForVerify('鸡煲'); window.__examGame.setBattleSecondsForVerify(19)");
-    if (chickenPreState.chickenBuffReady || Math.abs(chickenPreState.damageBuffMultiplier - (1.2 ** 2)) > 0.001) {
-      throw new Error(`Chicken hotpot should not activate before 20 combat seconds: ${JSON.stringify(chickenPreState)}`);
+    const chickenStartState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('鸡煲'); window.__examGame.grantBuffForVerify('鸡煲'); window.__examGame.setBattleSecondsForVerify(0)");
+    if (chickenStartState.chickenBuffReady || Math.abs(chickenStartState.damageBuffMultiplier - (1.2 ** 2)) > 0.001) {
+      throw new Error(`Chicken hotpot should not add damage before the first combat second: ${JSON.stringify(chickenStartState)}`);
     }
     const chickenReadyState = await evaluate(cdp, "window.__examGame.setBattleSecondsForVerify(20)");
-    if (!chickenReadyState.chickenBuffReady || Math.abs(chickenReadyState.damageBuffMultiplier - ((1.2 ** 2) * (2 ** 2))) > 0.001) {
-      throw new Error(`Duplicate chicken hotpot should stack multiplicatively after 20 combat seconds: ${JSON.stringify(chickenReadyState)}`);
+    if (!chickenReadyState.chickenBuffReady || Math.abs(chickenReadyState.damageBuffMultiplier - ((1.2 ** 2) * ((1 + 20 * 0.01) ** 2))) > 0.001) {
+      throw new Error(`Duplicate chicken hotpot should add 1% damage per combat second and stack multiplicatively: ${JSON.stringify(chickenReadyState)}`);
     }
     await evaluate(cdp, "window.__examGame.setPlayerHp(100)");
     const mistakeBookState = await evaluate(cdp, "window.__examGame.grantBuffForVerify('错题本'); window.__examGame.grantBuffForVerify('错题本')");
-    if (Math.abs(mistakeBookState.incomingDamageMultiplier - (0.75 ** 2)) > 0.001) {
+    if (Math.abs(mistakeBookState.incomingDamageMultiplier - (0.8 ** 2)) > 0.001) {
       throw new Error(`Duplicate mistake book should stack incoming damage reduction multiplicatively: ${JSON.stringify(mistakeBookState)}`);
     }
     const mistakeBookDamage = await evaluate(cdp, "window.__examGame.damagePlayerForVerify(40)");
     if (
-      Math.abs(mistakeBookDamage.after.hp - (mistakeBookDamage.before.hp - 40 * (0.75 ** 2))) > 0.001 ||
+      Math.abs(mistakeBookDamage.after.hp - (mistakeBookDamage.before.hp - 40 * (0.8 ** 2))) > 0.001 ||
       mistakeBookDamage.after.mistakeBoostTimer <= 0 ||
-      Math.abs(mistakeBookDamage.after.damageBuffMultiplier - ((1.2 ** 2) * (2 ** 2) * (1.25 ** 2))) > 0.001
+      Math.abs(mistakeBookDamage.after.damageBuffMultiplier - ((1.2 ** 2) * ((1 + 20 * 0.01) ** 2) * (1.25 ** 2))) > 0.001
     ) {
       throw new Error(`Duplicate mistake book should reduce damage and stack counterattack boost: ${JSON.stringify(mistakeBookDamage)}`);
+    }
+    const gpaGuardDamage = await evaluate(cdp, "window.__examGame.grantBuffForVerify('绩点守护'); window.__examGame.setPlayerHp(1); window.__examGame.damagePlayerForVerify(999)");
+    if (
+      !gpaGuardDamage.after.gpaGuardUsed ||
+      gpaGuardDamage.after.buffCounts["绩点守护"] !== 0 ||
+      Math.abs(gpaGuardDamage.after.hp - Math.ceil(gpaGuardDamage.before.maxHp * 0.5)) > 0.001
+    ) {
+      throw new Error(`GPA guard should revive to 50% max HP and consume one stack: ${JSON.stringify(gpaGuardDamage)}`);
     }
     await evaluate(cdp, "window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyI', shiftKey: true }))");
     await wait(100);
@@ -1441,6 +1686,16 @@ async function main() {
     if (calculusFightState.enemyMechanics.some((enemy) => "rewardWeapon" in enemy)) {
       throw new Error(`Calculus enemies should not bind specific weapon drops: ${JSON.stringify(calculusFightState.enemyMechanics)}`);
     }
+    const enemyBoundaryState = await evaluate(cdp, "window.__examGame.setEnemyPositionForVerify(0, -200, -180)");
+    const boundaryEnemy = enemyBoundaryState.enemyMechanics[0];
+    if (
+      boundaryEnemy.x < boundaryEnemy.radius ||
+      boundaryEnemy.y < boundaryEnemy.radius ||
+      boundaryEnemy.baseX < boundaryEnemy.radius ||
+      boundaryEnemy.baseY < boundaryEnemy.radius
+    ) {
+      throw new Error(`Enemy body should be clamped inside the arena after forced movement: ${JSON.stringify(boundaryEnemy)}`);
+    }
     const lagrangeSplitPreview = await evaluate(cdp, "window.__examGame.previewSplitEnemyForVerify(0)");
     const expectedLagrangeChildFireEvery = Number(lagrangeParent.fireEvery.toFixed(3));
     const expectedLagrangeChildHp = Math.max(18, Math.round(lagrangeParent.maxHp * 0.4));
@@ -1514,6 +1769,11 @@ async function main() {
     if (geometryFightState.enemyMechanics.some((enemy) => "rewardWeapon" in enemy)) {
       throw new Error(`Geometry enemies should not bind specific weapon drops: ${JSON.stringify(geometryFightState.enemyMechanics)}`);
     }
+    const geometryQState = await evaluate(cdp, `(() => {
+      for (let index = 0; index < 3; index += 1) window.__examGame.forceQLearningDecisionForVerify(index);
+      return window.__examGame.state();
+    })()`);
+    assertQLearningProfiles(geometryQState, ["descartes", "archimedes", "euclid"], "Geometry projections");
     const archimedesIndex = geometryFightState.enemyMechanics.findIndex((enemy) => enemy.mechanics.includes("archimedesMarkDash"));
     const euclidIndex = geometryFightState.enemyMechanics.findIndex((enemy) => enemy.mechanics.includes("dashScatter"));
     if (archimedesIndex < 0 || euclidIndex < 0) {
@@ -1523,9 +1783,20 @@ async function main() {
     if (archimedesVolleyState.enemyWeaponSealShotCount < 12 || !archimedesVolleyState.enemyShotPatterns.includes("straight")) {
       throw new Error(`Archimedes should fire a ring of square weapon-seal bullets: ${JSON.stringify(archimedesVolleyState)}`);
     }
+    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(180, 180)");
     const archimedesDashState = await evaluate(cdp, `window.__examGame.forceMonsterMechanicForVerify(${archimedesIndex}, 'archimedesDash')`);
     if ((archimedesDashState.enemyMechanics[archimedesIndex]?.archimedesDashWarn || 0) <= 0) {
       throw new Error(`Archimedes should warn before charging toward the player: ${JSON.stringify(archimedesDashState.enemyMechanics[archimedesIndex])}`);
+    }
+    await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(680, 520)");
+    const archimedesFollowState = await evaluate(cdp, "window.__examGame.tickMonsterRoomForVerify(0.12)");
+    const archimedesFollow = archimedesFollowState.enemyMechanics[archimedesIndex];
+    if (
+      (archimedesFollow?.archimedesDashWarn || 0) <= 0 ||
+      Math.abs(archimedesFollow.archimedesDashTargetX - archimedesFollowState.playerX) > 3 ||
+      Math.abs(archimedesFollow.archimedesDashTargetY - archimedesFollowState.playerY) > 3
+    ) {
+      throw new Error(`Archimedes dash warning should keep tracking the player's latest position: ${JSON.stringify({ archimedesFollow, playerX: archimedesFollowState.playerX, playerY: archimedesFollowState.playerY })}`);
     }
     const euclidBlinkState = await evaluate(cdp, `window.__examGame.forceMonsterMechanicForVerify(${euclidIndex}, 'euclidBlink')`);
     if (!euclidBlinkState.enemyMechanics[euclidIndex]?.euclidFreezeTimer || euclidBlinkState.enemyMechanics[euclidIndex]?.euclidInvisible) {
@@ -1603,6 +1874,11 @@ async function main() {
     if (linearFightState.enemyMechanics.some((enemy) => "rewardWeapon" in enemy)) {
       throw new Error(`Linear enemies should not bind specific weapon drops: ${JSON.stringify(linearFightState.enemyMechanics)}`);
     }
+    const linearQState = await evaluate(cdp, `(() => {
+      for (let index = 0; index < 3; index += 1) window.__examGame.forceQLearningDecisionForVerify(index);
+      return window.__examGame.state();
+    })()`);
+    assertQLearningProfiles(linearQState, ["gauss", "jacobi", "jordan"], "Linear projections");
     await evaluate(cdp, "window.__examGame.completeActiveRoom()");
     await wait(150);
     const linearPromptState = await evaluate(cdp, "window.__examGame.state()");
@@ -1664,7 +1940,7 @@ async function main() {
     }
 
     await evaluate(cdp, "window.__examGame.startBossRoom({ bypassShop: true })");
-    await wait(1300);
+    await evaluate(cdp, "window.__examGame.tickBossRoomForVerify(1.25)");
     const bossIntroState = await evaluate(cdp, "window.__examGame.state()");
     if (!bossIntroState.bossIntroActive || bossIntroState.bossIntroElapsed < 1) {
       const introErrors = cdp.events
@@ -1673,7 +1949,7 @@ async function main() {
       throw new Error(`Boss intro title phase did not start correctly: ${JSON.stringify(bossIntroState)} Errors=${introErrors.join(" | ")}`);
     }
     const bossIntroShot = await screenshot(cdp, "boss-intro.png");
-    await wait(11200);
+    await evaluate(cdp, "window.__examGame.tickBossRoomForVerify(11.4)");
     const bossState = await evaluate(cdp, "window.__examGame.state()");
     if (bossState.mode !== "combat" || bossState.activeRoom !== "boss") {
       throw new Error("Boss room did not start correctly");
@@ -1711,6 +1987,9 @@ async function main() {
     if (bossState.bossMaxPressure <= 0 || bossState.bossAttackCount <= 0) {
       throw new Error(`Boss pressure director should initialize and count live attacks: ${JSON.stringify(bossState)}`);
     }
+    if (bossState.bossComboChainCount <= 0 || !bossState.bossLastComboName) {
+      throw new Error(`Boss combo director should sequence attacks instead of only firing independent cooldowns: ${JSON.stringify(bossState)}`);
+    }
     if (bossState.bossDomainCycleSeconds !== 20) {
       throw new Error(`Boss domain cycle should be 20 seconds: ${JSON.stringify(bossState)}`);
     }
@@ -1742,8 +2021,11 @@ async function main() {
     await evaluate(cdp, "window.__examGame.forceBossMechanic('cauchy')");
     await wait(150);
     const cauchyState = await evaluate(cdp, "window.__examGame.state()");
-    if (cauchyState.bossDomainCoreId !== "cauchy" || cauchyState.bossCauchyCoreWallCount !== 3 || cauchyState.bossCauchyCandidateCount < 5) {
-      throw new Error(`Cauchy domain should have five normal walls and three highlighted core walls: ${JSON.stringify(cauchyState)}`);
+    if (cauchyState.bossDomainCoreId !== "cauchy" || cauchyState.bossCauchyCoreWallCount !== 0 || cauchyState.bossCauchyPlayerArcWallCount !== 3 || cauchyState.bossCauchyCandidateCount < 5) {
+      throw new Error(`Cauchy domain should have five normal candidates and three highlighted player arc walls: ${JSON.stringify(cauchyState)}`);
+    }
+    if (cauchyState.bossDomainFlashCoreId !== "cauchy" || cauchyState.bossDomainFlashTimer <= 0) {
+      throw new Error(`Boss domain entry should expose a visual flash timer: ${JSON.stringify(cauchyState)}`);
     }
     await evaluate(cdp, "window.__examGame.forceBossMechanic('cauchyHighlight')");
     await wait(80);
@@ -1765,7 +2047,9 @@ async function main() {
       gaussDomainState.bossGaussBoostedCoreIds.length !== 2 ||
       gaussDomainState.bossGaussZoneBonus !== 0 ||
       gaussDomainState.bossGaussNextZoneCount !== 3 ||
-      gaussDomainState.bossInvisibleCoreIds.length !== 3
+      gaussDomainState.bossInvisibleCoreIds.length !== 3 ||
+      gaussDomainState.bossDomainFlashCoreId !== "gauss" ||
+      gaussDomainState.bossDomainFlashTimer <= 0
     ) {
       throw new Error(`Gauss domain should shield and damage-boost the other two cores and reset zone count: ${JSON.stringify(gaussDomainState)}`);
     }
@@ -1785,7 +2069,7 @@ async function main() {
     ) {
       throw new Error(`Hitting an invisible boss core should reveal it for nearly three seconds: ${JSON.stringify(gaussRevealHit)}`);
     }
-    await wait(3100);
+    await evaluate(cdp, "window.__examGame.tickBossRoomForVerify(3.1)");
     const gaussRehiddenState = await evaluate(cdp, "window.__examGame.state()");
     if (
       gaussRehiddenState.bossRevealedCoreIds.includes("gauss") ||
@@ -1796,10 +2080,27 @@ async function main() {
     await evaluate(cdp, "window.__examGame.forceBossMechanic('gauss')");
     await wait(80);
     await evaluate(cdp, "window.__examGame.forceBossMechanic('gaussZones')");
-    await wait(400);
+    await evaluate(cdp, "window.__examGame.tickBossRoomForVerify(0.4)");
     const gaussAttackState = await evaluate(cdp, "window.__examGame.state()");
-    if (!gaussAttackState.bossShotPatternCounts.curve || gaussAttackState.bossGaussZoneCount !== 3) {
-      throw new Error(`Gauss random-point curve zones should start from three zones: ${JSON.stringify(gaussAttackState)}`);
+    if (!gaussAttackState.bossShotPatternCounts.curve || gaussAttackState.bossGaussZoneCount !== 3 || gaussAttackState.bossGaussShockwaveCount < 1) {
+      throw new Error(`Gauss random-point curve zones should start from three zones and create shockwaves: ${JSON.stringify(gaussAttackState)}`);
+    }
+    await evaluate(cdp, "window.__examGame.forceGaussShockwaveMissForVerify()");
+    await evaluate(cdp, "window.__examGame.tickBossRoomForVerify(0.7)");
+    const gaussBreakState = await evaluate(cdp, "window.__examGame.state()");
+    if (
+      gaussBreakState.bossGaussDodgeRewardCount < 1 ||
+      !gaussBreakState.bossBreakCoreIds.includes("gauss") ||
+      gaussBreakState.bossLastBreakReason !== "gaussShockwaveDodge" ||
+      gaussBreakState.bossAttackPauseTimer <= 0 ||
+      gaussBreakState.bossBreakWindowCount < 1 ||
+      gaussBreakState.bossGaussDodgeRewardCooldown <= 0
+    ) {
+      throw new Error(`Dodging a Gauss shockwave should reveal a counter window: ${JSON.stringify(gaussBreakState)}`);
+    }
+    const gaussBreakHit = await evaluate(cdp, "window.__examGame.damageBossCoreForVerify('gauss', 80, 'polarShotgun')");
+    if (gaussBreakHit.after >= gaussBreakHit.before) {
+      throw new Error(`Gauss break window should let any weapon punish HP: ${JSON.stringify(gaussBreakHit)}`);
     }
 
     await evaluate(cdp, "window.__examGame.setPlayerPositionForVerify(120, 120)");
@@ -1857,9 +2158,23 @@ async function main() {
     if (cauchyWrongHit.afterShield !== cauchyWrongHit.beforeShield || cauchyWrongHit.after !== cauchyWrongHit.before) {
       throw new Error(`Non-matching weapons should not damage boss shields: ${JSON.stringify(cauchyWrongHit)}`);
     }
+    if (cauchyWrongHit.state.bossCauchyPassiveCooldown <= 0 || cauchyWrongHit.state.bossCauchyPassiveWallCount < 1) {
+      throw new Error(`Cauchy passive should react to any player weapon hit on a shared cooldown: ${JSON.stringify(cauchyWrongHit)}`);
+    }
     const cauchySwordHit = await evaluate(cdp, "window.__examGame.damageBossCoreForVerify('cauchy', 30, 'sword')");
     if (!cauchySwordHit.domain || cauchySwordHit.afterShield >= cauchySwordHit.beforeShield || cauchySwordHit.after !== cauchySwordHit.before) {
       throw new Error(`The domain core shield should be damageable while HP stays invulnerable: ${JSON.stringify(cauchySwordHit)}`);
+    }
+    await evaluate(cdp, "window.__examGame.tickBossRoomForVerify(0.2)");
+    await evaluate(cdp, "window.__examGame.triggerCauchyDashWallsForVerify()");
+    await evaluate(cdp, "window.__examGame.tickBossRoomForVerify(0.9)");
+    const cauchyBreakState = await evaluate(cdp, "window.__examGame.state()");
+    if (
+      cauchyBreakState.bossCauchyBreakRewardCount < 1 ||
+      !cauchyBreakState.bossBreakCoreIds.includes("cauchy") ||
+      cauchyBreakState.bossLastBreakReason !== "cauchyDashWalls"
+    ) {
+      throw new Error(`Escaping Cauchy dash walls should create a counter window: ${JSON.stringify(cauchyBreakState)}`);
     }
     const trackingCoreId = cauchySwordHit.state.bossFrontCoreIds.includes("descartes") ? "descartes" : cauchySwordHit.state.bossFrontCoreIds[0];
     const trackingWeapon = trackingCoreId === "gauss" ? "matrixRpg" : trackingCoreId === "descartes" ? "coordinateBlade" : "functionGun";
@@ -1882,7 +2197,7 @@ async function main() {
     }
 
     await evaluate(cdp, "window.__examGame.setPlayerHp(999); window.__examGame.forceBossMechanic('rotate')");
-    await wait(950);
+    await evaluate(cdp, "window.__examGame.tickBossRoomForVerify(1.1)");
     const rotatedBossState = await evaluate(cdp, "window.__examGame.state()");
     if (rotatedBossState.bossRotationSteps < 1 || !rotatedBossState.bossDomainCoreId || rotatedBossState.bossRotateTimer > 20 || rotatedBossState.bossRotateTimer < 18.8) {
       throw new Error(`Boss should rotate into a new 20 second domain: ${JSON.stringify(rotatedBossState)}`);
@@ -1905,6 +2220,10 @@ async function main() {
     await evaluate(cdp, "window.__examGame.setBossCoreHp('cauchy', 0)");
     await wait(700);
     await evaluate(cdp, "window.__examGame.setPlayerHp(999); window.__examGame.setBossCoreHp('descartes', 0)");
+    const bossFinalEntryFlashState = await evaluate(cdp, "window.__examGame.tickBossRoomForVerify(0.08)");
+    if (bossFinalEntryFlashState.bossCoreDefeatFlashTimer <= 0 || bossFinalEntryFlashState.bossFinalCoreFlashTimer <= 0) {
+      throw new Error(`Boss core defeat and final-core entry should expose visual flash timers: ${JSON.stringify(bossFinalEntryFlashState)}`);
+    }
     await wait(1800);
     const bossDefeatState = await evaluate(cdp, "window.__examGame.state()");
     if (bossDefeatState.bossDefeatedCount < 2) {
@@ -1919,13 +2238,35 @@ async function main() {
       !bossDefeatState.bossFrontCoreIds.includes("gauss") ||
       bossDefeatState.bossInvulnerableCoreIds.includes("gauss") ||
       bossDefeatState.bossActiveCoreCount !== 1 ||
-      bossDefeatState.bossFullPowerCoreId !== "gauss"
+      bossDefeatState.bossFullPowerCoreId !== "gauss" ||
+      bossDefeatState.bossDefeatOrder.length < 2 ||
+      bossDefeatState.bossDefeatReliefCount < 2 ||
+      bossDefeatState.bossFinalCoreEntryCount < 1
     ) {
       throw new Error(`The last remaining Gauss core should stay front-facing and damageable: ${JSON.stringify(bossDefeatState)}`);
     }
     const soloGaussHit = await evaluate(cdp, "window.__examGame.damageBossCoreForVerify('gauss', 80, 'sword')");
     if (soloGaussHit.after >= soloGaussHit.before) {
       throw new Error(`The last remaining Gauss core did not take HP damage: ${JSON.stringify(soloGaussHit)}`);
+    }
+    await evaluate(cdp, "window.__examGame.startBossRoom({ bypassShop: true })");
+    await evaluate(cdp, "window.__examGame.tickBossRoomForVerify(7)");
+    await evaluate(cdp, "window.__examGame.forceBossMechanic('cauchy')");
+    await evaluate(cdp, "window.__examGame.setBossCoreHp('gauss', 0)");
+    await evaluate(cdp, "window.__examGame.setBossCoreHp('descartes', 0)");
+    await evaluate(cdp, "window.__examGame.tickBossRoomForVerify(7.4)");
+    const soloCauchyState = await evaluate(cdp, "window.__examGame.state()");
+    if (soloCauchyState.bossFullPowerCoreId !== "cauchy" || soloCauchyState.bossCauchyFullPowerWallCycleCount < 1 || soloCauchyState.bossCauchyPlayerArcWallCount < 3) {
+      throw new Error(`Solo Cauchy should keep generating dash-break wall patterns: ${JSON.stringify(soloCauchyState)}`);
+    }
+
+    await evaluate(cdp, "window.__examGame.startBossRoom({ bypassShop: true })");
+    await evaluate(cdp, "window.__examGame.tickBossRoomForVerify(7)");
+    await evaluate(cdp, "window.__examGame.setPlayerHp(999); window.__examGame.setBossCoreHp('cauchy', 0); window.__examGame.setBossCoreHp('gauss', 0)");
+    await evaluate(cdp, "window.__examGame.tickBossRoomForVerify(1.6)");
+    const soloDescartesState = await evaluate(cdp, "window.__examGame.state()");
+    if (soloDescartesState.bossFullPowerCoreId !== "descartes" || soloDescartesState.bossDescartesFinalLaserBurstCount < 1 || soloDescartesState.bossLaserCount < 3) {
+      throw new Error(`Solo Descartes should add final ray laser bursts: ${JSON.stringify(soloDescartesState)}`);
     }
 
     await evaluate(cdp, "window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyB' }))");

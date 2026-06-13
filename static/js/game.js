@@ -33,6 +33,7 @@
     difficultyBack: document.getElementById("difficultyBackBtn"),
     ingameHelp: document.getElementById("ingameHelpBtn"),
     enemyCodex: document.getElementById("enemyCodexBtn"),
+    knowledgeCodex: document.getElementById("knowledgeCodexBtn"),
     funFacts: document.getElementById("funFactsBtn"),
     leaderboard: document.getElementById("leaderboardBtn"),
     settings: document.getElementById("settingsBtn"),
@@ -98,6 +99,25 @@
 
   const W = canvas.width;
   const H = canvas.height;
+  const combatHudHeight = 44;
+  const combatHudMargin = 8;
+  const combatHudTop = H - combatHudHeight - combatHudMargin;
+  const combatRoomLift = 48;
+  const combatVisibleBottom = combatHudTop - 6;
+  const floorTextureScale = 1 / 4;
+  const floorTextureCrop = { x: 0, y: 0, w: 1, h: 1 };
+  const floorTextureEntries = {
+    monster: { src: "/static/assets/floor/room-tile1.png?v=20260610-room-tiles-scale4" },
+    geometry: { src: "/static/assets/floor/room-tile2.png?v=20260610-room-tiles-scale4" },
+    linear: { src: "/static/assets/floor/room-tile3.png?v=20260610-room-tiles-scale4" },
+    boss: { src: "/static/assets/floor/room-tile4.png?v=20260610-room-tiles-scale4" },
+  };
+  Object.values(floorTextureEntries).forEach((entry) => {
+    entry.image = new Image();
+    entry.image.src = entry.src;
+    entry.canvas = null;
+    entry.pattern = null;
+  });
   const arenaInset = 10;
   const baseArena = {
     left: arenaInset,
@@ -141,6 +161,8 @@
     cauchyExplosionBulletCount,
     cauchyFullPowerWallCount,
     cauchyFullPowerCycle,
+    bossBreakWindowDuration,
+    bossBreakDamageMultiplier,
     bossProjectionHp,
     bossProjectionLimit,
     gaussZoneBaseCount,
@@ -194,6 +216,7 @@
   }
   const keys = new Set();
   const mouse = { x: W / 2, y: H / 2, down: false };
+  let frameShake = { x: 0, y: 0 };
 
   function setCombatArena(kind = "normal") {
     const scale = kind === "boss" ? bossArenaScale : 1;
@@ -218,13 +241,17 @@
     if (game.activeRoom !== "boss" || !game.player) return { x: 0, y: 0 };
     return {
       x: clamp(game.player.x - W / 2, 0, Math.max(0, arena.right - W)),
-      y: clamp(game.player.y - H / 2, 0, Math.max(0, arena.bottom - H)),
+      y: clamp(
+        game.player.y - combatRoomLift - combatVisibleBottom / 2,
+        0,
+        Math.max(0, arena.bottom - combatRoomLift - combatVisibleBottom)
+      ),
     };
   }
 
   function screenToWorld(point) {
     const camera = combatCamera();
-    return { x: point.x + camera.x, y: point.y + camera.y };
+    return { x: point.x + camera.x, y: point.y + camera.y + combatRoomLift };
   }
   let mode = "menu";
   let lastTime = performance.now();
@@ -233,7 +260,7 @@
   let sharedFunStats = null;
   let funFactsPageIndex = 0;
   let weaponInfoPageIndex = 0;
-  const chickenHotpotDelayMs = 20000;
+  const chickenHotpotDamagePerSecond = 0.01;
   const lagrangeChildHpMultiplier = 0.4;
   const lagrangeChildShotSpeedMultiplier = 1.5;
   const lhopitalInvincibleDuration = 5;
@@ -243,11 +270,36 @@
   const archimedesDashWarning = 0.74;
   const archimedesDashInterval = 4;
   const archimedesSquareVolleyCount = 12;
-  const euclidBlinkInterval = 3;
+  const euclidBlinkInterval = 4.2;
   const euclidFreezeDuration = 0.7;
   const lhopitalSlashWarning = 0.42;
   const taylorDashWarning = 0.42;
   const jacobiBlinkWarning = 0.58;
+  const jacobiVolleyWaveInterval = 0.22;
+  const jacobiBlinkInitialMin = 4.8;
+  const jacobiBlinkInitialVariance = 1.1;
+  const jacobiBlinkCooldownMin = 6.6;
+  const jacobiBlinkCooldownVariance = 1.2;
+  const jordanOrbitRadius = 126;
+  const jordanOrbitSpeed = 1.55;
+  const jordanRageInterval = 7;
+  const jordanRageFirstDashDelay = 2;
+  const jordanRageDashInterval = 1.5;
+  const jordanRageDashCount = 5;
+  const jordanRageDashWarning = 0.46;
+  const gaussShockwaveWarnTime = 1;
+  const gaussShockwaveActiveTime = 0.85;
+  const gaussShockwaveWidth = 18;
+  const bossBreakWindowSeconds = Number(bossBreakWindowDuration) || 2.6;
+  const bossBreakDamageScale = Number(bossBreakDamageMultiplier) || 1.35;
+  const bossBreakAttackPause = 0.55;
+  const bossComboGap = 0.62;
+  const bossComboBaseCadence = 3.15;
+  const bossComboFinalCadence = 2.35;
+  const bossFinalGaussRevealPulse = 0.55;
+  const bossDefeatReliefPause = 0.75;
+  const gaussDodgeRewardCooldown = 3.2;
+  const cauchyPassiveCooldown = 10;
   const axisLaserWarning = 0.65;
   const gaussDeathBeamWarning = 0.68;
   const swordFocusDuration = 1.1;
@@ -280,13 +332,21 @@
   const bossCounterSuppressionBase = 0.62;
   const guideToastDefaultDuration = 3.4;
   const betaRandomRoomCost = 2;
-  const betaShopItemHpCost = 30;
+  const betaShopItemHpCost = 40;
+  const betaShopMaxBonusLevel = 5;
+  const betaShopPriceMultiplier = 1.5;
+  const betaShopWeaponBonusWeights = [1000, 320, 100, 32, 10, 3];
+  const betaShopBuffBonusWeights = [1000, 220, 48, 10, 2, 0.5];
   const betaShopRefreshCosts = [1, 3, 5];
   const betaItemLimit = 3;
   const betaShopGuardTaxInitial = 3.2;
   const betaShopGuardTaxReset = 4.0;
   const betaShopGuardPressureInitial = 1.8;
   const betaShopGuardPressureReset = 2.55;
+  const betaShopGuardTaxWarning = 0.68;
+  const betaShopGuardPressureWarning = 0.56;
+  const betaShopGuardFocusWarning = 0.42;
+  const betaShopGuardEnrageIntroDuration = 0.82;
   const betaDifficultyDefs = [
     {
       id: "standard",
@@ -405,6 +465,12 @@
     },
   ];
   const betaItemMap = Object.fromEntries(betaItemDefs.map((item) => [item.id, item]));
+  const betaItemEffectOverrides = {
+    firstAid: "立刻回复 35% 已损失生命，至少回复 18 点，并获得 1.25 秒无敌。",
+    chalkSmoke: "清除场上大部分敌方弹幕，短暂压制普通敌人，并让 Boss 核心显形和露出反击窗口。",
+    spareMagazine: "当前武器立刻装填满弹，并获得更长的战术专注窗口。",
+    creditVoucher: "立刻获得 2 学分；危机和终局难度额外增加 1 学分。",
+  };
   const jordanSlashWarnDuration = 0.7;
   const jordanSlashRadiusScale = 2 / 3;
   const jordanSlashDamage = 14;
@@ -524,6 +590,20 @@
     return Math.max(min, 1 + passiveLevel(player, id) * perLevel);
   }
 
+  function chickenHotpotBattleSeconds() {
+    return Math.max(0, Math.floor(game.elapsed / 1000));
+  }
+
+  function chickenHotpotDamageMultiplier(player = game.player) {
+    const count = buffCount(player, "鸡煲");
+    if (!count) return 1;
+    return Math.pow(1 + chickenHotpotBattleSeconds() * chickenHotpotDamagePerSecond, count);
+  }
+
+  function chickenHotpotActive(player = game.player) {
+    return buffCount(player, "鸡煲") > 0 && chickenHotpotBattleSeconds() > 0;
+  }
+
   function playerAttackCooldownMultiplier(player = game.player) {
     const formulaMultiplier = Math.pow(1 / 1.2, buffCount(player, "公式大全"));
     return bossDomainAttackCooldownMultiplier() * formulaMultiplier;
@@ -533,13 +613,13 @@
     return (
       Math.pow(1.2, buffCount(player, "学霸笔记")) *
       (player?.mistakeBoostTimer > 0 ? Math.pow(1.25, buffCount(player, "错题本")) : 1) *
-      (game.elapsed >= chickenHotpotDelayMs ? Math.pow(2, buffCount(player, "鸡煲")) : 1) *
+      chickenHotpotDamageMultiplier(player) *
       passiveMultiplier(player, "damage", 0.05, 1)
     );
   }
 
   function incomingDamageMultiplier(player = game.player) {
-    return Math.pow(0.75, buffCount(player, "错题本")) * passiveMultiplier(player, "guard", -0.04, 0.55);
+    return Math.pow(0.8, buffCount(player, "错题本")) * passiveMultiplier(player, "guard", -0.04, 0.55);
   }
 
   function weaponReloadTime(weapon, player = game.player) {
@@ -582,7 +662,7 @@
     if ((player.mistakeBoostTimer || 0) > 0) {
       multiplier *= Math.pow(1.15, buffCount(player, "错题本"));
     }
-    if (game.elapsed >= chickenHotpotDelayMs) {
+    if (chickenHotpotActive(player)) {
       multiplier *= Math.pow(1.08, buffCount(player, "鸡煲"));
     }
     multiplier *= passiveMultiplier(player, "stagger", 0.06, 1);
@@ -598,7 +678,7 @@
     if (player && player.hp <= player.maxHp * 0.35) {
       multiplier *= Math.pow(1.08, buffCount(player, "临时抱佛脚"));
     }
-    if (game.elapsed >= chickenHotpotDelayMs) {
+    if (chickenHotpotActive(player)) {
       multiplier *= Math.pow(1.05, buffCount(player, "鸡煲"));
     }
     return multiplier;
@@ -609,7 +689,7 @@
     return (
       Math.pow(1.08, buffCount(player, "学霸笔记")) *
       Math.pow(1.05, buffCount(player, "公式大全")) *
-      (game.elapsed >= chickenHotpotDelayMs ? Math.pow(1.08, buffCount(player, "鸡煲")) : 1)
+      (chickenHotpotActive(player) ? Math.pow(1.08, buffCount(player, "鸡煲")) : 1)
     );
   }
 
@@ -625,6 +705,282 @@
     ui.guideToast.textContent = text;
     ui.guideToast.hidden = false;
     ui.guideToast.classList.add("visible");
+    return true;
+  }
+
+  const mechanicTutorialStorageKey = "examGameMechanicTutorialSeenV1";
+  const onboardingGuideStorageKey = "examGameOnboardingSeenV2";
+  const onboardingGuideVersion = "core-loop-v1";
+  const mechanicTutorials = {
+    ammoReload: {
+      title: "弹药与换弹",
+      body: "枪械和重火力武器有弹匣限制。子弹打空或按 R 会进入换弹，换弹期间无法继续射击。",
+      tips: ["换弹前可以用闪避拉开距离。", "草稿纸会明显缩短换弹时间。"],
+    },
+    tacticalFocus: {
+      title: "战术专注",
+      body: "闪避擦过危险弹幕或攻击时，会获得短暂的战术专注。下一段输出会更强，更适合反打。",
+      tips: ["不要只把空格当逃跑键，贴着攻击边缘闪开会更赚。"],
+    },
+    stagger: {
+      title: "韧性与破防",
+      body: "敌人左侧会显示韧性条。持续命中、背击或抓住破绽会更快打空韧性，使敌人短暂硬直。",
+      tips: ["破防期间可以贴近爆发输出。", "慢速高伤武器通常更擅长打韧性。"],
+    },
+    lagrangeSplit: {
+      title: "分裂投影",
+      body: "拉格朗日投影被击败时会分裂成两个较弱的小投影。清场前不要急着站定领奖励。",
+      tips: ["分裂体血量较低，但移动更乱。"],
+    },
+    descartesBlink: {
+      title: "象限换位",
+      body: "笛卡尔投影会预告并跳转到其他象限，之后继续用轴向攻击封锁路线。",
+      tips: ["看到换位预警时，先离开横竖线附近。"],
+    },
+    lhopitalPhase: {
+      title: "半血领域",
+      body: "洛必达投影半血后会改变战斗节奏，并展开持续压迫的领域效果。",
+      tips: ["它转换阶段时会短暂保命，先处理位置再输出。"],
+    },
+    taylorDash: {
+      title: "三段突刺",
+      body: "泰勒投影会连续锁定并突刺三次。每段突刺后都会留下短暂反击窗口。",
+      tips: ["横向闪避比直线后退更稳定。"],
+    },
+    archimedesDash: {
+      title: "持续锁定冲刺",
+      body: "阿基米德投影会持续锁定你的位置，提示虚线会跟随移动；冲刺开始时才固定目标点。",
+      tips: ["最后一刻横向闪避，可以把它引到空处。"],
+    },
+    euclidBlink: {
+      title: "隐身刺击",
+      body: "欧几里得投影会隐身靠近玩家，现身后短暂停顿，再向锁定方向刺击。",
+      tips: ["它现身停顿时是观察方向的关键时机。"],
+    },
+    jacobiBlink: {
+      title: "背后换位",
+      body: "雅可比投影会尝试闪到玩家身后，并在落点释放一组矩阵弹幕。",
+      tips: ["保持移动，不要把背后空间让得太干净。"],
+    },
+    jordanOrbit: {
+      title: "环绕与狂暴",
+      body: "若尔当投影会围绕玩家环绕，环绕时处于无敌状态。每隔一段时间进入狂暴，连续突刺后才回到环绕。",
+      tips: ["环绕阶段优先走位；狂暴突刺结束后再反击。"],
+    },
+    gaussHalfField: {
+      title: "上下半区",
+      body: "高斯投影在下半区会回血并锁住最低血量；在上半区被击败时会释放死亡激光。",
+      tips: ["想真正击败它，需要把战斗节奏带到上半区。"],
+    },
+    gaussDeathBeam: {
+      title: "死亡激光",
+      body: "高斯投影在上半区死亡后会留下数道激光预警。战斗不会立刻安全，先躲完再收尾。",
+      tips: ["激光预警出现后，横向移动到线外。"],
+    },
+    betaCredits: {
+      title: "β 学分规则",
+      body: "β 版本中，知识点教室每击败一个怪获得 1 学分，右侧随机房间需要消耗学分开启。",
+      tips: ["随机房的怪不会给学分。", "Boss 前商店可以用学分刷新库存。"],
+    },
+    shopRaid: {
+      title: "抢商店",
+      body: "抢商店会进入商人战。击败商人不会获得学分，但当前商店四件商品会变为免费领取。",
+      tips: ["抢商店后不能再次刷新商店。", "也可以什么都不拿，直接进入 Boss。"],
+    },
+    bossBasics: {
+      title: "三位一体",
+      body: "Boss 只有转到前排的核心会输出并承受生命伤害，转到后方的核心会进入无敌状态。",
+      tips: ["核心发光时命中它，可以压低下一轮攻势。"],
+    },
+    bossCauchyDomain: {
+      title: "柯西领域",
+      body: "柯西核心会在玩家周围生成三段高亮墙体。闪避会引爆墙体，并在随机区域重新生成。",
+      tips: ["成功逃出墙体后，会出现短暂反击窗口。"],
+    },
+    bossCauchyPassive: {
+      title: "柯西反制",
+      body: "柯西核心每隔一段时间会反制玩家攻击：近战会被推开，远程会被拉近，并生成高亮墙体阻挡追击。",
+      tips: ["同一套反制共用冷却，可以骗出后再集中输出。"],
+    },
+    bossGaussDomain: {
+      title: "高斯领域",
+      body: "高斯领域会让核心进入隐身，并在场上生成圆形危险区。危险区结束时会向外扩散冲击波。",
+      tips: ["隐身核心被击中会短暂现形。", "躲开冲击波后可以获得反击机会。"],
+    },
+    bossGaussShockwave: {
+      title: "扩散冲击波",
+      body: "高斯圆形区域会先扩大一秒，随后向外扩散冲击波。最后范围与高斯核心到玩家的距离有关。",
+      tips: ["不要只看脚下圆圈，也要预判扩散边缘。"],
+    },
+    bossDescartesDomain: {
+      title: "笛卡尔领域",
+      body: "笛卡尔领域会记录玩家所在象限。切换象限会在原象限召唤投影，场上最多保留数个。",
+      tips: ["频繁乱跑会让影越来越多，有计划地换区更稳。"],
+    },
+    bossFinalCore: {
+      title: "末核领域",
+      body: "当三核心只剩一个时，最后核心会进入强化阶段，获得独立的终局攻击方式。",
+      tips: ["此时目标更明确，但失误惩罚也更高。"],
+    },
+  };
+
+  const enemyMechanicTutorialPriority = [
+    ["splitOnDeath", "lagrangeSplit"],
+    ["gaussHalfField", "gaussHalfField"],
+    ["dashScatter", "euclidBlink"],
+    ["archimedesMarkDash", "archimedesDash"],
+    ["jordanOrbitDash", "jordanOrbit"],
+    ["jordanDomain", "lhopitalPhase"],
+    ["lhopitalBlade", "lhopitalPhase"],
+    ["taylorTripleDash", "taylorDash"],
+    ["jacobiBackBlink", "jacobiBlink"],
+    ["quadrantBlink", "descartesBlink"],
+  ];
+
+  function readMechanicTutorialSeen() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(mechanicTutorialStorageKey) || "{}");
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function writeMechanicTutorialSeen(seen) {
+    try {
+      localStorage.setItem(mechanicTutorialStorageKey, JSON.stringify(seen || {}));
+    } catch {
+      // Local storage can be unavailable in private or restricted browser contexts.
+    }
+  }
+
+  function mechanicTutorialSeen(id) {
+    return Boolean(readMechanicTutorialSeen()[id]);
+  }
+
+  function markMechanicTutorialSeen(id) {
+    if (!id) return;
+    const seen = readMechanicTutorialSeen();
+    seen[id] = true;
+    writeMechanicTutorialSeen(seen);
+  }
+
+  function mechanicTutorialMarkup(tutorial) {
+    const tips = Array.isArray(tutorial?.tips) ? tutorial.tips.filter(Boolean) : [];
+    return `
+      <div class="mechanic-tutorial">
+        <p class="mechanic-tutorial-body">${escapeHtml(tutorial?.body || "")}</p>
+        ${tips.length ? `
+          <ul class="mechanic-tutorial-tips">
+            ${tips.map((tip) => `<li>${escapeHtml(tip)}</li>`).join("")}
+          </ul>
+        ` : ""}
+        <div class="mechanic-tutorial-actions">
+          <button type="button" class="primary-action" data-mechanic-tutorial-confirm>确定</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function openMechanicTutorial(id) {
+    if (!mechanicTutorials[id] || mechanicTutorialSeen(id)) return false;
+    markMechanicTutorialSeen(id);
+    game.activeMechanicTutorialId = id;
+    openModal("mechanicTutorial");
+    return true;
+  }
+
+  function maybeShowMechanicTutorial(id) {
+    if (!id || !mechanicTutorials[id] || mechanicTutorialSeen(id) || !ui.modal.hidden) return false;
+    return openMechanicTutorial(id);
+  }
+
+  function maybeShowEnemyMechanicTutorial(enemies) {
+    const aliveEnemies = (enemies || []).filter((enemy) => enemy && !enemy.defeated);
+    for (const [mechanic, tutorialId] of enemyMechanicTutorialPriority) {
+      if (aliveEnemies.some((enemy) => enemy.mechanics?.includes(mechanic))) {
+        if (maybeShowMechanicTutorial(tutorialId)) return true;
+      }
+    }
+    return false;
+  }
+
+  function maybeShowBossDomainTutorial(coreId) {
+    const tutorialId = {
+      cauchy: "bossCauchyDomain",
+      gauss: "bossGaussDomain",
+      descartes: "bossDescartesDomain",
+    }[coreId];
+    return maybeShowMechanicTutorial(tutorialId);
+  }
+
+  function markAllMechanicTutorialsSeen() {
+    const seen = Object.fromEntries(Object.keys(mechanicTutorials).map((id) => [id, true]));
+    writeMechanicTutorialSeen(seen);
+    return seen;
+  }
+
+  function readOnboardingGuideState() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(onboardingGuideStorageKey) || "{}");
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function writeOnboardingGuideState(value) {
+    try {
+      localStorage.setItem(onboardingGuideStorageKey, JSON.stringify(value || {}));
+    } catch {
+      // The guide simply becomes repeatable if browser storage is unavailable.
+    }
+  }
+
+  function onboardingGuideSeen() {
+    return readOnboardingGuideState().version === onboardingGuideVersion;
+  }
+
+  function markOnboardingGuideSeen() {
+    writeOnboardingGuideState({
+      version: onboardingGuideVersion,
+      seenAt: new Date().toISOString(),
+    });
+  }
+
+  function onboardingGuideMarkup() {
+    return `
+      <div class="onboarding-guide">
+        <p class="onboarding-guide-lead">第一次游玩建议先看完这三条。看过后会记录在本机浏览器里，刷新网页不会再次弹出。</p>
+        <div class="onboarding-guide-grid">
+          <article>
+            <span>01</span>
+            <strong>选择路线</strong>
+            <p>可以直接进 Boss 房，也可以先打知识点教室拿武器、增益和被动。房间越多越稳，裸考越快但风险更高。</p>
+          </article>
+          <article>
+            <span>02</span>
+            <strong>只选一项奖励</strong>
+            <p>战斗房胜利后会先选被动，再从掉落武器和增益里选一项。二人、三人挑战收益更高，但怪物压力也更大。</p>
+          </article>
+          <article>
+            <span>03</span>
+            <strong>操作核心</strong>
+            <p>WASD 移动，鼠标攻击，Space 闪避，R 换弹，B 打开背包。Boss 只有前排核心能被正常击破。</p>
+          </article>
+        </div>
+        <div class="onboarding-guide-actions">
+          <button type="button" class="primary-action" data-onboarding-confirm>开始</button>
+          <button type="button" data-onboarding-skip-all>老玩家：跳过全部提示</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function maybeShowOnboardingGuide(force = false) {
+    if (!force && onboardingGuideSeen()) return false;
+    if (!ui.modal.hidden) return false;
+    openModal("onboardingGuide");
     return true;
   }
 
@@ -695,12 +1051,18 @@
     enemyLasers: [],
     slashes: [],
     particles: [],
+    hitImpacts: [],
+    screenShake: 0,
+    screenShakePower: 0,
+    hurtFlash: 0,
+    playerHurtSeq: 0,
     message: "",
     guidesSeen: {},
     guideToast: {
       text: "",
       timer: 0,
     },
+    activeMechanicTutorialId: "",
     lastWeaponReward: null,
     pendingPassiveChoice: null,
     pendingWeaponChoice: null,
@@ -725,6 +1087,206 @@
       sequence: 0,
     },
   };
+
+  const audioSettingsKey = "examGameAudioSettingsV1";
+  const audioSettings = (() => {
+    try {
+      return {
+        enabled: true,
+        volume: 0.72,
+        music: 0.38,
+        sfx: 0.82,
+        ...(JSON.parse(localStorage.getItem(audioSettingsKey) || "{}") || {}),
+      };
+    } catch {
+      return { enabled: true, volume: 0.72, music: 0.38, sfx: 0.82 };
+    }
+  })();
+  const audio = {
+    ctx: null,
+    master: null,
+    musicGain: null,
+    sfxGain: null,
+    noiseBuffer: null,
+    started: false,
+    nextBeat: 0,
+    step: 0,
+    lastMode: "",
+  };
+
+  function saveAudioSettings() {
+    try {
+      localStorage.setItem(audioSettingsKey, JSON.stringify(audioSettings));
+    } catch {
+      // Local storage can be unavailable in restricted browser contexts.
+    }
+  }
+
+  function ensureAudio() {
+    if (audio.ctx) return audio.ctx;
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return null;
+    const ctx = new AudioContext();
+    audio.ctx = ctx;
+    audio.master = ctx.createGain();
+    audio.musicGain = ctx.createGain();
+    audio.sfxGain = ctx.createGain();
+    audio.master.connect(ctx.destination);
+    audio.musicGain.connect(audio.master);
+    audio.sfxGain.connect(audio.master);
+    audio.noiseBuffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.45), ctx.sampleRate);
+    const noise = audio.noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noise.length; i += 1) {
+      noise[i] = Math.random() * 2 - 1;
+    }
+    applyAudioSettings();
+    return ctx;
+  }
+
+  function applyAudioSettings() {
+    if (!audio.master) return;
+    const enabled = audioSettings.enabled ? 1 : 0;
+    const now = audio.ctx?.currentTime || 0;
+    audio.master.gain.setTargetAtTime(clamp(audioSettings.volume, 0, 1) * enabled, now, 0.03);
+    audio.musicGain.gain.setTargetAtTime(clamp(audioSettings.music, 0, 1), now, 0.04);
+    audio.sfxGain.gain.setTargetAtTime(clamp(audioSettings.sfx, 0, 1), now, 0.02);
+  }
+
+  function startAudio() {
+    if (!audioSettings.enabled) return;
+    const ctx = ensureAudio();
+    if (!ctx) return;
+    if (ctx.state === "suspended") {
+      const resumeResult = ctx.resume();
+      if (resumeResult?.catch) resumeResult.catch(() => {});
+    }
+    audio.started = true;
+    audio.nextBeat = Math.max(audio.nextBeat || 0, ctx.currentTime + 0.05);
+    applyAudioSettings();
+  }
+
+  function setAudioSetting(key, value) {
+    if (key === "enabled") {
+      audioSettings.enabled = Boolean(value);
+    } else {
+      audioSettings[key] = clamp(Number(value) || 0, 0, 1);
+    }
+    saveAudioSettings();
+    ensureAudio();
+    applyAudioSettings();
+    if (audioSettings.enabled) startAudio();
+  }
+
+  function playTone({ frequency = 440, endFrequency = frequency, duration = 0.16, type = "sine", gain = 0.2, destination = audio.sfxGain, when = null }) {
+    const ctx = ensureAudio();
+    if (!ctx || !audio.started || !audioSettings.enabled || !destination) return;
+    const start = when ?? ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const amp = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(frequency, start);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(20, endFrequency), start + duration);
+    amp.gain.setValueAtTime(0.0001, start);
+    amp.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), start + 0.012);
+    amp.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    osc.connect(amp);
+    amp.connect(destination);
+    osc.start(start);
+    osc.stop(start + duration + 0.02);
+  }
+
+  function playNoise({ duration = 0.16, gain = 0.12, filter = 900, when = null, destination = audio.sfxGain } = {}) {
+    const ctx = ensureAudio();
+    if (!ctx || !audio.started || !audioSettings.enabled || !audio.noiseBuffer || !destination) return;
+    const start = when ?? ctx.currentTime;
+    const src = ctx.createBufferSource();
+    const amp = ctx.createGain();
+    const biquad = ctx.createBiquadFilter();
+    src.buffer = audio.noiseBuffer;
+    biquad.type = "bandpass";
+    biquad.frequency.setValueAtTime(filter, start);
+    amp.gain.setValueAtTime(0.0001, start);
+    amp.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), start + 0.01);
+    amp.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    src.connect(biquad);
+    biquad.connect(amp);
+    amp.connect(destination);
+    src.start(start);
+    src.stop(start + duration + 0.02);
+  }
+
+  function playSfx(kind, intensity = 1) {
+    if (!audioSettings.enabled) return;
+    startAudio();
+    const ctx = audio.ctx;
+    if (!ctx || !audio.started) return;
+    const power = clamp(intensity, 0.45, 1.8);
+    if (kind === "hit") {
+      playTone({ frequency: 540 + power * 120, endFrequency: 250 + power * 50, duration: 0.08, type: "square", gain: 0.07 * power });
+      playNoise({ duration: 0.07, gain: 0.035 * power, filter: 1450 });
+    } else if (kind === "crit") {
+      playTone({ frequency: 760, endFrequency: 420, duration: 0.12, type: "sawtooth", gain: 0.09 * power });
+      playTone({ frequency: 1140, endFrequency: 760, duration: 0.08, type: "triangle", gain: 0.045 * power });
+    } else if (kind === "hurt") {
+      playTone({ frequency: 150, endFrequency: 62, duration: 0.22, type: "sawtooth", gain: 0.12 * power });
+      playNoise({ duration: 0.18, gain: 0.09 * power, filter: 420 });
+    } else if (kind === "shield") {
+      playTone({ frequency: 430, endFrequency: 690, duration: 0.12, type: "triangle", gain: 0.075 * power });
+      playTone({ frequency: 880, endFrequency: 660, duration: 0.09, type: "sine", gain: 0.035 * power });
+    } else if (kind === "room") {
+      playTone({ frequency: 196, endFrequency: 294, duration: 0.18, type: "triangle", gain: 0.06 });
+      playTone({ frequency: 392, endFrequency: 588, duration: 0.22, type: "sine", gain: 0.035, when: ctx.currentTime + 0.08 });
+    } else if (kind === "shoot") {
+      playTone({ frequency: 360 + power * 80, endFrequency: 190, duration: 0.055, type: "square", gain: 0.035 * power });
+    } else if (kind === "swing") {
+      playTone({ frequency: 280 + power * 60, endFrequency: 520, duration: 0.07, type: "triangle", gain: 0.04 * power });
+      playNoise({ duration: 0.055, gain: 0.018 * power, filter: 1800 });
+    } else if (kind === "reload") {
+      playTone({ frequency: 190, endFrequency: 260, duration: 0.07, type: "square", gain: 0.026 * power });
+      playTone({ frequency: 330, endFrequency: 250, duration: 0.075, type: "triangle", gain: 0.024 * power, when: ctx.currentTime + 0.08 });
+    }
+  }
+
+  function musicPattern() {
+    if (mode === "combat") {
+      return game.activeRoom === "boss"
+        ? { bpm: 132, bass: [55, 55, 82.41, 73.42, 65.41, 73.42, 82.41, 98], lead: [220, 0, 246.94, 0, 293.66, 0, 277.18, 0] }
+        : { bpm: 112, bass: [65.41, 65.41, 98, 87.31, 73.42, 87.31, 98, 130.81], lead: [261.63, 0, 329.63, 0, 392, 0, 329.63, 0] };
+    }
+    return { bpm: 82, bass: [49, 65.41, 73.42, 65.41], lead: [196, 0, 246.94, 0] };
+  }
+
+  function scheduleMusicStep(when) {
+    const pattern = musicPattern();
+    const index = audio.step % pattern.bass.length;
+    const bass = pattern.bass[index];
+    const lead = pattern.lead[index % pattern.lead.length];
+    playTone({ frequency: bass, endFrequency: bass * 0.98, duration: mode === "combat" ? 0.18 : 0.32, type: "triangle", gain: mode === "combat" ? 0.035 : 0.025, destination: audio.musicGain, when });
+    if (lead && (mode === "combat" || audio.step % 2 === 0)) {
+      playTone({ frequency: lead, endFrequency: lead * 1.005, duration: 0.09, type: "sine", gain: mode === "combat" ? 0.022 : 0.015, destination: audio.musicGain, when: when + 0.03 });
+    }
+    if (mode === "combat" && audio.step % 2 === 0) {
+      playNoise({ duration: 0.035, gain: 0.016, filter: 2400, when: when + 0.01, destination: audio.musicGain });
+    }
+    audio.step += 1;
+  }
+
+  function updateAudio() {
+    if (!audio.started || !audioSettings.enabled) return;
+    const ctx = ensureAudio();
+    if (!ctx) return;
+    if (audio.lastMode !== `${mode}:${game.activeRoom || ""}`) {
+      audio.lastMode = `${mode}:${game.activeRoom || ""}`;
+      audio.nextBeat = ctx.currentTime + 0.05;
+      audio.step = 0;
+    }
+    const pattern = musicPattern();
+    const interval = 60 / pattern.bpm / 2;
+    while (audio.nextBeat < ctx.currentTime + 0.25) {
+      scheduleMusicStep(audio.nextBeat);
+      audio.nextBeat += interval;
+    }
+  }
 
   function recordBossWeaponDamage(weaponId, weaponName, amount) {
     const boss = game.boss;
@@ -756,6 +1318,14 @@
   const buffDetails = dataConfig.buffDetails || {};
   const monsterRooms = dataConfig.createMonsterRooms?.({ baseStats, colors }) || {};
   const randomMonsterPool = dataConfig.createRandomMonsterPool?.({ colors }) || [];
+  const qLearningPolicies = dataConfig.qLearningPolicies || {};
+  const qLearningDefaultProfile = dataConfig.qLearningDefaultProfile || "merchant";
+  const qLearningPolicy = dataConfig.qLearningPolicy || qLearningPolicies[qLearningDefaultProfile] || {};
+  const qLearningTrainingSummary = dataConfig.qLearningTrainingSummary || {};
+  const qLearningRuntimeConfig = dataConfig.qLearningRuntimeConfig || {};
+  const qLearningProfileIds = Object.keys(qLearningPolicies);
+  const qLearningPolicyStateCount = Math.max(0, ...Object.values(qLearningPolicies).map((policy) => Object.keys(policy || {}).length), Object.keys(qLearningPolicy).length);
+  const qLearningActionList = qLearningTrainingSummary.actions || ["attack", "approach", "retreat", "dodgeLeft", "dodgeRight"];
   if (!Object.keys(weapons).length || !chestWeaponIds.length || !buffRewardIds.length || !Object.keys(monsterRooms).length || !randomMonsterPool.length) {
     throw new Error("Game data modules did not load correctly. Check script order in templates/index.html.");
   }
@@ -982,6 +1552,10 @@
     return betaItemMap[itemId]?.name || itemId || "无";
   }
 
+  function betaItemEffectText(itemId) {
+    return betaItemEffectOverrides[itemId] || betaItemMap[itemId]?.effect || "一次性局内道具。";
+  }
+
   function isKnowledgeCreditRoomKey(roomKey) {
     return ["monster", "geometry", "linear"].includes(roomKey);
   }
@@ -1021,21 +1595,51 @@
     return betaShopRefreshCosts[Math.min(index + 1, betaShopRefreshCosts.length - 1)];
   }
 
+  function normalizeBetaShopBonusLevel(level = 0) {
+    return clamp(Math.round(Number(level) || 0), 0, betaShopMaxBonusLevel);
+  }
+
+  function weightedBetaShopBonusLevel(weights) {
+    const total = weights.reduce((sum, weight) => sum + Math.max(0, Number(weight) || 0), 0);
+    if (total <= 0) return 0;
+    let roll = Math.random() * total;
+    for (let level = 0; level < weights.length; level += 1) {
+      roll -= Math.max(0, Number(weights[level]) || 0);
+      if (roll <= 0) return normalizeBetaShopBonusLevel(level);
+    }
+    return normalizeBetaShopBonusLevel(weights.length - 1);
+  }
+
+  function rollBetaShopBonusLevel(type = "weapon") {
+    return weightedBetaShopBonusLevel(type === "buff" ? betaShopBuffBonusWeights : betaShopWeaponBonusWeights);
+  }
+
+  function betaShopItemPrice(level = 0) {
+    const bonusLevel = normalizeBetaShopBonusLevel(level);
+    return Math.round(betaShopItemHpCost * Math.pow(betaShopPriceMultiplier, bonusLevel));
+  }
+
+  function betaShopItemCost(item) {
+    return betaShopItemPrice(item?.bonusLevels || 0);
+  }
+
+  function createBetaShopStockItem(type, id, index, sequence) {
+    const bonusLevels = rollBetaShopBonusLevel(type);
+    return {
+      key: `${type}-${sequence}-${index}-${id}-${bonusLevels}`,
+      type,
+      id,
+      bonusLevels,
+      hpCost: betaShopItemPrice(bonusLevels),
+      purchased: false,
+    };
+  }
+
   function createBetaBossShopStock() {
     const shop = game.betaBossShop;
     shop.sequence = (shop.sequence || 0) + 1;
-    const weaponItems = sampleUnique(chestWeaponIds, 2).map((id, index) => ({
-      key: `weapon-${shop.sequence}-${index}-${id}`,
-      type: "weapon",
-      id,
-      purchased: false,
-    }));
-    const buffItems = sampleUnique(buffRewardIds, 2).map((id, index) => ({
-      key: `buff-${shop.sequence}-${index}-${id}`,
-      type: "buff",
-      id,
-      purchased: false,
-    }));
+    const weaponItems = sampleUnique(chestWeaponIds, 2).map((id, index) => createBetaShopStockItem("weapon", id, index, shop.sequence));
+    const buffItems = sampleUnique(buffRewardIds, 2).map((id, index) => createBetaShopStockItem("buff", id, index, shop.sequence));
     return [...weaponItems, ...buffItems];
   }
 
@@ -1050,7 +1654,10 @@
 
   function betaShopItemName(item) {
     if (!item) return "";
-    return item.type === "weapon" ? weaponChoiceName(item.id) : item.id;
+    const bonusLevels = normalizeBetaShopBonusLevel(item.bonusLevels || 0);
+    return item.type === "weapon"
+      ? rewardWeaponDisplayName(item.id, bonusLevels)
+      : rewardBuffDisplayName(item.id, bonusLevels);
   }
 
   function rerenderBetaShopModal() {
@@ -1103,28 +1710,30 @@
     const item = shop.stock[Number(index)];
     if (!item || item.purchased) return false;
     const freeClaim = Boolean(game.betaShopRaid?.freeClaim);
-    if (!freeClaim && (!game.player || game.player.hp <= betaShopItemHpCost)) {
-      shop.message = `生命不足：每项需要 ${betaShopItemHpCost} 生命，至少要保留 1 点生命。`;
+    const bonusLevels = normalizeBetaShopBonusLevel(item.bonusLevels || 0);
+    const cost = betaShopItemCost(item);
+    item.bonusLevels = bonusLevels;
+    item.hpCost = cost;
+    if (!freeClaim && (!game.player || game.player.hp <= cost)) {
+      shop.message = `生命不足：${betaShopItemName(item)} 需要 ${cost} 生命，至少要保留 1 点生命。`;
       rerenderBetaShopModal();
       return false;
     }
 
     if (!freeClaim) {
-      game.player.hp = Math.max(1, game.player.hp - betaShopItemHpCost);
+      game.player.hp = Math.max(1, game.player.hp - cost);
     }
     if (item.type === "weapon") {
-      const added = addWeapon(game.player, item.id, true);
+      const added = grantRewardWeapon(game.player, item.id, bonusLevels, true);
       if (added) rememberRewardFamily(item.id);
     } else if (item.type === "buff") {
-      grantBuff(game.player, item.id);
+      grantRewardBuffs([item.id], 1 + bonusLevels);
     }
     item.purchased = true;
-    shop.message = `已用 ${betaShopItemHpCost} 生命兑换 ${betaShopItemName(item)}。`;
+    shop.message = freeClaim
+      ? `商人已让步，免费获得 ${betaShopItemName(item)}。`
+      : `已用 ${cost} 生命兑换 ${betaShopItemName(item)}。`;
     rerenderBetaShopModal();
-    if (freeClaim) {
-      shop.message = `商人已让步，免费获得 ${betaShopItemName(item)}。`;
-      rerenderBetaShopModal();
-    }
     return true;
   }
 
@@ -1162,7 +1771,8 @@
       name: "商人",
       kind: "linear",
       pattern: "shopGuard",
-      mechanics: ["shopGuard"],
+      mechanics: ["shopGuard", "qLearningAi"],
+      qLearningProfile: "merchant",
       roles: ["elite", "controller", "ranged"],
       color: colors.warning,
       hp: 190,
@@ -1211,6 +1821,7 @@
     game.pendingChallenge = null;
     game.player.x = W * 0.5;
     game.player.y = H * 0.74;
+    constrainPlayerToWalkableFloor(game.player);
     game.playerShots = [];
     game.enemyShots = [];
     game.enemyLasers = [];
@@ -1220,7 +1831,10 @@
     game.enemies = [createChallengeEnemy(createBetaShopGuardEnemyDef(), 0, 1)];
     game.obstacles = generateRoomObstacles("monster");
     showScreen("combat");
-    showGuideOnce("shopRaid", "商人会用账单弹幕反击；击败后回到商店，当前库存免费领取。", 4.8);
+    playSfx("room", 0.65);
+    if (!maybeShowMechanicTutorial("shopRaid")) {
+      showGuideOnce("shopRaid", "商人会用账单弹幕反击；击败后回到商店，当前库存免费领取。", 4.8);
+    }
     updateHud();
     return true;
   }
@@ -1321,7 +1935,7 @@
     if (!buffRewardIds.includes(name)) return;
     player.buffs.push(name);
     if (name === "临时抱佛脚") {
-      const bonusHp = Math.max(1, Math.round(player.maxHp * 0.25));
+      const bonusHp = Math.max(1, Math.round(player.maxHp * 0.2));
       player.maxHp += bonusHp;
       player.hp = Math.min(player.maxHp, player.hp + bonusHp);
     }
@@ -1335,12 +1949,14 @@
     if (!isBetaVersion() || !betaItemMap[itemId]) return false;
     game.betaItems ||= [];
     const addCount = Math.max(1, Math.round(Number(count) || 1));
+    let added = 0;
     for (let i = 0; i < addCount; i += 1) {
       if (game.betaItems.length >= betaItemLimit) break;
       game.betaItems.push(itemId);
+      added += 1;
     }
     updateHud();
-    return true;
+    return added > 0;
   }
 
   function pickBetaItem(exclude = []) {
@@ -1348,6 +1964,32 @@
     const pool = betaItemDefs.filter((item) => !blocked.has(item.id));
     const candidates = pool.length ? pool : betaItemDefs;
     return candidates[Math.floor(Math.random() * candidates.length)]?.id || "";
+  }
+
+  function cycleBetaItem() {
+    if (!isBetaVersion() || !game.betaItems || game.betaItems.length <= 1) return false;
+    game.betaItems.push(game.betaItems.shift());
+    showGuideOnce("betaItemCycle", `当前道具：${betaItemName(game.betaItems[0])}。按 F 使用，G 切换。`, 1.8);
+    updateHud();
+    return true;
+  }
+
+  function revealBossCoresByItem(duration = 1.8) {
+    const boss = game.boss;
+    if (!boss || game.activeRoom !== "boss") return false;
+    const frontIds = new Set(bossFrontCoreIds(boss));
+    let affected = false;
+    boss.cores.forEach((core) => {
+      if (!core || core.hp <= 0) return;
+      core.revealTimer = Math.max(core.revealTimer || 0, duration);
+      core.fireTimer = Math.max(core.fireTimer || 0, 0.85);
+      if (frontIds.has(core.id)) {
+        openBossCounterWindow(core, Math.max(0.9, duration * 0.55));
+      }
+      affected = true;
+    });
+    boss.attackPauseTimer = Math.max(boss.attackPauseTimer || 0, 0.45);
+    return affected;
   }
 
   function useBetaItem() {
@@ -1360,6 +2002,7 @@
       const missing = Math.max(0, player.maxHp - player.hp);
       const heal = Math.max(18, missing * 0.35);
       player.hp = Math.min(player.maxHp, player.hp + heal);
+      player.invuln = Math.max(player.invuln || 0, 1.25);
       burst(player.x, player.y, colors.mint, 24);
     } else if (itemId === "chalkSmoke") {
       const cleared = game.enemyShots.length;
@@ -1373,6 +2016,7 @@
         enemy.stagger = Math.min(enemy.staggerMax || 50, (enemy.stagger || 0) + (enemy.staggerMax || 50) * 0.28);
         enemy.staggerFlash = Math.max(enemy.staggerFlash || 0, 0.28);
       });
+      revealBossCoresByItem(2.2);
       burst(player.x, player.y, colors.paper, Math.max(18, Math.min(48, cleared + 18)));
     } else if (itemId === "spareMagazine") {
       const weapon = player.weapon;
@@ -1381,7 +2025,7 @@
         weapon.reloading = false;
         weapon.reloadTimer = 0;
       }
-      player.tacticalFocusTimer = Math.max(player.tacticalFocusTimer || 0, 4.2);
+      player.tacticalFocusTimer = Math.max(player.tacticalFocusTimer || 0, 5.2);
       player.tacticalFocusFlash = Math.max(player.tacticalFocusFlash || 0, 0.5);
       player.attackTimer = 0;
       burst(player.x, player.y, colors.warning, 22);
@@ -1658,7 +2302,65 @@
     `;
   }
 
+  function createBetaItemChoice(source = "supply") {
+    if (!isBetaVersion()) return null;
+    const itemIds = betaItemDefs.map((item) => item.id);
+    const options = sampleUnique(itemIds, Math.min(3, itemIds.length));
+    if (!options.length) return null;
+    return {
+      kind: "item",
+      source,
+      options,
+      selectedIndex: null,
+      bonusRandomCount: source === "supply" && betaDifficultyMechanicLevel() >= 3 ? 1 : 0,
+    };
+  }
+
+  function itemChoiceCardMarkup(itemId, choice, selected) {
+    const item = betaItemMap[itemId] || {};
+    return `
+      <div class="choice-card-art">
+        <span class="choice-card-sigil">${escapeHtml(item.icon || "ITM")}</span>
+        <strong>${escapeHtml(betaItemName(itemId))}</strong>
+      </div>
+      <div class="choice-card-body">
+        <p>${escapeHtml(betaItemEffectText(itemId))}</p>
+        <span>${escapeHtml(item.type || "局内道具")}</span>
+      </div>
+      <small class="choice-card-select">${selected ? "已选择" : "选择"}</small>
+      <span class="sr-only">${selected ? "已选择" : "未选择"}</span>
+    `;
+  }
+
+  function grantBetaItemChoice(choice, itemId) {
+    if (!choice || !itemId) return "";
+    const before = game.betaItems?.length || 0;
+    const gained = [];
+    if (addBetaItem(itemId)) gained.push(itemId);
+    const bonusCount = Math.max(0, Math.round(Number(choice.bonusRandomCount || 0)));
+    for (let i = 0; i < bonusCount; i += 1) {
+      if ((game.betaItems?.length || 0) >= betaItemLimit) break;
+      const bonus = pickBetaItem([...gained]);
+      if (bonus && addBetaItem(bonus)) gained.push(bonus);
+    }
+    const added = (game.betaItems?.length || 0) - before;
+    if (added <= 0) {
+      const compensation = 1 + betaCreditBonus();
+      game.credits = Math.max(0, Math.round(Number(game.credits || 0))) + compensation;
+      return `道具已满，改为获得 ${compensation} 学分补偿。`;
+    }
+    const names = gained.map(betaItemName).join("、");
+    return `获得局内道具：${names}。按 F 使用，按 G 切换当前道具。`;
+  }
+
   function passiveChoiceIntroText(choice) {
+    if (choice?.kind === "item") {
+      return choice.source === "elite"
+        ? "精英房额外补给：请从下方选择一件局内道具。"
+        : choice.bonusRandomCount > 0
+          ? "补给房：请从下方选择一件局内道具，终局难度会额外补充一件随机道具。"
+          : "补给房：请从下方选择一件局内道具。";
+    }
     return "请从下方选择一项作为奖励。";
   }
 
@@ -1683,14 +2385,23 @@
       if (ui.skipPassive) ui.skipPassive.disabled = true;
       return;
     }
+    const itemChoice = choice.kind === "item";
     const level = Math.max(1, Math.round(Number(choice.level || 1)));
     if (ui.passiveChoiceName) {
       ui.passiveChoiceName.textContent = level >= 2 ? "挑战被动：强化三选一" : "挑战被动：三选一";
+    }
+    if (itemChoice && ui.passiveChoiceName) {
+      ui.passiveChoiceName.textContent = "局内道具：三选一";
     }
     if (ui.passiveChoiceText) {
       ui.passiveChoiceText.textContent = level >= 2
         ? "三人挑战完成，先选择一项 Lv.2 被动；也可以不拿。"
         : "二人挑战完成，先选择一项 Lv.1 被动；也可以不拿。";
+    }
+    if (itemChoice && ui.passiveChoiceText) {
+      ui.passiveChoiceText.textContent = choice.source === "elite"
+        ? "额外补给不会占用本房间的武器/增益奖励。"
+        : "选择最适合当前路线的救场工具。";
     }
     if (ui.clearText) {
       ui.clearText.textContent = passiveChoiceIntroText(choice);
@@ -1702,7 +2413,11 @@
       button.hidden = !passiveId;
       button.disabled = !passiveId;
       button.classList.toggle("selected", selected);
-      button.innerHTML = passiveId ? passiveChoiceCardMarkup(passiveId, level, selected) : "";
+      button.innerHTML = passiveId
+        ? itemChoice
+          ? itemChoiceCardMarkup(passiveId, choice, selected)
+          : passiveChoiceCardMarkup(passiveId, level, selected)
+        : "";
     });
     if (ui.confirmPassive) {
       ui.confirmPassive.hidden = false;
@@ -1735,7 +2450,22 @@
     const passiveId = accept && Number.isInteger(choice.selectedIndex)
       ? choice.options[choice.selectedIndex]
       : "";
-    game.pendingPassiveChoice = null;
+    if (choice.kind === "item") {
+      const resultText = passiveId
+        ? grantBetaItemChoice(choice, passiveId)
+        : "本次没有领取局内道具。";
+      game.pendingPassiveChoice = choice.nextChoice || null;
+      ui.clearText.textContent = game.pendingPassiveChoice
+        ? passiveChoiceIntroText(game.pendingPassiveChoice)
+        : game.pendingWeaponChoice
+          ? game.pendingWeaponChoice.introText || "请选择一项作为奖励。"
+          : resultText;
+      updatePassiveChoiceUi();
+      updateWeaponChoiceUi();
+      updateHud();
+      return true;
+    }
+    game.pendingPassiveChoice = choice.nextChoice || null;
     if (passiveId && grantChallengePassive(game.player, passiveId, level)) {
       if (game.pendingWeaponChoice) {
         game.pendingWeaponChoice.passiveResultText = "";
@@ -1746,6 +2476,9 @@
         game.pendingWeaponChoice.passiveResultText = "";
       }
       ui.clearText.textContent = "请从下方选择一项作为奖励。";
+    }
+    if (game.pendingPassiveChoice) {
+      ui.clearText.textContent = passiveChoiceIntroText(game.pendingPassiveChoice);
     }
     updatePassiveChoiceUi();
     updateWeaponChoiceUi();
@@ -2109,6 +2842,8 @@
     }
     weapon.reloading = true;
     weapon.reloadTimer = weaponReloadTime(weapon);
+    playSfx("reload", 0.75);
+    maybeShowMechanicTutorial("ammoReload");
     return true;
   }
 
@@ -2186,6 +2921,7 @@
     game.versionChannel = "beta";
     game.betaDifficultyId = betaDifficultyMap[difficultyId] ? difficultyId : "standard";
     resetGame();
+    maybeShowMechanicTutorial("betaCredits");
   }
 
   function resetGame() {
@@ -2235,8 +2971,14 @@
     game.enemyLasers = [];
     game.slashes = [];
     game.particles = [];
+    game.hitImpacts = [];
+    game.screenShake = 0;
+    game.screenShakePower = 0;
+    game.hurtFlash = 0;
+    game.playerHurtSeq = 0;
     game.guidesSeen = {};
     hideGuideToast();
+    game.activeMechanicTutorialId = "";
     game.lastWeaponReward = null;
     game.pendingPassiveChoice = null;
     game.pendingWeaponChoice = null;
@@ -2257,12 +2999,16 @@
     updateMap();
     showScreen("map");
     updateHud();
+    maybeShowOnboardingGuide();
   }
 
   function showScreen(name) {
     Object.entries(screens).forEach(([key, element]) => {
       element.hidden = key !== name;
     });
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
     const isInGameScreen = ["map", "combat", "clear", "challenge", "pause"].includes(name);
     document.body.classList.toggle("combat-active", name === "combat");
     if (hud.root) hud.root.hidden = name !== "combat";
@@ -2295,6 +3041,11 @@
     game.enemyLasers = [];
     game.slashes = [];
     game.particles = [];
+    game.hitImpacts = [];
+    game.screenShake = 0;
+    game.screenShakePower = 0;
+    game.hurtFlash = 0;
+    game.playerHurtSeq = 0;
     if (message) {
       game.message = message;
     }
@@ -2780,6 +3531,7 @@
     game.pendingChallenge = null;
     game.player.x = W * 0.5;
     game.player.y = H * 0.74;
+    constrainPlayerToWalkableFloor(game.player);
     game.playerShots = [];
     game.enemyShots = [];
     game.enemyLasers = [];
@@ -2790,7 +3542,9 @@
     applyKnowledgeRoomSynergy(room, game.enemies, challengeCount);
     game.obstacles = generateRoomObstacles("monster");
     showScreen("combat");
+    playSfx("room", 0.7);
     showGuideOnce("combatBasics", "空格闪避，背击和抓住破绽都能更快打出破防。击败敌人后才能离开。", 4.2);
+    maybeShowEnemyMechanicTutorial(game.enemies);
     updateHud();
   }
 
@@ -2938,6 +3692,11 @@
       r: fullChain ? 4.4 : 4.0,
       life: 4.1,
       shape: "triangle",
+      pattern: fullChain ? "curve" : "straight",
+      curveAmp: fullChain ? 10 : 0,
+      curveFreq: 2.7,
+      curvePhase: (enemy.synergyIndex || 0) * 0.8,
+      enemyWeapon: "lagrangeOrb",
       pulse: (enemy.synergyIndex || 0) * 0.21,
     });
     enemy.synergyFlash = Math.max(enemy.synergyFlash || 0, 0.46);
@@ -3087,12 +3846,12 @@
     if (Array.isArray(enemy?.roles) && enemy.roles.length) return enemy.roles;
     const mechanics = enemy?.mechanics || [];
     const roles = [];
-    if (mechanics.includes("lhopitalBlade") || mechanics.includes("taylorTripleDash") || mechanics.includes("dashScatter")) roles.push("chaser");
-    if (mechanics.includes("quadrantBlink") || mechanics.includes("gaussHalfField") || mechanics.includes("jordanDomain") || mechanics.includes("archimedesMarkDash")) roles.push("controller");
+    if (mechanics.includes("lhopitalBlade") || mechanics.includes("taylorTripleDash") || mechanics.includes("dashScatter") || mechanics.includes("jordanOrbitDash")) roles.push("chaser");
+    if (mechanics.includes("quadrantBlink") || mechanics.includes("gaussHalfField") || mechanics.includes("jordanDomain") || mechanics.includes("jordanOrbitDash") || mechanics.includes("archimedesMarkDash")) roles.push("controller");
     if (mechanics.includes("splitOnDeath")) roles.push("summoner");
     if (mechanics.includes("jacobiBackBlink")) roles.push("flanker");
     if (enemy?.pattern && enemy.pattern !== "none") roles.push("ranged");
-    if (mechanics.includes("jordanDomain")) roles.push("elite");
+    if (mechanics.includes("jordanDomain") || mechanics.includes("jordanOrbitDash")) roles.push("elite");
     return roles.length ? roles : ["ranged"];
   }
 
@@ -3226,6 +3985,7 @@
     if ((enemy.finalResolveWarnTimer || 0) > 0) enemy.finalResolveWarnTimer = 0;
     burst(enemy.x, enemy.y, source.backHit ? colors.paper : enemy.color || colors.warning, 22);
     game.encounter && (game.encounter.staggers = (game.encounter.staggers || 0) + 1);
+    maybeShowMechanicTutorial("stagger");
     showGuideOnce("stagger", "敌人破防后会短暂硬直，适合贴近集中输出。");
     return true;
   }
@@ -3251,6 +4011,9 @@
     enemy.counterWindowTimer = Math.max(0, (enemy.counterWindowTimer || 0) - dt);
     enemy.attackHoldTimer = Math.max(0, (enemy.attackHoldTimer || 0) - dt);
     enemy.archimedesRecoveryTimer = Math.max(0, (enemy.archimedesRecoveryTimer || 0) - dt);
+    enemy.shopTaxWarnTimer = Math.max(0, (enemy.shopTaxWarnTimer || 0) - dt);
+    enemy.shopPressureWarnTimer = Math.max(0, (enemy.shopPressureWarnTimer || 0) - dt);
+    enemy.shopEnrageIntroTimer = Math.max(0, (enemy.shopEnrageIntroTimer || 0) - dt);
     if ((enemy.staggerTimer || 0) <= 0 && (enemy.stagger || 0) > 0) {
       enemy.stagger = Math.max(0, enemy.stagger - (enemy.staggerMax || 50) * 0.08 * dt);
     }
@@ -3293,6 +4056,7 @@
       kind: enemyDef.kind,
       pattern: enemyDef.pattern,
       mechanics: [...(enemyDef.mechanics || [])],
+      qLearningProfile: enemyDef.qLearningProfile || qLearningProfileForEnemyDef(enemyDef),
       roles: enemyRoles(enemyDef),
       eliteRoom: Boolean(game.roomReward?.eliteRoom),
       betaMechanicLevel: betaDifficultyMechanicLevel(),
@@ -3355,6 +4119,7 @@
       kind: enemyDef.kind,
       pattern: enemyDef.pattern,
       mechanics: [...(enemyDef.mechanics || [])],
+      qLearningProfile: enemyDef.qLearningProfile || qLearningProfileForEnemyDef(enemyDef),
       roles: enemyRoles(enemyDef),
       color: enemyDef.color,
       x: position.x,
@@ -3417,6 +4182,7 @@
     game.monsterClearDelay = 0;
     game.player.x = W * 0.5;
     game.player.y = H * 0.74;
+    constrainPlayerToWalkableFloor(game.player);
     game.playerShots = [];
     game.enemyShots = [];
     game.enemyLasers = [];
@@ -3431,6 +4197,7 @@
     game.obstacles = generateRoomObstacles("monster");
     closeModal();
     showScreen("combat");
+    playSfx("room", 0.65);
     updateHud();
     return true;
   }
@@ -3536,23 +4303,13 @@
     game.completed[roomKey] = true;
     game.roomChallengeCounts[roomKey] = 0;
     restoreMissingHpOnRoomEnter(game.player);
-    const first = pickBetaItem(game.betaItems);
-    const second = betaDifficultyMechanicLevel() >= 3 ? pickBetaItem([first]) : "";
-    const beforeCount = game.betaItems?.length || 0;
-    addBetaItem(first);
-    if (second) addBetaItem(second);
-    const addedCount = (game.betaItems?.length || 0) - beforeCount;
-    if (addedCount <= 0) {
-      game.credits = Math.max(0, Math.round(Number(game.credits || 0))) + 2 + betaCreditBonus();
-    }
-    const itemText = [first, second].filter(Boolean).map(betaItemName).join("、") || "备用学分";
+    const itemChoice = createBetaItemChoice("supply");
     showClear(
       "补给房",
       "补给包已整理",
-      addedCount > 0
-        ? `获得局内道具：${itemText}。按 F 使用队首道具，最多携带 ${betaItemLimit} 个。`
-        : `道具已满，改为获得学分补偿。当前学分：${game.credits || 0}。`,
+      itemChoice ? passiveChoiceIntroText(itemChoice) : "补给已整理，但当前没有可用道具。",
       null,
+      itemChoice,
     );
   }
 
@@ -3721,6 +4478,7 @@
     const centerY = arenaCenterY();
     game.player.x = centerX;
     game.player.y = arena.top + arena.height * 0.58;
+    constrainPlayerToWalkableFloor(game.player);
     mouse.x = game.player.x;
     mouse.y = game.player.y - 140;
     game.playerShots = [];
@@ -3767,34 +4525,62 @@
       domainIndex: 0,
       initialDomainCoreId: "",
       gaussZones: [],
+      gaussShockwaves: [],
       gaussZoneTimer: 0,
       gaussZoneBonus: 0,
       gaussNextZoneCount: 0,
       gaussDomainKillHealCount: 0,
+      gaussDodgeRewardCount: 0,
+      gaussDodgeRewardTimer: 0,
       gaussFullPowerStealthTimer: gaussFullPowerStealthEvery,
       descartesQuadrant: "",
       descartesQuadrantChanges: 0,
       descartesQuadrantProjectionCount: 0,
       descartesFullPowerTimer: descartesFullPowerSpawnEvery,
+      descartesFinalLaserTimer: 0,
       cauchyDomainObstacleIds: [],
       cauchyCandidateObstacleIds: [],
       cauchyHighlightTimer: cauchyHighlightEvery,
       cauchyBombs: [],
       cauchyFullPowerTimer: cauchyFullPowerCycle,
+      cauchyPassiveTimer: 0,
+      cauchyBreakRewardCount: 0,
+      cauchyDashBreakPending: null,
+      cauchyFullPowerWallCycleCount: 0,
+      descartesFinalLaserBurstCount: 0,
+      lastBreakCoreId: "",
+      lastBreakReason: "",
+      breakWindowCount: 0,
+      breakHitCount: 0,
       laserCount: 0,
       shotPatternCounts: {},
       weaponDamage: {},
       weaponDamageNames: {},
       obstacleBoomCount: 0,
+      attackPauseTimer: 0,
       pressure: 0,
       maxPressure: direct ? 2.45 : 2.75,
       pressureDecay: bossPressureDecay * (direct ? 1.04 : 1),
+      useComboDirector: true,
+      comboTimer: 0.72,
+      comboQueue: [],
+      comboCount: 0,
+      lastComboName: "",
       attackCount: 0,
       attackDelayCount: 0,
       counterWindowHits: 0,
       lastAttackCoreId: "",
       lastCounterCoreId: "",
       fullPowerCoreId: "",
+      defeatOrder: [],
+      defeatReliefCount: 0,
+      finalCoreEntryCount: 0,
+      domainFlashTimer: 0,
+      domainFlashCoreId: "",
+      coreDefeatFlashTimer: 0,
+      coreDefeatFlashCoreId: "",
+      finalCoreFlashTimer: 0,
+      finalCoreFlashCoreId: "",
       intro: {
         elapsed: 0,
         blackTime: 1,
@@ -3814,6 +4600,7 @@
           name: "柯西核心",
           symbol: "∫",
           kind: "calculus",
+          modelKind: "cauchyResidueWarden",
           hp: coreHp,
           maxHp: coreHp,
           shield: bossShieldForCore("cauchy", direct),
@@ -3830,6 +4617,7 @@
           name: "笛卡尔核心",
           symbol: "xy",
           kind: "geometry",
+          modelKind: "descartesAxisSentinel",
           hp: coreHp,
           maxHp: coreHp,
           shield: bossShieldForCore("descartes", direct),
@@ -3846,6 +4634,7 @@
           name: "高斯核心",
           symbol: "A",
           kind: "linear",
+          modelKind: "gaussMatrixObelisk",
           hp: coreHp,
           maxHp: coreHp,
           shield: bossShieldForCore("gauss", direct),
@@ -3863,6 +4652,7 @@
     game.obstacles = [];
     ensureBossNeutralObstacles(bossInitialObstacleCount);
     showScreen("combat");
+    playSfx("room", 0.9);
     updateHud();
     return true;
   }
@@ -4719,6 +5509,7 @@
   }
 
   function update(dt) {
+    updateFeedback(dt);
     if (mode === "map") {
       if (ui.modal.hidden) {
         updateMapPlayer(dt);
@@ -4796,7 +5587,7 @@
   }
 
   function movementSpeedMultiplier(player) {
-    let multiplier = Math.pow(1.5, buffCount(player, "熬夜咖啡"));
+    let multiplier = Math.pow(1.25, buffCount(player, "熬夜咖啡"));
     if ((player.enemySlowTimer || 0) > 0) {
       multiplier *= player.enemySlowMultiplier || enemySlowMultiplier;
     }
@@ -4826,6 +5617,7 @@
     const speed = player.speed * movementSpeedMultiplier(player);
     player.x = clamp(player.x + (dx / len) * speed * dt * 60, arena.left + 4, arena.right - 4);
     player.y = clamp(player.y + (dy / len) * speed * dt * 60, arena.top + 8, arena.bottom - 4);
+    constrainPlayerToWalkableFloor(player);
     resolvePlayerObstacles();
   }
 
@@ -4895,7 +5687,9 @@
     if (!player) return false;
     player.tacticalFocusTimer = tacticalFocusDurationForPlayer(player);
     player.tacticalFocusFlash = 0.42;
-    showGuideOnce("tacticalFocus", "闪避擦过危险后会获得战术专注，下一次攻击会短暂强化。");
+    if (!maybeShowMechanicTutorial("tacticalFocus")) {
+      showGuideOnce("tacticalFocus", "闪避擦过危险后会获得战术专注，下一次攻击会短暂强化。");
+    }
     return true;
   }
 
@@ -4932,6 +5726,7 @@
     const distanceValue = 92;
     player.x = clamp(player.x + dir.x * distanceValue, arena.left + 4, arena.right - 4);
     player.y = clamp(player.y + dir.y * distanceValue, arena.top + 8, arena.bottom - 4);
+    constrainPlayerToWalkableFloor(player);
     resolvePlayerObstacles();
     if (nearCombatThreat(from, { x: player.x, y: player.y }) || nearEnemyTelegraphThreat(from, { x: player.x, y: player.y })) {
       grantTacticalFocus(player);
@@ -4939,6 +5734,7 @@
     if (nearSwordFocusThreat(from, { x: player.x, y: player.y })) {
       grantSwordFocus(player);
     }
+    triggerCauchyDashWalls();
     player.dashCooldown = combatDashCooldownForPlayer(player);
     player.invuln = Math.max(player.invuln, 0.22);
     burst(from.x, from.y, colors.paper, 10);
@@ -4977,6 +5773,10 @@
       * (swordFocusReady ? swordFocusMultiplier : 1);
     const sourceWeaponId = weapon.id;
     const sourceWeaponName = displayWeaponName(weapon);
+    playSfx(
+      weapon.special === "shieldPulse" ? "shield" : weapon.ranged ? "shoot" : "swing",
+      weapon.ranged ? clamp((weapon.pellets || 1) * 0.45, 0.65, 1.25) : 0.8
+    );
 
     if (!weapon.ranged) {
       if (weapon.special === "crossSlash") {
@@ -5032,18 +5832,23 @@
       const radius = (weapon.slashRadius || swordSlashRadius) + (swordFocusReady ? 10 : 0);
       const slashX = player.x + Math.cos(angle) * reach;
       const slashY = player.y + Math.sin(angle) * reach;
+      const swordSlash = weapon.id === "sword";
       game.slashes.push({
         x: slashX,
         y: slashY,
         r: radius,
         angle,
-        life: 0.16,
-        maxLife: 0.16,
+        life: swordSlash ? 0.2 : 0.16,
+        maxLife: swordSlash ? 0.2 : 0.16,
         damage: weapon.damage * damageMultiplier,
         color: weapon.color || colors.mint,
         kind: attackKind,
         weaponId: sourceWeaponId,
         weaponName: sourceWeaponName,
+        swordSlash,
+        awakened: Boolean(weapon.directBossAwakened),
+        focus: swordFocusReady,
+        tactical: tacticalFocusReady,
         hitIds: new Set(),
         originX: player.x,
         originY: player.y,
@@ -5104,6 +5909,271 @@
     return Boolean(enemy?.mechanics?.includes(name));
   }
 
+  function qLearningPolicyLoaded() {
+    return qLearningPolicyStateCount > 0;
+  }
+
+  function qLearningProfileStateCounts() {
+    return Object.fromEntries(qLearningProfileIds.map((id) => [id, Object.keys(qLearningPolicies[id] || {}).length]));
+  }
+
+  function qLearningProfileSummaryField(field) {
+    return Object.fromEntries(Object.entries(qLearningTrainingSummary.profiles || {}).map(([id, profile]) => [id, profile?.[field] || null]));
+  }
+
+  function qLearningDefaultSummaryField(field) {
+    return qLearningTrainingSummary.profiles?.[qLearningDefaultProfile]?.[field] || qLearningTrainingSummary[field] || null;
+  }
+
+  function qLearningProfileForEnemyDef(enemyDef = {}) {
+    const id = String(enemyDef.id || "");
+    const kind = String(enemyDef.kind || "");
+    if (id.includes("shopGuard")) return "merchant";
+    if (id.includes("lagrange")) return "lagrange";
+    if (id.includes("lhopital")) return "lhopital";
+    if (id.includes("taylor")) return "taylor";
+    if (id.includes("archimedes")) return "archimedes";
+    if (id.includes("descartes")) return "descartes";
+    if (id.includes("euclid")) return "euclid";
+    if (id.includes("gauss")) return "gauss";
+    if (id.includes("jacobi")) return "jacobi";
+    if (id.includes("jordan")) return "jordan";
+    if (kind === "geometry") return "descartes";
+    if (kind === "linear") return "gauss";
+    if (kind === "calculus") return "lagrange";
+    return qLearningDefaultProfile;
+  }
+
+  function qLearningProfileForEnemy(enemy = {}) {
+    const profile = enemy.qLearningProfile || qLearningProfileForEnemyDef(enemy);
+    return qLearningPolicies[profile] ? profile : qLearningDefaultProfile;
+  }
+
+  function qLearningPolicyForEnemy(enemy = null) {
+    const profile = enemy ? qLearningProfileForEnemy(enemy) : qLearningDefaultProfile;
+    return qLearningPolicies[profile] || qLearningPolicy || {};
+  }
+
+  function enemyUsesQLearning(enemy) {
+    return Boolean(enemy && qLearningPolicyLoaded() && hasEnemyMechanic(enemy, "qLearningAi") && game.activeRoom === "monster");
+  }
+
+  function qLearningDistanceScale() {
+    const trainingArea = Math.max(1, (qLearningTrainingSummary.config?.arenaW || W) * (qLearningTrainingSummary.config?.arenaH || H));
+    return Math.sqrt(Math.max(1, arena.width * arena.height) / trainingArea);
+  }
+
+  function qLearningDistanceBucket(enemy, player = game.player) {
+    const scale = qLearningDistanceScale();
+    const closeDistance = (qLearningRuntimeConfig.closeDistance || qLearningTrainingSummary.config?.closeDistance || 150) * scale;
+    const midDistance = (qLearningRuntimeConfig.midDistance || qLearningTrainingSummary.config?.midDistance || 330) * scale;
+    const d = distance(enemy, player || enemy);
+    return d < closeDistance ? "close" : d < midDistance ? "mid" : "far";
+  }
+
+  function qLearningIncomingShotThreat(enemy) {
+    return game.playerShots.some((shot) => {
+      const d = distance(shot, enemy);
+      if (d > Math.max(84, (enemy.r || 20) + (shot.r || 4) + 90)) return false;
+      const speed = Math.hypot(shot.vx || 0, shot.vy || 0) || 1;
+      const towardEnemy = ((enemy.x - shot.x) * (shot.vx || 0) + (enemy.y - shot.y) * (shot.vy || 0)) / speed;
+      return towardEnemy > 0 && d / speed < 0.42;
+    });
+  }
+
+  function qLearningPointInRect(point, rect) {
+    return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+  }
+
+  function qLearningOrientation(a, b, c) {
+    const value = (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
+    if (Math.abs(value) < 0.00001) return 0;
+    return value > 0 ? 1 : 2;
+  }
+
+  function qLearningOnSegment(a, b, c) {
+    return (
+      b.x <= Math.max(a.x, c.x) &&
+      b.x >= Math.min(a.x, c.x) &&
+      b.y <= Math.max(a.y, c.y) &&
+      b.y >= Math.min(a.y, c.y)
+    );
+  }
+
+  function qLearningSegmentsIntersect(a, b, c, d) {
+    const o1 = qLearningOrientation(a, b, c);
+    const o2 = qLearningOrientation(a, b, d);
+    const o3 = qLearningOrientation(c, d, a);
+    const o4 = qLearningOrientation(c, d, b);
+    if (o1 !== o2 && o3 !== o4) return true;
+    if (o1 === 0 && qLearningOnSegment(a, c, b)) return true;
+    if (o2 === 0 && qLearningOnSegment(a, d, b)) return true;
+    if (o3 === 0 && qLearningOnSegment(c, a, d)) return true;
+    if (o4 === 0 && qLearningOnSegment(c, b, d)) return true;
+    return false;
+  }
+
+  function qLearningObstacleRect(obstacle, padding = 8) {
+    return {
+      left: (obstacle.x || 0) - padding,
+      top: (obstacle.y || 0) - padding,
+      right: (obstacle.x || 0) + (obstacle.w || 0) + padding,
+      bottom: (obstacle.y || 0) + (obstacle.h || 0) + padding,
+    };
+  }
+
+  function qLearningLineIntersectsObstacle(a, b, obstacle) {
+    if (!obstacle || obstacle.broken) return false;
+    const rect = qLearningObstacleRect(obstacle);
+    if (qLearningPointInRect(a, rect) || qLearningPointInRect(b, rect)) return true;
+    const corners = [
+      { x: rect.left, y: rect.top },
+      { x: rect.right, y: rect.top },
+      { x: rect.right, y: rect.bottom },
+      { x: rect.left, y: rect.bottom },
+    ];
+    return corners.some((corner, index) => qLearningSegmentsIntersect(a, b, corner, corners[(index + 1) % corners.length]));
+  }
+
+  function qLearningSightKey(enemy, player = game.player) {
+    if (!enemy || !player) return "clear";
+    return game.obstacles.some((obstacle) => qLearningLineIntersectsObstacle(enemy, player, obstacle)) ? "blocked" : "clear";
+  }
+
+  function qLearningPlayerWeaponKey(player = game.player) {
+    return player?.weapon?.ranged ? "ranged" : "melee";
+  }
+
+  function qLearningSpaceKey(enemy) {
+    if (!enemy) return "open";
+    const margin = (qLearningRuntimeConfig.wallMargin || 70) * qLearningDistanceScale();
+    const nearArenaWall = (
+      enemy.x < arena.left + margin ||
+      enemy.x > arena.right - margin ||
+      enemy.y < arena.top + margin ||
+      enemy.y > arena.bottom - margin
+    );
+    if (nearArenaWall) return "cornered";
+    const radius = Math.max(32, (enemy.r || 18) + 28);
+    return game.obstacles.some((obstacle) => !obstacle.broken && circleObstacleCollision(enemy, obstacle, radius))
+      ? "cornered"
+      : "open";
+  }
+
+  function qLearningAllyKey(enemy) {
+    if (!enemy) return "alone";
+    const allyRadius = (qLearningRuntimeConfig.allyRadius || 260) * qLearningDistanceScale();
+    return game.enemies.some((other) => (
+      other !== enemy &&
+      !other.defeated &&
+      !other.bossProjection &&
+      distance(enemy, other) <= allyRadius
+    )) ? "grouped" : "alone";
+  }
+
+  function qLearningImmediateThreatActive(enemy) {
+    const player = game.player;
+    if (!player) return false;
+    if (game.slashes.some((slash) => distance(slash, enemy) <= (slash.r || 0) + (enemy.r || 0) + 24)) return true;
+    if (qLearningIncomingShotThreat(enemy)) return true;
+    const weapon = player.weapon;
+    const closeDistance = (qLearningRuntimeConfig.closeDistance || 150) * qLearningDistanceScale();
+    if (weapon && !weapon.ranged && (attackHeld || mouse.down) && distance(player, enemy) <= closeDistance + 42) return true;
+    return false;
+  }
+
+  function qLearningThreatActive(enemy) {
+    return Boolean((enemy.qLearningDangerTimer || 0) > 0 || qLearningImmediateThreatActive(enemy));
+  }
+
+  function qLearningStateKey(enemy) {
+    const player = game.player || enemy;
+    const distanceKey = qLearningDistanceBucket(enemy, player);
+    const lowHpRatio = qLearningRuntimeConfig.lowHpRatio || qLearningTrainingSummary.config?.lowHpRatio || 0.45;
+    const hpKey = enemyHpRatio(enemy) <= lowHpRatio ? "low" : "high";
+    const readyWindow = qLearningRuntimeConfig.readyWindow || 0.18;
+    const cooldownKey = (enemy.fireTimer || 0) <= readyWindow ? "ready" : "cooling";
+    const dangerKey = qLearningThreatActive(enemy) ? "danger" : "safe";
+    const weaponKey = qLearningPlayerWeaponKey(player);
+    const sightKey = qLearningSightKey(enemy, player);
+    const hitKey = (enemy.qLearningRecentHitTimer || 0) > 0 ? "hit" : "steady";
+    const spaceKey = qLearningSpaceKey(enemy);
+    const allyKey = qLearningAllyKey(enemy);
+    return [distanceKey, hpKey, cooldownKey, dangerKey, weaponKey, sightKey, hitKey, spaceKey, allyKey].join("_");
+  }
+
+  function qLearningFallbackAction(enemy) {
+    if (!enemy || !game.player) return "approach";
+    const player = game.player || enemy;
+    const d = distance(enemy, player);
+    const scale = qLearningDistanceScale();
+    const closeDistance = (qLearningRuntimeConfig.closeDistance || 150) * scale;
+    const midDistance = (qLearningRuntimeConfig.midDistance || 330) * scale;
+    const weaponKey = qLearningPlayerWeaponKey(player);
+    const sightBlocked = qLearningSightKey(enemy, player) === "blocked";
+    const cornered = qLearningSpaceKey(enemy) === "cornered";
+    if (qLearningThreatActive(enemy)) return enemyHpRatio(enemy) <= 0.5 ? "retreat" : (Math.random() < 0.5 ? "dodgeLeft" : "dodgeRight");
+    if ((enemy.qLearningRecentHitTimer || 0) > 0 && (enemyHpRatio(enemy) <= 0.55 || cornered)) return "retreat";
+    if ((enemy.fireTimer || 0) <= (qLearningRuntimeConfig.readyWindow || 0.18) && d <= midDistance * 1.12) return "attack";
+    if (weaponKey === "ranged" && sightBlocked) return Math.random() < 0.5 ? "approach" : "dodgeRight";
+    if (weaponKey === "melee" && d < closeDistance * 1.15) return "retreat";
+    if (d > midDistance) return "approach";
+    if (d < closeDistance * 0.78) return "retreat";
+    return "approach";
+  }
+
+  function qLearningActionForState(stateKey, enemy = null) {
+    const policy = qLearningPolicyForEnemy(enemy);
+    const action = policy[stateKey] || policy[String(stateKey || "").split("_").slice(0, 4).join("_")];
+    return qLearningActionList.includes(action) ? action : qLearningFallbackAction(enemy || {});
+  }
+
+  function qLearningDecisionInterval(enemy) {
+    const level = Math.max(0, enemy?.betaMechanicLevel || betaDifficultyMechanicLevel());
+    const min = qLearningRuntimeConfig.decisionMin || 0.42;
+    const max = qLearningRuntimeConfig.decisionMax || 0.76;
+    const base = max - Math.min(0.24, level * 0.07);
+    return clamp(base + Math.random() * 0.12, min, max);
+  }
+
+  function refreshQLearningDecision(enemy, forced = false) {
+    if (!enemyUsesQLearning(enemy)) return false;
+    if (!forced && (enemy.qLearningDecisionTimer || 0) > 0) return false;
+    const state = qLearningStateKey(enemy);
+    const action = qLearningActionForState(state, enemy);
+    enemy.qLearningState = state;
+    enemy.qLearningAction = action;
+    enemy.qLearningDecisionTimer = qLearningDecisionInterval(enemy);
+    enemy.qLearningActionHold = Math.max(enemy.qLearningActionHold || 0, 0.34);
+    enemy.qLearningDecisionCount = (enemy.qLearningDecisionCount || 0) + 1;
+    if (action === "dodgeLeft") enemy.qLearningDodgeSide = -1;
+    if (action === "dodgeRight") enemy.qLearningDodgeSide = 1;
+    if (action === "attack" && (enemy.fireTimer || 0) <= (qLearningRuntimeConfig.readyWindow || 0.18)) {
+      enemy.fireTimer = Math.min(enemy.fireTimer || 0, 0.03);
+      enemy.attackHoldTimer = Math.max(enemy.attackHoldTimer || 0, 0.2);
+    }
+    return true;
+  }
+
+  function updateQLearningEnemyAI(enemy, dt) {
+    if (!enemyUsesQLearning(enemy)) return;
+    enemy.qLearningDangerTimer = Math.max(0, (enemy.qLearningDangerTimer || 0) - dt);
+    enemy.qLearningRecentHitTimer = Math.max(0, (enemy.qLearningRecentHitTimer || 0) - dt);
+    enemy.qLearningActionHold = Math.max(0, (enemy.qLearningActionHold || 0) - dt);
+    enemy.qLearningDecisionTimer = Math.max(0, (enemy.qLearningDecisionTimer || 0) - dt);
+    if (qLearningImmediateThreatActive(enemy)) {
+      enemy.qLearningDangerTimer = Math.max(enemy.qLearningDangerTimer || 0, 0.36);
+      if ((enemy.qLearningActionHold || 0) <= 0.06) {
+        enemy.qLearningDecisionTimer = Math.min(enemy.qLearningDecisionTimer || 0, 0.08);
+      }
+    }
+    refreshQLearningDecision(enemy);
+  }
+
+  function isJordanOrbiting(enemy) {
+    return hasEnemyMechanic(enemy, "jordanOrbitDash") && (enemy.jordanOrbitMode || "orbit") === "orbit";
+  }
+
   function enemyHpRatio(enemy) {
     return clamp((enemy?.hp || 0) / Math.max(1, enemy?.maxHp || 1), 0, 1);
   }
@@ -5126,6 +6196,9 @@
 
   function enemyReceivedDamageMultiplier(enemy) {
     let multiplier = 1;
+    if (isJordanOrbiting(enemy)) {
+      return 0;
+    }
     if (hasEnemyMechanic(enemy, "jordanDomain") && (enemy.jordanTransitionTimer || 0) > 0) {
       return 0;
     }
@@ -5173,6 +6246,27 @@
     return game.enemies.find((enemy) => enemy.id === id && !enemy.defeated) || null;
   }
 
+  function enemyProjectileWeapon(enemy) {
+    const model = enemyModelId(enemy);
+    const map = {
+      lagrange: "lagrangeOrb",
+      lagrangeRandomShade: "lagrangeOrb",
+      lhopitalShade: "lhopitalBlade",
+      taylorShade: "taylorTerm",
+      archimedesShade: "archCompass",
+      descartesShade: "axisBolt",
+      descartesRandomShade: "axisBolt",
+      euclidShade: "euclidShard",
+      jacobiShade: "jacobiMatrix",
+      jordanShade: "jordanFrame",
+      gaussShade: "gaussRow",
+      gaussRandomShade: "gaussRow",
+      bossProjection: "axisBolt",
+      shopGuard: "jordanFrame",
+    };
+    return map[model] || "";
+  }
+
   function fireEnemyShot(enemy, x, y, angle, speed, damage, color, options = {}) {
     spawnEnemyShot(
       x,
@@ -5183,6 +6277,7 @@
       color,
       {
         ...options,
+        enemyWeapon: options.enemyWeapon || enemyProjectileWeapon(enemy),
         ownerId: enemy.id,
       }
     );
@@ -5197,6 +6292,30 @@
       x: clamp(x, arena.left + padding, arena.right - padding),
       y: clamp(y, arena.top + padding, arena.bottom - padding),
     };
+  }
+
+  function enemyArenaPadding(enemy, extra = 4) {
+    return Math.max(14, (enemy?.r || 18) + extra);
+  }
+
+  function constrainEnemyToArena(enemy) {
+    if (!enemy || enemy.defeated) return false;
+    const padding = enemyArenaPadding(enemy);
+    const oldX = Number.isFinite(enemy.x) ? enemy.x : enemy.baseX;
+    const oldY = Number.isFinite(enemy.y) ? enemy.y : enemy.baseY;
+    const x = clamp(oldX, arena.left + padding, arena.right - padding);
+    const y = clamp(oldY, arena.top + padding, arena.bottom - padding);
+    const dx = x - oldX;
+    const dy = y - oldY;
+    enemy.x = x;
+    enemy.y = y;
+    if (Number.isFinite(enemy.baseX)) {
+      enemy.baseX = clamp(enemy.baseX + dx, arena.left + padding, arena.right - padding);
+    }
+    if (Number.isFinite(enemy.baseY)) {
+      enemy.baseY = clamp(enemy.baseY + dy, arena.top + padding, arena.bottom - padding);
+    }
+    return Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001;
   }
 
   function randomArenaPoint(padding = 46) {
@@ -5292,6 +6411,19 @@
     enemy.baseX = enemy.x;
     enemy.baseY = enemy.y;
     enemy.moveT = 0;
+    const angle = enemy.lhopitalSlashAngle || enemy.facingAngle || 0;
+    [-1, 1].forEach((side) => {
+      fireEnemyShot(enemy, enemy.x, enemy.y, angle + side * 0.42, 152, 5.8, enemy.color || colors.paper, {
+        r: 4.2,
+        life: 2.2,
+        pattern: "curve",
+        curveAmp: 10,
+        curveFreq: 3.1,
+        curvePhase: side,
+        side,
+        enemyWeapon: "lhopitalBlade",
+      });
+    });
     enemy.lhopitalSlashRemaining = Math.max(0, (enemy.lhopitalSlashRemaining || 1) - 1);
     if (enemy.lhopitalSlashRemaining > 0) {
       enemy.lhopitalSlashDelay = 0.24;
@@ -5384,6 +6516,19 @@
     enemy.baseX = enemy.x;
     enemy.baseY = enemy.y;
     enemy.moveT = 0;
+    const base = Math.atan2((game.player?.y || enemy.y) - enemy.y, (game.player?.x || enemy.x) - enemy.x);
+    [-0.24, 0, 0.24].forEach((offset, index) => {
+      fireEnemyShot(enemy, enemy.x, enemy.y, base + offset, 118 + index * 18, 4.8, enemy.color || colors.chalk, {
+        r: 4,
+        life: 2.6,
+        pattern: index === 1 ? "straight" : "curve",
+        curveAmp: index === 1 ? 0 : 12,
+        curveFreq: 2.7,
+        curvePhase: index,
+        side: index === 0 ? -1 : 1,
+        enemyWeapon: "taylorTerm",
+      });
+    });
     if (enemy.taylorDashPoints?.length) {
       beginTaylorDashStep(enemy);
     } else {
@@ -5393,9 +6538,16 @@
     }
   }
 
+  function archimedesDashPoint(target) {
+    return {
+      x: clamp(target.x, arena.left + 4, arena.right - 4),
+      y: clamp(target.y, arena.top + 8, arena.bottom - 4),
+    };
+  }
+
   function scheduleArchimedesDash(enemy, target, fromWall = false, warningTime = archimedesDashWarning) {
     if (!enemy || !target) return;
-    const point = arenaPoint(target.x, target.y, 42);
+    const point = archimedesDashPoint(target);
     enemy.archimedesDashTargetX = point.x;
     enemy.archimedesDashTargetY = point.y;
     enemy.archimedesDashWarnTimer = warningTime;
@@ -5403,6 +6555,13 @@
     enemy.archimedesDashHitPlayer = false;
     enemy.archimedesDashFromWall = Boolean(fromWall);
     enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.28);
+  }
+
+  function refreshArchimedesDashTarget(enemy) {
+    if (!enemy || !game.player) return;
+    const point = archimedesDashPoint(game.player);
+    enemy.archimedesDashTargetX = point.x;
+    enemy.archimedesDashTargetY = point.y;
   }
 
   function startArchimedesDash(enemy) {
@@ -5433,6 +6592,11 @@
         r: 5.8,
         shape: "square",
         life: 3.4,
+        pattern: i % 2 ? "curve" : "straight",
+        curveAmp: i % 2 ? 9 : 0,
+        curveFreq: 2.8,
+        curvePhase: i * 0.4,
+        enemyWeapon: "archCompass",
         weaponSeal: true,
         weaponSealSourceId: enemy.id,
       });
@@ -5443,8 +6607,12 @@
     if (!hasEnemyMechanic(enemy, "archimedesMarkDash")) return;
     if ((enemy.archimedesDashActiveTimer || 0) > 0 || (enemy.archimedesRecoveryTimer || 0) > 0) return;
     if ((enemy.archimedesDashWarnTimer || 0) > 0) {
+      refreshArchimedesDashTarget(enemy);
       enemy.archimedesDashWarnTimer = Math.max(0, enemy.archimedesDashWarnTimer - dt);
-      if (enemy.archimedesDashWarnTimer <= 0) startArchimedesDash(enemy);
+      if (enemy.archimedesDashWarnTimer <= 0) {
+        refreshArchimedesDashTarget(enemy);
+        startArchimedesDash(enemy);
+      }
       return;
     }
     enemy.archimedesDashTimer = enemy.archimedesDashTimer == null
@@ -5474,6 +6642,12 @@
       fireEnemyShot(enemy, enemy.x, enemy.y, baseAngle + i * 0.13, 158 + Math.abs(i) * 13, 8.5 * boost, enemy.color, {
         r: 5,
         life: 4.2,
+        shape: "square",
+        pattern: Math.abs(i) === 2 ? "curve" : "straight",
+        curveAmp: Math.abs(i) === 2 ? 12 : 0,
+        curveFreq: 3.2,
+        curvePhase: i * 0.5,
+        enemyWeapon: "jacobiMatrix",
       });
     }
   }
@@ -5505,6 +6679,12 @@
       fireEnemyShot(enemy, enemy.x, enemy.y, angle, speed, damage, enemy.color, {
         r: 4.5,
         life: 4.5,
+        shape: "square",
+        pattern: empowered || i % 2 ? "curve" : "straight",
+        curveAmp: empowered ? 14 : 7,
+        curveFreq: 2.6,
+        curvePhase: i * 0.35,
+        enemyWeapon: "jordanFrame",
         wallSplit: true,
         wallSplitDepth: 1,
       });
@@ -5544,6 +6724,7 @@
         deathBeam: true,
       });
     }
+    maybeShowMechanicTutorial("gaussDeathBeam");
     return true;
   }
 
@@ -5655,6 +6836,19 @@
     const player = game.player || enemy;
     const target = arenaPoint(player.x, player.y, 36);
     const dist = Math.max(1, distance(enemy, target));
+    const aim = Math.atan2(target.y - enemy.y, target.x - enemy.x);
+    [-0.45, 0, 0.45].forEach((offset, index) => {
+      fireEnemyShot(enemy, enemy.x, enemy.y, aim + offset, 126 + index * 12, 5.4, enemy.color || colors.cyan, {
+        r: 4.4,
+        life: 2.4,
+        pattern: index === 1 ? "straight" : "curve",
+        curveAmp: index === 1 ? 0 : 9,
+        curveFreq: 3.4,
+        curvePhase: index,
+        side: index === 0 ? -1 : 1,
+        enemyWeapon: "euclidShard",
+      });
+    });
     enemy.dashFromX = enemy.x;
     enemy.dashFromY = enemy.y;
     enemy.dashTargetX = target.x;
@@ -5722,7 +6916,7 @@
     while ((enemy.jacobiVolleyWaves || 0) > 0 && enemy.jacobiVolleyTimer <= 0) {
       fireJacobiWave(enemy);
       enemy.jacobiVolleyWaves -= 1;
-      enemy.jacobiVolleyTimer += 0.16;
+      enemy.jacobiVolleyTimer += jacobiVolleyWaveInterval;
     }
   }
 
@@ -5746,13 +6940,13 @@
       return;
     }
     enemy.jacobiLandingTimer = Math.max(0, (enemy.jacobiLandingTimer || 0) - dt);
-    if (enemy.jacobiBlinkTimer == null) enemy.jacobiBlinkTimer = 3.7 + Math.random() * 0.9;
+    if (enemy.jacobiBlinkTimer == null) enemy.jacobiBlinkTimer = jacobiBlinkInitialMin + Math.random() * jacobiBlinkInitialVariance;
     enemy.jacobiBlinkTimer -= dt;
     if (enemy.jacobiBlinkTimer <= 0) {
       enemy.jacobiBlinkTarget = jacobiBlinkTarget(enemy);
       enemy.jacobiBlinkWarnTimer = jacobiBlinkWarning;
       enemy.jacobiBlinkWarnMax = jacobiBlinkWarning;
-      enemy.jacobiBlinkTimer = 5.0 + Math.random() * 1.0;
+      enemy.jacobiBlinkTimer = jacobiBlinkCooldownMin + Math.random() * jacobiBlinkCooldownVariance;
     }
   }
 
@@ -5804,6 +6998,123 @@
     );
   }
 
+  function initializeJordanOrbit(enemy) {
+    if (!hasEnemyMechanic(enemy, "jordanOrbitDash") || enemy.jordanOrbitInitialized) return;
+    const player = game.player || enemy;
+    enemy.jordanOrbitInitialized = true;
+    enemy.jordanOrbitMode = "orbit";
+    enemy.jordanOrbitTimer = jordanRageInterval;
+    enemy.jordanOrbitDirection = Math.random() > 0.5 ? 1 : -1;
+    enemy.jordanOrbitAngle = Math.atan2(enemy.y - player.y, enemy.x - player.x) || Math.random() * Math.PI * 2;
+  }
+
+  function enterJordanOrbit(enemy) {
+    enemy.jordanOrbitMode = "orbit";
+    enemy.jordanOrbitTimer = jordanRageInterval;
+    enemy.jordanRageDashRemaining = 0;
+    enemy.jordanRageDashTimer = 0;
+    enemy.jordanRageDashWarnTimer = 0;
+    enemy.jordanRageDashActiveTimer = 0;
+    enemy.jordanPostDashDriftTimer = 0;
+    enemy.counterWindowTimer = 0;
+    enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.5);
+  }
+
+  function enterJordanRage(enemy) {
+    enemy.jordanOrbitMode = "rage";
+    enemy.jordanRageDashRemaining = jordanRageDashCount;
+    enemy.jordanRageDashTimer = jordanRageFirstDashDelay;
+    enemy.jordanRageDashWarnTimer = 0;
+    enemy.jordanRageDashActiveTimer = 0;
+    enemy.jordanPostDashDriftTimer = 0;
+    enemy.counterWindowTimer = Math.max(enemy.counterWindowTimer || 0, jordanRageFirstDashDelay);
+    enemy.shieldFlash = 0;
+    burst(enemy.x, enemy.y, enemy.color || colors.warning, 26);
+  }
+
+  function scheduleJordanRageDash(enemy) {
+    const player = game.player || enemy;
+    const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+    const dashDistance = Math.max(1, distance(enemy, player) * 2);
+    const target = arenaPoint(
+      enemy.x + Math.cos(angle) * dashDistance,
+      enemy.y + Math.sin(angle) * dashDistance,
+      38
+    );
+    enemy.jordanRageDashAngle = angle;
+    enemy.jordanRageDashTargetX = target.x;
+    enemy.jordanRageDashTargetY = target.y;
+    enemy.jordanRageDashWarnTimer = jordanRageDashWarning;
+    enemy.jordanRageDashWarnMax = jordanRageDashWarning;
+    enemy.jordanRageDashHitPlayer = false;
+  }
+
+  function startJordanRageDash(enemy) {
+    const dist = Math.max(1, Math.hypot((enemy.jordanRageDashTargetX || enemy.x) - enemy.x, (enemy.jordanRageDashTargetY || enemy.y) - enemy.y));
+    enemy.jordanRageDashFromX = enemy.x;
+    enemy.jordanRageDashFromY = enemy.y;
+    enemy.jordanRageDashActiveTimer = clamp(dist / 980, 0.22, 0.56);
+    enemy.jordanRageDashActiveMax = enemy.jordanRageDashActiveTimer;
+    enemy.jordanRageDashTrailTimer = 0;
+  }
+
+  function finishJordanRageDash(enemy) {
+    enemy.baseX = enemy.x;
+    enemy.baseY = enemy.y;
+    enemy.moveT = 0;
+    enemy.jordanRageDashRemaining = Math.max(0, (enemy.jordanRageDashRemaining || 1) - 1);
+    enemy.counterWindowTimer = Math.max(enemy.counterWindowTimer || 0, 0.72);
+    const angle = enemy.jordanRageDashAngle || enemy.facingAngle || 0;
+    const driftAngle = angle + (Math.random() - 0.5) * 1.2;
+    const driftTarget = arenaPoint(
+      enemy.x + Math.cos(driftAngle) * (34 + Math.random() * 28),
+      enemy.y + Math.sin(driftAngle) * (34 + Math.random() * 28),
+      38
+    );
+    enemy.jordanPostDashFromX = enemy.x;
+    enemy.jordanPostDashFromY = enemy.y;
+    enemy.jordanPostDashTargetX = driftTarget.x;
+    enemy.jordanPostDashTargetY = driftTarget.y;
+    enemy.jordanPostDashDriftTimer = 0.34;
+    enemy.jordanPostDashDriftMax = 0.34;
+    if (enemy.jordanRageDashRemaining > 0) {
+      enemy.jordanRageDashTimer = jordanRageDashInterval;
+    } else {
+      enemy.jordanOrbitMode = "recover";
+      enemy.jordanRageDashTimer = 0;
+    }
+  }
+
+  function updateJordanOrbitDash(enemy, dt) {
+    if (!hasEnemyMechanic(enemy, "jordanOrbitDash")) return;
+    initializeJordanOrbit(enemy);
+    if ((enemy.jordanRageDashActiveTimer || 0) > 0 || (enemy.jordanRageDashWarnTimer || 0) > 0 || (enemy.jordanPostDashDriftTimer || 0) > 0) {
+      if ((enemy.jordanRageDashWarnTimer || 0) > 0) {
+        enemy.jordanRageDashWarnTimer = Math.max(0, enemy.jordanRageDashWarnTimer - dt);
+        if (enemy.jordanRageDashWarnTimer <= 0) startJordanRageDash(enemy);
+      }
+      return;
+    }
+    if ((enemy.jordanOrbitMode || "orbit") === "recover") {
+      enterJordanOrbit(enemy);
+      return;
+    }
+    if (isJordanOrbiting(enemy)) {
+      enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.18);
+      enemy.jordanOrbitTimer = Math.max(0, (enemy.jordanOrbitTimer ?? jordanRageInterval) - dt);
+      if (enemy.jordanOrbitTimer <= 0) enterJordanRage(enemy);
+      return;
+    }
+    enemy.jordanRageDashTimer = Math.max(0, (enemy.jordanRageDashTimer || 0) - dt);
+    if (enemy.jordanRageDashTimer <= 0) {
+      if ((enemy.jordanRageDashRemaining || 0) <= 0) {
+        enterJordanOrbit(enemy);
+      } else {
+        scheduleJordanRageDash(enemy);
+      }
+    }
+  }
+
   function updateEnemyMechanics(enemy, dt) {
     enemy.backHitFlash = Math.max(0, (enemy.backHitFlash || 0) - dt);
     enemy.shieldFlash = Math.max(0, (enemy.shieldFlash || 0) - dt);
@@ -5818,33 +7129,76 @@
     updateJacobiBackBlink(enemy, dt);
     updateJordanDomain(enemy, dt);
     updateJordanHalfSlash(enemy, dt);
+    updateJordanOrbitDash(enemy, dt);
     updateBetaShopGuard(enemy, dt);
+    updateQLearningEnemyAI(enemy, dt);
     updateBetaDifficultyMechanics(enemy, dt);
   }
 
   function updateBetaShopGuard(enemy, dt) {
     if (!hasEnemyMechanic(enemy, "shopGuard") || enemy.defeated) return;
     const level = Math.max(1, enemy.betaMechanicLevel || betaDifficultyMechanicLevel());
-    enemy.shopTaxTimer = (enemy.shopTaxTimer ?? betaShopGuardTaxInitial) - dt;
+    if (enemyHpRatio(enemy) <= 0.45 && !enemy.shopEnrage) {
+      triggerBetaShopGuardEnrage(enemy);
+    }
+    if ((enemy.shopEnrageIntroTimer || 0) > 0) {
+      enemy.fireTimer = Math.max(enemy.fireTimer || 0, 0.34);
+      enemy.shopTaxTimer = Math.max(enemy.shopTaxTimer ?? 0, 0.58);
+      enemy.shopPressureTimer = Math.max(enemy.shopPressureTimer ?? 0, 0.48);
+      enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.22);
+      return;
+    }
+
+    const previousTaxTimer = enemy.shopTaxTimer ?? betaShopGuardTaxInitial;
+    enemy.shopTaxTimer = previousTaxTimer - dt;
+    if (previousTaxTimer > betaShopGuardTaxWarning && enemy.shopTaxTimer > 0 && enemy.shopTaxTimer <= betaShopGuardTaxWarning) {
+      armBetaShopGuardWarning(enemy, "tax", betaShopGuardTaxWarning);
+    }
     if (enemy.shopTaxTimer <= 0) {
       enemy.shopTaxTimer = Math.max(2.05, betaShopGuardTaxReset - level * 0.36);
+      enemy.shopTaxWarnTimer = 0;
       fireBetaPressureRing(enemy, 10 + level * 3);
       showGuideOnce("shopTax", "商人不会扣学分，但会周期性释放账单弹幕。", 3.2);
     }
-    enemy.shopPressureTimer = (enemy.shopPressureTimer ?? betaShopGuardPressureInitial) - dt;
+    const previousPressureTimer = enemy.shopPressureTimer ?? betaShopGuardPressureInitial;
+    enemy.shopPressureTimer = previousPressureTimer - dt;
+    if (previousPressureTimer > betaShopGuardPressureWarning && enemy.shopPressureTimer > 0 && enemy.shopPressureTimer <= betaShopGuardPressureWarning) {
+      armBetaShopGuardWarning(enemy, "pressure", betaShopGuardPressureWarning);
+    }
     if (enemy.shopPressureTimer <= 0) {
       enemy.shopPressureTimer = Math.max(1.35, betaShopGuardPressureReset - level * 0.2);
+      enemy.shopPressureWarnTimer = 0;
       fireBetaShopInvoiceTrap(enemy);
     }
-    if (enemyHpRatio(enemy) <= 0.45 && !enemy.shopEnrage) {
-      enemy.shopEnrage = true;
-      enemy.fireEvery *= 0.68;
-      enemy.moveSpeed *= 1.18;
-      enemy.shopTaxTimer = Math.min(enemy.shopTaxTimer || 2, 1.15);
-      enemy.shopPressureTimer = Math.min(enemy.shopPressureTimer || 2, 0.75);
-      enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, 0.8);
-      burst(enemy.x, enemy.y, enemy.color || colors.warning, 34);
+  }
+
+  function armBetaShopGuardWarning(enemy, type, duration) {
+    const player = game.player || enemy;
+    const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+    if (type === "tax") {
+      enemy.shopTaxWarnTimer = Math.max(enemy.shopTaxWarnTimer || 0, duration);
+      enemy.shopTaxWarnMax = duration;
+      return;
     }
+    enemy.shopPressureWarnTimer = Math.max(enemy.shopPressureWarnTimer || 0, duration);
+    enemy.shopPressureWarnMax = duration;
+    enemy.shopPressureWarnAngle = angle;
+  }
+
+  function triggerBetaShopGuardEnrage(enemy) {
+    enemy.shopEnrage = true;
+    enemy.fireEvery *= 0.68;
+    enemy.moveSpeed *= 1.18;
+    enemy.fireTimer = Math.max(enemy.fireTimer || 0, betaShopGuardEnrageIntroDuration);
+    enemy.shopTaxTimer = Math.max(enemy.shopTaxTimer ?? 0, 1.18);
+    enemy.shopPressureTimer = Math.max(enemy.shopPressureTimer ?? 0, 0.96);
+    enemy.shopTaxWarnTimer = 0;
+    enemy.shopPressureWarnTimer = 0;
+    enemy.shopEnrageIntroTimer = betaShopGuardEnrageIntroDuration;
+    enemy.shopEnrageIntroMax = betaShopGuardEnrageIntroDuration;
+    enemy.shieldFlash = Math.max(enemy.shieldFlash || 0, betaShopGuardEnrageIntroDuration);
+    burst(enemy.x, enemy.y, enemy.color || colors.warning, 34);
+    triggerScreenShake(5.2, 0.22);
   }
 
   function fireBetaShopInvoiceTrap(enemy) {
@@ -5907,6 +7261,7 @@
       hasEnemyMechanic(enemy, "lhopitalBlade") ||
       hasEnemyMechanic(enemy, "taylorTripleDash") ||
       hasEnemyMechanic(enemy, "dashScatter") ||
+      hasEnemyMechanic(enemy, "jordanOrbitDash") ||
       hasEnemyMechanic(enemy, "archimedesMarkDash")
     ) {
       return false;
@@ -6091,7 +7446,104 @@
     });
   }
 
+  function qLearningMoveSpeed(enemy, action) {
+    const level = Math.max(0, enemy?.betaMechanicLevel || betaDifficultyMechanicLevel());
+    const base = qLearningRuntimeConfig.moveSpeed || 126;
+    const actionMultiplier = action === "dodgeLeft" || action === "dodgeRight"
+      ? 1.16
+      : action === "retreat"
+        ? 1.02
+        : action === "attack"
+          ? 0.42
+          : 1;
+    return base * (0.86 + (enemy.moveSpeed || 1.2) * 0.16) * (1 + level * 0.055) * actionMultiplier;
+  }
+
+  function updateQLearningEnemyPosition(enemy, dt) {
+    const player = game.player;
+    if (!player) return false;
+    if (!enemy.qLearningAction) refreshQLearningDecision(enemy, true);
+    const action = enemy.qLearningAction || qLearningFallbackAction(enemy);
+    const dx = player.x - enemy.baseX;
+    const dy = player.y - enemy.baseY;
+    const d = Math.hypot(dx, dy) || 1;
+    const angleToPlayer = Math.atan2(dy, dx);
+    const scale = qLearningDistanceScale();
+    const closeDistance = (qLearningRuntimeConfig.closeDistance || 150) * scale;
+    const midDistance = (qLearningRuntimeConfig.midDistance || 330) * scale;
+    let angle = angleToPlayer;
+    let speedMultiplier = 1;
+
+    if (action === "retreat") {
+      angle = angleToPlayer + Math.PI;
+      if (d > midDistance * 1.12) speedMultiplier = 0.42;
+    } else if (action === "dodgeLeft" || action === "dodgeRight") {
+      const side = action === "dodgeLeft" ? -1 : 1;
+      const awayBias = d < closeDistance ? 0.32 : 0.08;
+      angle = angleToPlayer + side * Math.PI / 2 + awayBias * Math.PI;
+    } else if (action === "attack") {
+      const side = enemy.qLearningDodgeSide || (Math.random() < 0.5 ? -1 : 1);
+      angle = angleToPlayer + side * Math.PI / 2;
+      speedMultiplier = d < closeDistance * 0.9 ? 0.7 : 0.35;
+    } else {
+      angle = d < closeDistance * 0.86
+        ? angleToPlayer + (enemy.qLearningDodgeSide || 1) * Math.PI / 2
+        : angleToPlayer;
+      speedMultiplier = d < closeDistance * 0.86 ? 0.55 : 1;
+    }
+
+    const step = qLearningMoveSpeed(enemy, action) * speedMultiplier * dt;
+    const target = arenaPoint(
+      enemy.baseX + Math.cos(angle) * step,
+      enemy.baseY + Math.sin(angle) * step,
+      Math.max(32, (enemy.r || 20) + 12),
+    );
+    enemy.baseX = target.x;
+    enemy.baseY = target.y;
+    resolveEnemyObstacles(enemy);
+    const bob = action === "attack" ? 4 : 7;
+    enemy.x = enemy.baseX + Math.sin(enemy.moveT * Math.max(1, enemy.moveSpeed || 1) * 1.25) * bob;
+    enemy.y = enemy.baseY + Math.cos(enemy.moveT * Math.max(1, enemy.moveSpeed || 1) * 0.95) * (bob * 0.72);
+    enemy.facingAngle = smoothAngle(enemy.facingAngle ?? angleToPlayer, angleToPlayer, action === "attack" ? 0.22 : 0.12);
+    return true;
+  }
+
   function updateEnemyPosition(enemy, dt) {
+    if ((enemy.jordanRageDashActiveTimer || 0) > 0 && enemy.jordanRageDashFromX != null && enemy.jordanRageDashTargetX != null) {
+      enemy.jordanRageDashActiveTimer = Math.max(0, enemy.jordanRageDashActiveTimer - dt);
+      const progress = 1 - enemy.jordanRageDashActiveTimer / Math.max(0.001, enemy.jordanRageDashActiveMax || 0.28);
+      const eased = 1 - Math.pow(1 - clamp(progress, 0, 1), 2.35);
+      enemy.x = enemy.jordanRageDashFromX + (enemy.jordanRageDashTargetX - enemy.jordanRageDashFromX) * eased;
+      enemy.y = enemy.jordanRageDashFromY + (enemy.jordanRageDashTargetY - enemy.jordanRageDashFromY) * eased;
+      enemy.jordanRageDashTrailTimer = (enemy.jordanRageDashTrailTimer || 0) - dt;
+      if (enemy.jordanRageDashTrailTimer <= 0) {
+        enemy.jordanRageDashTrailTimer = 0.045;
+        burst(enemy.x, enemy.y, enemy.color || colors.warning, 4);
+      }
+      const player = game.player;
+      if (player && !enemy.jordanRageDashHitPlayer && player.invuln <= 0 && distance(player, enemy) <= player.r + enemy.r + 8 * characterSizeScale) {
+        applyPlayerDamage(scaledIncomingDamage(16 * enemyDamageMultiplier(enemy)), enemy.color || colors.warning);
+        player.invuln = Math.max(player.invuln, 0.72);
+        enemy.jordanRageDashHitPlayer = true;
+      }
+      if (enemy.jordanRageDashActiveTimer <= 0) {
+        finishJordanRageDash(enemy);
+      }
+      return;
+    }
+    if ((enemy.jordanPostDashDriftTimer || 0) > 0 && enemy.jordanPostDashTargetX != null) {
+      enemy.jordanPostDashDriftTimer = Math.max(0, enemy.jordanPostDashDriftTimer - dt);
+      const progress = 1 - enemy.jordanPostDashDriftTimer / Math.max(0.001, enemy.jordanPostDashDriftMax || 0.34);
+      const eased = 1 - Math.pow(1 - clamp(progress, 0, 1), 2);
+      enemy.x = enemy.jordanPostDashFromX + (enemy.jordanPostDashTargetX - enemy.jordanPostDashFromX) * eased;
+      enemy.y = enemy.jordanPostDashFromY + (enemy.jordanPostDashTargetY - enemy.jordanPostDashFromY) * eased;
+      enemy.baseX = enemy.x;
+      enemy.baseY = enemy.y;
+      if (enemy.jordanPostDashDriftTimer <= 0 && enemy.jordanOrbitMode === "recover") {
+        enterJordanOrbit(enemy);
+      }
+      return;
+    }
     if ((enemy.lhopitalSlashActiveTimer || 0) > 0 && enemy.lhopitalSlashFromX != null && enemy.lhopitalSlashTargetX != null) {
       enemy.lhopitalSlashActiveTimer = Math.max(0, enemy.lhopitalSlashActiveTimer - dt);
       const progress = 1 - enemy.lhopitalSlashActiveTimer / Math.max(0.001, enemy.lhopitalSlashActiveMax || 0.24);
@@ -6206,6 +7658,26 @@
       enemy.y = enemy.baseY;
       return;
     }
+    if (hasEnemyMechanic(enemy, "jordanOrbitDash") && isJordanOrbiting(enemy)) {
+      const player = game.player;
+      if (!player) return;
+      initializeJordanOrbit(enemy);
+      enemy.jordanOrbitAngle += jordanOrbitSpeed * (enemy.jordanOrbitDirection || 1) * dt;
+      const target = arenaPoint(
+        player.x + Math.cos(enemy.jordanOrbitAngle) * jordanOrbitRadius,
+        player.y + Math.sin(enemy.jordanOrbitAngle) * jordanOrbitRadius,
+        38
+      );
+      enemy.baseX += (target.x - enemy.baseX) * Math.min(1, dt * 7.5);
+      enemy.baseY += (target.y - enemy.baseY) * Math.min(1, dt * 7.5);
+      enemy.x = enemy.baseX + Math.sin(enemy.moveT * 3.5) * 5;
+      enemy.y = enemy.baseY + Math.cos(enemy.moveT * 3.1) * 4;
+      enemy.facingAngle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+      return;
+    }
+    if (enemyUsesQLearning(enemy) && updateQLearningEnemyPosition(enemy, dt)) {
+      return;
+    }
     if (enemy.randomDrift) {
       const driftIntervalMultiplier = enemy.driftIntervalMultiplier || 1;
       enemy.driftTimer = (enemy.driftTimer || 0) - dt;
@@ -6308,6 +7780,7 @@
       game.enemies.push(child);
     });
     burst(enemy.x, enemy.y, enemy.color || colors.chalk, 24);
+    maybeShowMechanicTutorial("lagrangeSplit");
     return true;
   }
 
@@ -6387,6 +7860,7 @@
         const previousX = enemy.x;
         const previousY = enemy.y;
         updateEnemyPosition(enemy, dt);
+        constrainEnemyToArena(enemy);
         updateEnemyFacing(enemy, previousX, previousY);
         enemy.fireTimer -= dt;
         if (enemy.fireTimer <= 0) {
@@ -6457,8 +7931,11 @@
     const buffSlotCount = shouldOfferBuff && isBetaVersion() && betaDifficultyMechanicLevel() >= 2 && count <= 2 ? 2 : shouldOfferBuff ? 1 : 0;
     const rewardBuffs = shouldOfferBuff ? sampleUnique(buffRewardIds, buffSlotCount).filter(Boolean) : [];
     const rewardWeaponBonusLevels = (count >= 3 ? 1 : 0) + (reward.eliteRoom ? 1 : 0);
-    const rewardBuffBonusLevels = (count >= 3 ? 1 : 0) + betaRewardBuffBonus() + (reward.eliteRoom ? 1 : 0);
+    const rewardBuffBonusLevels = (count >= 3 ? 1 : 0) + (reward.eliteRoom ? 1 : 0);
     const passiveChoice = createChallengePassiveChoice(count);
+    const itemChoice = reward.eliteRoom ? createBetaItemChoice("elite") : null;
+    const leadingChoice = passiveChoice || itemChoice;
+    if (passiveChoice && itemChoice) passiveChoice.nextChoice = itemChoice;
     const weaponNames = rewardWeapons.map((id) => rewardWeaponDisplayName(id, rewardWeaponBonusLevels));
     const buffNames = rewardBuffs.map((id) => rewardBuffDisplayName(id, rewardBuffBonusLevels));
     awardBetaKnowledgeCredits(game.activeRoomKey, count);
@@ -6470,7 +7947,7 @@
       ? "请从下方选择一项作为奖励。"
       : "房间完成。";
     const rewardIntroText = rewardPickText;
-    const initialClearText = passiveChoice ? passiveChoiceIntroText(passiveChoice) : rewardIntroText;
+    const initialClearText = leadingChoice ? passiveChoiceIntroText(leadingChoice) : rewardIntroText;
     showClear(
       reward.clearEyebrow || "怪物房",
       reward.clearTitle || "知识投影被击败",
@@ -6489,7 +7966,7 @@
           declineText: `你没有领取本房间掉落。没有加入${weaponNames.join("、")}，本局仍保留圣剑榜资格。`,
         }
         : null,
-      passiveChoice
+      leadingChoice
     );
   }
 
@@ -6519,6 +7996,12 @@
         fire(enemy.x, enemy.y, baseAngle + offset, baseSpeed + Math.abs(offset) * 32, 8.2, enemy.color, {
           r: 4.5,
           life: 4.0,
+          pattern: i % 2 ? "curve" : "straight",
+          curveAmp: enemy.splitChild ? 8 : 16,
+          curveFreq: 2.4 + i * 0.18,
+          curvePhase: i * 0.6,
+          side: i % 2 ? -1 : 1,
+          enemyWeapon: "lagrangeOrb",
         });
       }
       return;
@@ -6565,6 +8048,13 @@
       return;
     }
     if (enemy.pattern === "axisLaser") {
+      fire(enemy.x, enemy.y, baseAngle, 182, 6.2, enemy.color, {
+        r: 5.2,
+        life: 2.8,
+        shape: "beam",
+        beamLength: 42,
+        enemyWeapon: "axisBolt",
+      });
       spawnEnemyLaser({
         orientation: "vertical",
         x: clamp(game.player.x, arena.left + 24, arena.right - 24),
@@ -6595,7 +8085,16 @@
       const sideX = -Math.sin(baseAngle);
       const sideY = Math.cos(baseAngle);
       for (let i = -2; i <= 2; i += 1) {
-        fire(enemy.x + sideX * i * 24, enemy.y + sideY * i * 24, baseAngle, 150 + Math.abs(i) * 12, 10);
+        fire(enemy.x + sideX * i * 24, enemy.y + sideY * i * 24, baseAngle, 150 + Math.abs(i) * 12, 10, enemy.color, {
+          r: i === 0 ? 6.2 : 5.2,
+          life: 4.1,
+          pattern: Math.abs(i) === 2 ? "curve" : "straight",
+          curveAmp: Math.abs(i) === 2 ? 10 : 0,
+          curveFreq: 2.1,
+          curvePhase: i,
+          side: i < 0 ? -1 : 1,
+          enemyWeapon: "gaussRow",
+        });
       }
       return;
     }
@@ -6611,7 +8110,9 @@
     advanceBossIntro(boss, dt);
     if (!isBossIntroActive() && !boss.guideShown) {
       boss.guideShown = true;
-      showGuideOnce("bossBasics", "Boss 只有前排核心会输出并可被打血；核心发光时命中可压低攻势。", 4.4);
+      if (!maybeShowMechanicTutorial("bossBasics")) {
+        showGuideOnce("bossBasics", "Boss 只有前排核心会输出并可被打血；核心发光时命中可压低攻势。", 4.4);
+      }
     }
     updateBossDeaths(boss);
     updateBossMovement(boss, dt);
@@ -6624,7 +8125,10 @@
       core.healFlash = Math.max(0, (core.healFlash || 0) - dt);
       core.invisibleTimer = Math.max(0, (core.invisibleTimer || 0) - dt);
       core.revealTimer = Math.max(0, (core.revealTimer || 0) - dt);
+      core.breakTimer = Math.max(0, (core.breakTimer || 0) - dt);
+      core.breakFlash = Math.max(0, (core.breakFlash || 0) - dt);
     });
+    tickBossVisualTimers(boss, dt);
 
     updateBossDomain(boss, dt);
     updateBossFullPower(boss, dt);
@@ -6640,20 +8144,23 @@
     updateBossObstacles(boss, dt);
     updateBossProjections(dt);
 
-    const attackingPaused = isBossIntroActive() || boss.rotating;
+    const attackingPaused = isBossIntroActive() || boss.rotating || (boss.attackPauseTimer || 0) > 0;
     if (!attackingPaused) {
-      activeCores.forEach((core) => {
-        core.fireTimer -= dt;
-        if (core.fireTimer <= 0) {
-          if (canBossSpendPressure(core)) {
-            spendBossPressure(core);
-            fireBossCore(core);
-            core.fireTimer = bossCoreInterval(core);
-          } else {
-            core.fireTimer = encounterRetryDelay + Math.random() * 0.12;
+      if (boss.useComboDirector) {
+        updateBossComboDirector(boss, dt, activeCores);
+      } else {
+        activeCores.forEach((core) => {
+          if (core.fireTimer <= 0) {
+            if (canBossSpendPressure(core)) {
+              spendBossPressure(core);
+              fireBossCore(core);
+              core.fireTimer = bossCoreInterval(core);
+            } else {
+              core.fireTimer = encounterRetryDelay + Math.random() * 0.12;
+            }
           }
-        }
-      });
+        });
+      }
     }
 
     boss.cores.forEach((core) => {
@@ -6672,6 +8179,13 @@
   function isBossIntroActive() {
     const boss = game.boss;
     return game.activeRoom === "boss" && Boolean(boss?.intro) && boss.intro.elapsed < boss.intro.total;
+  }
+
+  function tickBossVisualTimers(boss, dt) {
+    if (!boss) return;
+    boss.domainFlashTimer = Math.max(0, (boss.domainFlashTimer || 0) - dt);
+    boss.coreDefeatFlashTimer = Math.max(0, (boss.coreDefeatFlashTimer || 0) - dt);
+    boss.finalCoreFlashTimer = Math.max(0, (boss.finalCoreFlashTimer || 0) - dt);
   }
 
   function isBossCoreRevealed(core) {
@@ -6754,10 +8268,94 @@
   function updateBossDirector(boss, dt) {
     if (!boss) return;
     boss.pressure = Math.max(0, (boss.pressure || 0) - (boss.pressureDecay || bossPressureDecay) * dt);
+    boss.attackPauseTimer = Math.max(0, (boss.attackPauseTimer || 0) - dt);
+    boss.gaussDodgeRewardTimer = Math.max(0, (boss.gaussDodgeRewardTimer || 0) - dt);
+    boss.cauchyPassiveTimer = Math.max(0, (boss.cauchyPassiveTimer || 0) - dt);
     boss.cores.forEach((core) => {
+      core.fireTimer = Math.max(0, (core.fireTimer || 0) - dt);
       core.counterWindowTimer = Math.max(0, (core.counterWindowTimer || 0) - dt);
       core.counterFlash = Math.max(0, (core.counterFlash || 0) - dt);
     });
+  }
+
+  function bossComboCadence(boss) {
+    const base = aliveBossCoreCount(boss) <= 1 ? bossComboFinalCadence : bossComboBaseCadence;
+    const defeatedTempo = Math.max(0, boss.defeatedCount || 0) * 0.22;
+    const directTempo = boss.direct ? 0.24 : 0;
+    const difficultyTempo = (betaDifficultyValue("pressureScale", 1) - 1) * 0.45;
+    return Math.max(1.55, base - defeatedTempo - directTempo - difficultyTempo);
+  }
+
+  function bossComboCoreIds(boss, activeCores) {
+    const activeIds = activeCores.map((core) => core.id);
+    if (activeIds.length <= 1) return activeIds;
+    const recipes = {
+      cauchy: ["descartes", "gauss"],
+      gauss: ["cauchy", "descartes"],
+      descartes: ["gauss", "cauchy"],
+    };
+    const preferred = (recipes[boss.domainCoreId] || activeIds).filter((id) => activeIds.includes(id));
+    const filled = [...preferred, ...activeIds.filter((id) => !preferred.includes(id))];
+    if (filled.length > 1 && filled[0] === boss.lastAttackCoreId) {
+      filled.push(filled.shift());
+    }
+    return filled.slice(0, 2);
+  }
+
+  function scheduleBossCombo(boss, activeCores) {
+    const ids = bossComboCoreIds(boss, activeCores);
+    if (!ids.length) return;
+    const finalCore = ids.length === 1 ? bossCoreById(ids[0]) : null;
+    const repeatFinal = finalCore && (finalCore.id === "cauchy" || finalCore.id === "descartes");
+    const steps = repeatFinal ? [ids[0], ids[0]] : ids;
+    const gap = bossComboGap + Math.max(0, boss.defeatedCount || 0) * 0.05;
+    boss.comboQueue = steps.map((coreId, index) => ({
+      coreId,
+      delay: 0.28 + index * gap,
+    }));
+    boss.comboCount = (boss.comboCount || 0) + 1;
+    boss.lastComboName = steps.join(">");
+    boss.comboQueue.forEach((step) => {
+      const core = bossCoreById(step.coreId);
+      if (core) core.fireTimer = Math.min(core.fireTimer || step.delay, step.delay);
+    });
+  }
+
+  function executeBossComboStep(boss, step) {
+    const core = bossCoreById(step.coreId);
+    if (!core || core.hp <= 0 || !isBossCoreFront(core, boss)) return true;
+    if (!canBossSpendPressure(core)) {
+      step.delay = encounterRetryDelay + Math.random() * 0.1;
+      return false;
+    }
+    spendBossPressure(core);
+    fireBossCore(core);
+    core.fireTimer = bossCoreInterval(core);
+    return true;
+  }
+
+  function updateBossComboDirector(boss, dt, activeCores) {
+    if (!boss || !activeCores.length) return;
+    boss.comboQueue ||= [];
+    if (!boss.comboQueue.length) {
+      boss.comboTimer = Math.max(0, (boss.comboTimer || 0) - dt);
+      if (boss.comboTimer <= 0) {
+        scheduleBossCombo(boss, activeCores);
+      }
+      return;
+    }
+
+    const step = boss.comboQueue[0];
+    step.delay = Math.max(0, (step.delay || 0) - dt);
+    const core = bossCoreById(step.coreId);
+    if (core) core.fireTimer = Math.min(core.fireTimer || step.delay, step.delay);
+    if (step.delay > 0) return;
+    if (executeBossComboStep(boss, step)) {
+      boss.comboQueue.shift();
+      if (!boss.comboQueue.length) {
+        boss.comboTimer = bossComboCadence(boss);
+      }
+    }
   }
 
   function canBossSpendPressure(core) {
@@ -6805,6 +8403,43 @@
     return true;
   }
 
+  function openBossBreakWindow(core, reason = "") {
+    const boss = game.boss;
+    if (!boss || !core || core.hp <= 0) return false;
+    core.breakTimer = Math.max(core.breakTimer || 0, bossBreakWindowSeconds);
+    core.breakFlash = Math.max(core.breakFlash || 0, bossBreakWindowSeconds);
+    core.revealTimer = Math.max(core.revealTimer || 0, Math.min(bossBreakWindowSeconds, bossCoreRevealDuration));
+    core.guardFlash = 0;
+    core.hitFlash = Math.max(core.hitFlash || 0, 0.18);
+    boss.attackPauseTimer = Math.max(boss.attackPauseTimer || 0, bossBreakAttackPause);
+    boss.comboQueue = [];
+    boss.comboTimer = Math.max(boss.comboTimer || 0, bossBreakAttackPause + 0.35);
+    boss.breakWindowCount = (boss.breakWindowCount || 0) + 1;
+    boss.lastBreakCoreId = core.id;
+    boss.lastBreakReason = reason;
+    const pos = corePosition(core);
+    burst(pos.x, pos.y, colors.paper, 34);
+    spawnHitImpact(pos.x, pos.y, colors.paper, 1.85);
+    triggerScreenShake(3.2, 0.16);
+    playSfx("crit", 1.05);
+    showGuideOnce("bossBreak", "躲开领域压制后会出现短暂破绽，趁核心发白时反击。", 3.8);
+    return true;
+  }
+
+  function resolveCauchyDashBreakReward(boss, force = false) {
+    const pending = boss?.cauchyDashBreakPending;
+    if (!boss || !pending) return false;
+    if (!force && pending.timer > 0) return false;
+    const hurtAfterDash = (game.playerHurtSeq || 0) > (pending.hurtSeq || 0);
+    boss.cauchyDashBreakPending = null;
+    if (hurtAfterDash) return false;
+    const core = bossCoreById("cauchy");
+    if (!core || core.hp <= 0) return false;
+    boss.cauchyBreakRewardCount = (boss.cauchyBreakRewardCount || 0) + 1;
+    core.fireTimer = Math.max(core.fireTimer || 0, 1.05);
+    return openBossBreakWindow(core, "cauchyDashWalls");
+  }
+
   function updateBossDomain(boss, dt) {
     if (isBossIntroActive()) return;
     if (!boss.domainCoreId && !boss.rotating) {
@@ -6813,9 +8448,14 @@
     }
     if (boss.domainCoreId) {
       boss.domainElapsed = (boss.domainElapsed || 0) + dt;
+      maybeShowBossDomainTutorial(boss.domainCoreId);
     }
     updateBossRotation(boss, dt);
     updateGaussZones(boss, dt);
+    if (boss.cauchyDashBreakPending) {
+      boss.cauchyDashBreakPending.timer = Math.max(0, (boss.cauchyDashBreakPending.timer || 0) - dt);
+      resolveCauchyDashBreakReward(boss);
+    }
     if (boss.domainCoreId === "descartes") {
       updateDescartesDomain(boss, dt);
     }
@@ -6830,8 +8470,11 @@
     boss.domainName = core.name;
     boss.domainElapsed = 0;
     boss.domainIndex = (boss.domainIndex || 0) + 1;
+    boss.domainFlashTimer = 0.9;
+    boss.domainFlashCoreId = core.id;
     const pos = corePosition(core);
     burst(pos.x, pos.y, core.color, 26);
+    triggerScreenShake(1.4, 0.1);
 
     if (core.id === "cauchy") {
       enterCauchyDomain(boss);
@@ -6840,19 +8483,23 @@
     } else if (core.id === "descartes") {
       enterDescartesDomain(boss);
     }
+    maybeShowBossDomainTutorial(core.id);
   }
 
   function endBossDomain(boss) {
     if (!boss?.domainCoreId) return;
     if (boss.domainCoreId === "cauchy") {
       explodeCauchyDomainWalls(boss);
+      boss.cauchyDashBreakPending = null;
     }
     if (boss.domainCoreId === "descartes") {
       spawnDescartesExitProjections(boss);
     }
     if (boss.domainCoreId === "gauss") {
       boss.gaussZones = [];
+      boss.gaussShockwaves = [];
     }
+    boss.cauchyDashBreakPending = null;
     boss.cores.forEach((core) => {
       if (core.domainShieldBonus) {
         const remainingBonus = Math.min(core.shield || 0, core.domainShieldBonus);
@@ -6882,6 +8529,18 @@
     return obstacle;
   }
 
+  function registerCauchyDomainWall(wall, flags = {}) {
+    if (!wall) return null;
+    decorateCauchyDomainWall(wall);
+    Object.assign(wall, flags);
+    game.obstacles.push(wall);
+    if (game.boss) {
+      game.boss.cauchyDomainObstacleIds ||= [];
+      game.boss.cauchyDomainObstacleIds.push(wall.id);
+    }
+    return wall;
+  }
+
   function enterCauchyDomain(boss) {
     explodeCauchyDomainWalls(boss);
     boss.cauchyBombs = [];
@@ -6898,35 +8557,35 @@
         obstacle.cauchyCandidate = true;
         return obstacle.id;
       });
-    boss.cores.filter((core) => core.hp > 0).forEach((core) => {
-      const wall = createCauchyCoreWall(core);
-      if (wall) {
-        decorateCauchyDomainWall(wall);
-        wall.cauchyCoreWall = true;
-        game.obstacles.push(wall);
-        boss.cauchyDomainObstacleIds.push(wall.id);
-      }
+    createCauchyPlayerArcWalls().forEach((wall) => registerCauchyDomainWall(wall, { cauchyPlayerArcWall: true }));
+  }
+
+  function createCauchyArcWall(center, radius, middle, span, thickness = 8.5, steps = 8) {
+    const points = [];
+    for (let step = 0; step <= steps; step += 1) {
+      const t = step / steps - 0.5;
+      const angle = middle + t * span;
+      points.push({
+        x: clamp(center.x + Math.cos(angle) * radius, arena.left + 24, arena.right - 24),
+        y: clamp(center.y + Math.sin(angle) * radius, arena.top + 24, arena.bottom - 24),
+      });
+    }
+    return obstacleFromPoints("curve", points, thickness);
+  }
+
+  function createCauchyPlayerArcWalls(centerOverride = null) {
+    const player = game.player || { x: arenaCenterX(), y: arenaCenterY() };
+    const center = centerOverride ? arenaPoint(centerOverride.x, centerOverride.y, 150) : arenaPoint(player.x, player.y, 150);
+    const radius = 118;
+    const span = ((Math.PI * 2) / 3) * 0.88;
+    const start = Math.random() * Math.PI * 2;
+    return Array.from({ length: 3 }, (_, index) => {
+      const middle = start + index * ((Math.PI * 2) / 3);
+      return createCauchyArcWall(center, radius, middle, span);
     });
   }
 
-  function createCauchyCoreWall(core) {
-    const pos = corePosition(core);
-    const toward = Math.atan2(game.player.y - pos.y, game.player.x - pos.x);
-    const radius = 52;
-    const span = Math.PI * 0.72;
-    const points = [];
-    for (let i = 0; i <= 6; i += 1) {
-      const t = i / 6 - 0.5;
-      const angle = toward + t * span;
-      points.push({
-        x: pos.x + Math.cos(angle) * radius,
-        y: pos.y + Math.sin(angle) * radius,
-      });
-    }
-    return obstacleFromPoints("curve", points, 8.5);
-  }
-
-  function explodeCauchyDomainWalls(boss) {
+  function explodeCauchyDomainWalls(boss, options = {}) {
     const walls = game.obstacles.filter((obstacle) => obstacle.cauchyDomain);
     walls.forEach((wall) => {
       const center = obstacleCenter(wall);
@@ -6936,7 +8595,95 @@
     boss.obstacleBoomCount = (boss.obstacleBoomCount || 0) + walls.length;
     game.obstacles = game.obstacles.filter((obstacle) => !obstacle.cauchyDomain);
     boss.cauchyDomainObstacleIds = [];
-    boss.cauchyCandidateObstacleIds = [];
+    if (options.clearCandidates !== false) {
+      boss.cauchyCandidateObstacleIds = [];
+    }
+  }
+
+  function triggerCauchyDashWalls() {
+    const boss = game.boss;
+    if (!boss || game.activeRoom !== "boss" || (boss.domainCoreId !== "cauchy" && boss.fullPowerCoreId !== "cauchy")) return false;
+    const activeWalls = game.obstacles.filter((obstacle) => obstacle.cauchyPlayerArcWall);
+    if (!activeWalls.length) return false;
+    activeWalls.forEach((wall) => {
+      const center = obstacleCenter(wall);
+      scatterCauchyWallBullets(center, cauchyExplosionBulletCount);
+      burst(center.x, center.y, colors.chalk, 18);
+    });
+    boss.obstacleBoomCount = (boss.obstacleBoomCount || 0) + activeWalls.length;
+    const explodedIds = new Set(activeWalls.map((wall) => wall.id));
+    game.obstacles = game.obstacles.filter((obstacle) => !explodedIds.has(obstacle.id));
+    boss.cauchyDomainObstacleIds = (boss.cauchyDomainObstacleIds || []).filter((id) => !explodedIds.has(id));
+    boss.cauchyDashBreakPending = {
+      timer: 0.72,
+      hurtSeq: game.playerHurtSeq || 0,
+    };
+    const center = randomArenaPoint(150);
+    createCauchyPlayerArcWalls(center).forEach((wall) => registerCauchyDomainWall(wall, { cauchyPlayerArcWall: true }));
+    boss.cauchyHighlightTimer = cauchyHighlightEvery;
+    maybeShowMechanicTutorial("bossCauchyDomain");
+    return true;
+  }
+
+  function movePlayerByBossImpulse(angle, distanceValue) {
+    const player = game.player;
+    if (!player) return;
+    player.x = clamp(player.x + Math.cos(angle) * distanceValue, arena.left + 4, arena.right - 4);
+    player.y = clamp(player.y + Math.sin(angle) * distanceValue, arena.top + 8, arena.bottom - 4);
+    constrainPlayerToWalkableFloor(player);
+    resolvePlayerObstacles();
+  }
+
+  function createCauchyBarrierBetween(corePos, playerPos) {
+    const angle = Math.atan2(playerPos.y - corePos.y, playerPos.x - corePos.x);
+    const px = -Math.sin(angle);
+    const py = Math.cos(angle);
+    const center = {
+      x: (corePos.x + playerPos.x) / 2,
+      y: (corePos.y + playerPos.y) / 2,
+    };
+    const half = 98;
+    return obstacleFromPoints("line", [
+      { x: clamp(center.x - px * half, arena.left + 24, arena.right - 24), y: clamp(center.y - py * half, arena.top + 24, arena.bottom - 24) },
+      { x: clamp(center.x + px * half, arena.left + 24, arena.right - 24), y: clamp(center.y + py * half, arena.top + 24, arena.bottom - 24) },
+    ], 9);
+  }
+
+  function createCauchyRangedBackArc(corePos, playerPos) {
+    const away = Math.atan2(playerPos.y - corePos.y, playerPos.x - corePos.x);
+    const center = arenaPoint(
+      playerPos.x + Math.cos(away) * 52,
+      playerPos.y + Math.sin(away) * 52,
+      120
+    );
+    return createCauchyArcWall(center, 94, away, (Math.PI * 4) / 3, 9, 12);
+  }
+
+  function triggerCauchyHitPassive(core, sourceIsRanged) {
+    const boss = game.boss;
+    const player = game.player;
+    if (!boss || !player || !core || core.id !== "cauchy" || (boss.cauchyPassiveTimer || 0) > 0) return false;
+    const corePos = corePosition(core);
+    const angleFromCore = Math.atan2(player.y - corePos.y, player.x - corePos.x);
+    boss.cauchyPassiveTimer = cauchyPassiveCooldown;
+    if (sourceIsRanged) {
+      movePlayerByBossImpulse(angleFromCore + Math.PI, 98);
+      registerCauchyDomainWall(createCauchyRangedBackArc(corePos, { x: player.x, y: player.y }), {
+        cauchyPassiveWall: true,
+        cauchyPassiveLife: 8,
+      });
+      burst(player.x, player.y, colors.chalk, 18);
+    } else {
+      movePlayerByBossImpulse(angleFromCore, 126);
+      registerCauchyDomainWall(createCauchyBarrierBetween(corePos, { x: player.x, y: player.y }), {
+        cauchyPassiveWall: true,
+        cauchyPassiveLife: 8,
+      });
+      burst(corePos.x, corePos.y, colors.chalk, 18);
+    }
+    playSfx("shield", 0.95);
+    maybeShowMechanicTutorial("bossCauchyPassive");
+    return true;
   }
 
   function scatterCauchyWallBullets(center, count) {
@@ -6985,12 +8732,16 @@
 
   function enterGaussDomain(boss, core) {
     boss.gaussZones = [];
+    boss.gaussShockwaves = [];
     boss.gaussZoneBonus = 0;
     boss.gaussNextZoneCount = gaussZoneResetCount;
     const hpRatio = clamp((core.hp || 0) / Math.max(1, core.maxHp || 1), 0.001, 1);
     const restoreRatio = Math.max(0.25, Math.ceil(hpRatio * 4) / 4);
     boss.cores.forEach((item) => {
       if (item.hp > 0) {
+        item.revealTimer = 0;
+        item.breakTimer = 0;
+        item.breakFlash = 0;
         item.invisibleTimer = Math.max(item.invisibleTimer || 0, bossCoreInvisibleDuration);
       }
     });
@@ -7157,8 +8908,10 @@
     game.enemies.forEach((enemy) => {
       if (!enemy.bossProjection || enemy.defeated) return;
       enemy.moveT += dt;
-      enemy.x = clamp(enemy.baseX + Math.cos(enemy.moveT * enemy.moveSpeed + enemy.movePhase) * enemy.moveAmp, arena.left + 24, arena.right - 24);
-      enemy.y = clamp(enemy.baseY + Math.sin(enemy.moveT * enemy.moveSpeed * 1.3 + enemy.movePhase) * enemy.moveAmp * 0.62, arena.top + 24, arena.bottom - 24);
+      const padding = enemyArenaPadding(enemy);
+      enemy.x = clamp(enemy.baseX + Math.cos(enemy.moveT * enemy.moveSpeed + enemy.movePhase) * enemy.moveAmp, arena.left + padding, arena.right - padding);
+      enemy.y = clamp(enemy.baseY + Math.sin(enemy.moveT * enemy.moveSpeed * 1.3 + enemy.movePhase) * enemy.moveAmp * 0.62, arena.top + padding, arena.bottom - padding);
+      constrainEnemyToArena(enemy);
       enemy.fireTimer -= dt;
       enemy.facingAngle = Math.atan2(game.player.y - enemy.y, game.player.x - enemy.x);
       if (enemy.fireTimer <= 0) {
@@ -7181,6 +8934,7 @@
   function createGaussZones(core) {
     const boss = game.boss;
     if (!boss || core.hp <= 0) return;
+    boss.gaussShockwaves ||= [];
     const baseCount = boss.fullPowerCoreId === "gauss"
       ? gaussZoneMaxCount
       : boss.gaussNextZoneCount || gaussZoneBaseCount;
@@ -7197,14 +8951,35 @@
     }));
   }
 
+  function createGaussShockwave(zone, core) {
+    const boss = game.boss;
+    if (!boss || !zone || !core || !game.player) return;
+    const corePos = corePosition(core);
+    const targetRadius = clamp(distance(corePos, game.player) * 1.5, 96, Math.max(arena.width, arena.height) * 0.72);
+    boss.gaussShockwaves ||= [];
+    boss.gaussShockwaves.push({
+      x: zone.x,
+      y: zone.y,
+      r: targetRadius,
+      age: 0,
+      warnTime: gaussShockwaveWarnTime,
+      activeTime: gaussShockwaveActiveTime,
+      hitPlayer: false,
+      pulse: zone.pulse || 0,
+      coreId: core.id,
+    });
+    maybeShowMechanicTutorial("bossGaussShockwave");
+  }
+
   function updateGaussZones(boss, dt) {
-    if (!boss.gaussZones?.length) return;
+    if (!boss.gaussZones?.length && !boss.gaussShockwaves?.length) return;
     const core = bossCoreById("gauss");
-    boss.gaussZones.forEach((zone) => {
+    (boss.gaussZones || []).forEach((zone) => {
       zone.life -= dt;
       zone.fireTimer -= dt;
       if (zone.fireTimer <= 0 && core && core.hp > 0) {
         zone.fireTimer = gaussZoneFireEvery;
+        createGaussShockwave(zone, core);
         const aim = Math.atan2(game.player.y - zone.y, game.player.x - zone.x) + (Math.random() - 0.5) * 0.22;
         [0, 1, 2].forEach((slot) => {
           const offset = (Math.PI * 2 * slot) / 3;
@@ -7221,7 +8996,40 @@
         });
       }
     });
-    boss.gaussZones = boss.gaussZones.filter((zone) => zone.life > 0);
+    boss.gaussZones = (boss.gaussZones || []).filter((zone) => zone.life > 0);
+    updateGaussShockwaves(boss, dt, core);
+  }
+
+  function updateGaussShockwaves(boss, dt, core) {
+    if (!boss.gaussShockwaves?.length) return;
+    const player = game.player;
+    boss.gaussShockwaves.forEach((wave) => {
+      wave.age += dt;
+      const activeAge = wave.age - wave.warnTime;
+      if (activeAge < 0 || !player || wave.hitPlayer) return;
+      const progress = clamp(activeAge / Math.max(0.001, wave.activeTime), 0, 1);
+      const radius = wave.r * progress;
+      const playerDistance = distance(player, wave);
+      if (Math.abs(playerDistance - radius) <= player.r + gaussShockwaveWidth && player.invuln <= 0) {
+        applyPlayerDamage(scaledIncomingDamage(bossAttackDamage(core, 13)), colors.warning);
+        player.invuln = Math.max(player.invuln, 0.62);
+        wave.hitPlayer = true;
+        burst(player.x, player.y, colors.warning, 16);
+      }
+    });
+    boss.gaussShockwaves = boss.gaussShockwaves.filter((wave) => {
+      const expired = wave.age >= wave.warnTime + wave.activeTime + 0.08;
+      if (expired && !wave.hitPlayer && !wave.rewarded && core?.hp > 0) {
+        wave.rewarded = true;
+        if ((boss.gaussDodgeRewardTimer || 0) <= 0) {
+          boss.gaussDodgeRewardCount = (boss.gaussDodgeRewardCount || 0) + 1;
+          boss.gaussDodgeRewardTimer = gaussDodgeRewardCooldown;
+          core.fireTimer = Math.max(core.fireTimer || 0, 1.15);
+          openBossBreakWindow(core, "gaussShockwaveDodge");
+        }
+      }
+      return !expired;
+    });
   }
 
   function updateBossObstacles(boss, dt) {
@@ -7234,11 +9042,16 @@
       }
     }
     game.obstacles.forEach((obstacle) => {
+      if (obstacle.cauchyPassiveLife != null) {
+        obstacle.cauchyPassiveLife -= dt;
+        if (obstacle.cauchyPassiveLife <= 0) obstacle.broken = true;
+      }
       if (!obstacle.cauchyDomain) return;
       obstacle.marked = true;
       obstacle.markTimer = 0;
       obstacle.maxMarkTimer = 1;
     });
+    game.obstacles = game.obstacles.filter((obstacle) => !obstacle.broken);
   }
 
   function highlightRandomCauchyCandidate(boss) {
@@ -7264,6 +9077,8 @@
         boss.rotationSteps += 1;
         boss.rotateTimer = boss.rotateCooldown;
         startBossDomain(boss, bossTopCore(boss));
+        boss.comboQueue = [];
+        boss.comboTimer = 0.35;
         bossActiveCores(boss).forEach((core) => {
           core.fireTimer = Math.min(core.fireTimer, 0.24);
         });
@@ -7279,6 +9094,43 @@
       boss.rotateElapsed = 0;
       boss.rotateFrom = boss.angle;
       boss.rotateTo = boss.angle + (Math.PI * 2) / 3;
+      boss.comboQueue = [];
+      boss.comboTimer = 0.65;
+    }
+  }
+
+  function applyBossCoreDefeatRelief(boss, core) {
+    if (!boss || !core) return;
+    boss.defeatOrder ||= [];
+    if (!boss.defeatOrder.includes(core.id)) boss.defeatOrder.push(core.id);
+    boss.defeatReliefCount = (boss.defeatReliefCount || 0) + 1;
+    boss.attackPauseTimer = Math.max(boss.attackPauseTimer || 0, bossDefeatReliefPause);
+    boss.comboQueue = [];
+    boss.comboTimer = Math.max(boss.comboTimer || 0, bossDefeatReliefPause + 0.45);
+    boss.pressure = Math.max(0, (boss.pressure || 0) - 1.1);
+    boss.coreDefeatFlashTimer = 0.95;
+    boss.coreDefeatFlashCoreId = core.id;
+    triggerScreenShake(3.6, 0.18);
+
+    if (core.id === "cauchy") {
+      explodeAllBossWallsAsCauchy(boss, Math.max(3, Math.floor(cauchyExplosionBulletCount * 0.55)));
+      boss.cauchyBombs = [];
+    } else if (core.id === "gauss") {
+      boss.gaussZones = [];
+      boss.gaussShockwaves = [];
+      boss.gaussZoneBonus = 0;
+      boss.cores
+        .filter((item) => item.hp > 0)
+        .forEach((item) => {
+          item.revealTimer = Math.max(item.revealTimer || 0, 1.2);
+          item.counterWindowTimer = Math.max(item.counterWindowTimer || 0, 0.9);
+          item.counterFlash = Math.max(item.counterFlash || 0, 0.42);
+        });
+    } else if (core.id === "descartes") {
+      clearBossProjections(true);
+      boss.descartesQuadrant = "";
+      boss.descartesQuadrantChanges = 0;
+      boss.descartesQuadrantProjectionCount = 0;
     }
   }
 
@@ -7290,11 +9142,13 @@
         core.collapseTimer = 0.8;
         const pos = corePosition(core);
         burst(pos.x, pos.y, core.color, 46);
+        applyBossCoreDefeatRelief(boss, core);
         if (core.id === "cauchy") {
           boss.cauchyBombs = [];
         }
         if (core.id === "gauss") {
           boss.gaussZones = [];
+          boss.gaussShockwaves = [];
           boss.gaussZoneBonus = 0;
         }
         if (boss.domainCoreId === "gauss" && core.id !== "gauss") {
@@ -7356,24 +9210,37 @@
   function enterBossFullPower(boss, core) {
     boss.fullPowerCoreId = core.id;
     boss.phaseName = "末核领域";
+    boss.finalCoreEntryCount = (boss.finalCoreEntryCount || 0) + 1;
+    boss.attackPauseTimer = Math.max(boss.attackPauseTimer || 0, 0.9);
+    boss.comboQueue = [];
+    boss.comboTimer = 0.9;
+    boss.finalCoreFlashTimer = 1.35;
+    boss.finalCoreFlashCoreId = core.id;
     core.enraged = true;
     core.fullPowerDamageMultiplier = core.id === "descartes" ? 1 : 1.3;
     core.overloadFlash = Math.max(core.overloadFlash || 0, bossDomainCycleSeconds);
     const pos = corePosition(core);
     burst(pos.x, pos.y, core.color, 54);
+    triggerScreenShake(4.2, 0.22);
+    maybeShowMechanicTutorial("bossFinalCore");
 
     if (core.id === "gauss") {
       restoreCoreToQuarter(core);
       core.maxShield = Math.max(core.maxShield || 0, bossShieldForCore("gauss", boss.direct));
       core.shield = core.maxShield;
       boss.gaussZones = [];
+      boss.gaussShockwaves = [];
       boss.gaussNextZoneCount = gaussZoneMaxCount;
       boss.gaussZoneBonus = 0;
       boss.gaussFullPowerStealthTimer = gaussFullPowerStealthEvery;
+      core.revealTimer = Math.max(core.revealTimer || 0, 1.15);
+      openBossBreakWindow(core, "fullPowerEntry");
     } else if (core.id === "cauchy") {
       explodeAllBossWallsAsCauchy(boss, cauchyExplosionBulletCount);
       generateCauchyFullPowerWalls(boss);
-      boss.cauchyFullPowerTimer = cauchyFullPowerCycle;
+      boss.cauchyFullPowerTimer = Math.max(4.6, cauchyFullPowerCycle - 1);
+      createCauchyPlayerArcWalls().forEach((wall) => registerCauchyDomainWall(wall, { cauchyPlayerArcWall: true }));
+      openBossBreakWindow(core, "fullPowerEntry");
     } else if (core.id === "descartes") {
       const cleared = clearBossProjections(true);
       if (cleared > 0) {
@@ -7381,6 +9248,8 @@
         core.healFlash = Math.max(core.healFlash || 0, 0.7);
       }
       boss.descartesFullPowerTimer = descartesFullPowerSpawnEvery;
+      boss.descartesFinalLaserTimer = 0.95;
+      openBossBreakWindow(core, "fullPowerEntry");
     }
   }
 
@@ -7388,6 +9257,7 @@
     boss.gaussFullPowerStealthTimer = Math.max(0, (boss.gaussFullPowerStealthTimer || gaussFullPowerStealthEvery) - dt);
     if (boss.gaussFullPowerStealthTimer <= 0 && (core.invisibleTimer || 0) <= 0) {
       core.invisibleTimer = gaussFullPowerStealthDuration;
+      core.revealTimer = Math.max(core.revealTimer || 0, bossFinalGaussRevealPulse);
       boss.gaussFullPowerStealthTimer = gaussFullPowerStealthEvery + gaussFullPowerStealthDuration;
       burst(corePosition(core).x, corePosition(core).y, core.color, 20);
     }
@@ -7398,15 +9268,44 @@
     if (boss.cauchyFullPowerTimer > 0) return;
     explodeAllBossWallsAsCauchy(boss, cauchyExplosionBulletCount);
     generateCauchyFullPowerWalls(boss);
-    boss.cauchyFullPowerTimer = cauchyFullPowerCycle;
+    createCauchyPlayerArcWalls().forEach((wall) => registerCauchyDomainWall(wall, { cauchyPlayerArcWall: true }));
+    boss.cauchyFullPowerWallCycleCount = (boss.cauchyFullPowerWallCycleCount || 0) + 1;
+    boss.cauchyFullPowerTimer = Math.max(4.6, cauchyFullPowerCycle - 1);
   }
 
   function updateDescartesFullPower(boss, dt) {
+    updateDescartesFinalLasers(boss, dt);
     boss.descartesFullPowerTimer = Math.max(0, (boss.descartesFullPowerTimer || descartesFullPowerSpawnEvery) - dt);
     if (boss.descartesFullPowerTimer > 0) return;
     const point = randomArenaPoint(56);
     spawnBossProjection(point.x, point.y, "descartes-full");
     boss.descartesFullPowerTimer = descartesFullPowerSpawnEvery;
+  }
+
+  function updateDescartesFinalLasers(boss, dt) {
+    const core = bossCoreById("descartes");
+    if (!core || core.hp <= 0) return;
+    boss.descartesFinalLaserTimer = Math.max(0, (boss.descartesFinalLaserTimer || 0) - dt);
+    if (boss.descartesFinalLaserTimer > 0) return;
+    const pos = corePosition(core);
+    const base = Math.atan2(game.player.y - pos.y, game.player.x - pos.x);
+    [-0.55, 0, 0.55].forEach((offset, index) => {
+      spawnEnemyLaser({
+        orientation: "ray",
+        angle: base + offset,
+        warningTime: 0.58,
+        activeTime: 0.34,
+        width: index === 1 ? 18 : 14,
+        damage: bossAttackDamage(core, index === 1 ? 15 : 11),
+        color: core.color,
+        warningColor: "rgba(245, 238, 210, 0.86)",
+        sourceX: pos.x,
+        sourceY: pos.y,
+      });
+    });
+    openBossCounterWindow(core, 0.86);
+    boss.descartesFinalLaserBurstCount = (boss.descartesFinalLaserBurstCount || 0) + 1;
+    boss.descartesFinalLaserTimer = 3.8;
   }
 
   function bossPhaseMultiplier() {
@@ -7429,6 +9328,10 @@
   function fireBossCore(core) {
     if (!isBossCoreFront(core)) return;
     const pos = corePosition(core);
+    if (game.boss?.fullPowerCoreId === core.id) {
+      fireBossFinalCore(core, pos);
+      return;
+    }
     if (core.id === "cauchy") {
       fireCauchySquares(pos, core);
       openBossCounterWindow(core, 0.78);
@@ -7441,6 +9344,25 @@
     }
     createGaussZones(core);
     openBossCounterWindow(core, 1.02);
+  }
+
+  function fireBossFinalCore(core, pos) {
+    if (core.id === "cauchy") {
+      fireCauchySquares(pos, core);
+      if (Math.random() < 0.42) highlightRandomCauchyCandidate(game.boss);
+      openBossCounterWindow(core, 0.92);
+      return;
+    }
+    if (core.id === "descartes") {
+      fireDescartesCross(pos, core);
+      const spawnPoint = randomArenaPoint(48);
+      spawnBossProjection(spawnPoint.x, spawnPoint.y, "descartes-final");
+      openBossCounterWindow(core, 1.02);
+      return;
+    }
+    core.revealTimer = Math.max(core.revealTimer || 0, bossFinalGaussRevealPulse);
+    createGaussZones(core);
+    openBossCounterWindow(core, 1.12);
   }
 
   function fireCauchySquares(pos, core) {
@@ -7785,6 +9707,28 @@
       const push = hit.collisionRadius - len + 0.5;
       player.x = clamp(player.x + (dx / len) * push, arena.left + 4, arena.right - 4);
       player.y = clamp(player.y + (dy / len) * push, arena.top + 8, arena.bottom - 4);
+      constrainPlayerToWalkableFloor(player);
+    });
+  }
+
+  function resolveEnemyObstacles(enemy) {
+    if (!enemy || !game.obstacles.length) return;
+    game.obstacles.forEach((obstacle) => {
+      if (obstacle.broken) return;
+      const hit = circleObstacleHit(enemy, obstacle, Math.max(1, enemy.r || 18));
+      if (!hit) return;
+      let dx = enemy.baseX - hit.nearestX;
+      let dy = enemy.baseY - hit.nearestY;
+      let len = Math.hypot(dx, dy);
+      if (len < 0.001) {
+        const center = obstacleCenter(obstacle);
+        dx = enemy.baseX - center.x;
+        dy = enemy.baseY - center.y;
+        len = Math.hypot(dx, dy) || 1;
+      }
+      const push = hit.collisionRadius - len + 0.5;
+      enemy.baseX = clamp(enemy.baseX + (dx / len) * push, arena.left + 10, arena.right - 10);
+      enemy.baseY = clamp(enemy.baseY + (dy / len) * push, arena.top + 12, arena.bottom - 10);
     });
   }
 
@@ -7866,6 +9810,8 @@
           target.hp -= damage;
           onMonsterDamaged(target, damage, { backHit, absorbed, weaponId: shot.weaponId, kind: shot.kind });
           target.backHitFlash = backHit ? 0.28 : target.backHitFlash || 0;
+          if (absorbed) playSfx("shield", 0.85);
+          else registerTargetHit(target.x, target.y, backHit ? colors.paper : target.color || colors.chalk, clamp(damage / 12, 0.65, 1.8), backHit);
           burst(target.x, target.y, absorbed ? colors.paper : backHit ? colors.paper : target.color || colors.chalk, absorbed ? 12 : backHit ? 14 : shot.blastRadius ? 16 : 4);
         }
         if (!absorbed) {
@@ -7897,6 +9843,8 @@
           target.hp -= damage;
           onMonsterDamaged(target, damage, { backHit, absorbed, weaponId: slash.weaponId, kind: slash.kind });
           target.backHitFlash = backHit ? 0.28 : target.backHitFlash || 0;
+          if (absorbed) playSfx("shield", 0.9);
+          else registerTargetHit(target.x, target.y, backHit ? colors.paper : target.color || colors.chalk, clamp(damage / 12, 0.7, 1.8), backHit);
           burst(target.x, target.y, absorbed ? colors.paper : backHit ? colors.paper : target.color || colors.chalk, absorbed ? 12 : backHit ? 14 : 5);
         }
         slash.hitIds.add(targetId);
@@ -7910,22 +9858,34 @@
     let remaining = Math.max(0, Number(amount || 0));
     let absorbed = 0;
     const counterEligible = (core.counterWindowTimer || 0) > 0 && isBossCoreFront(core, boss);
+    const breakActive = (core.breakTimer || 0) > 0;
+    if (breakActive) {
+      remaining *= bossBreakDamageScale;
+    }
+    const sourceWeapon = weapons[sourceWeaponId];
+    const sourceIsRanged = Boolean(sourceWeapon?.ranged);
     if (remaining > 0 && (core.invisibleTimer || 0) > 0) {
       core.revealTimer = Math.max(core.revealTimer || 0, bossCoreRevealDuration);
       core.hitFlash = Math.max(core.hitFlash || 0, 0.18);
       const pos = corePosition(core);
       burst(pos.x, pos.y, core.color || colors.paper, 10);
     }
+    if (remaining > 0 && !breakActive) {
+      triggerCauchyHitPassive(core, sourceIsRanged);
+    }
     if ((core.shield || 0) > 0) {
-      if (!bossShieldAllowsWeapon(core, sourceWeaponId)) {
+      if (!breakActive && !bossShieldAllowsWeapon(core, sourceWeaponId)) {
         core.guardFlash = 0.28;
+        const pos = corePosition(core);
+        playSfx("shield", 0.9);
+        spawnHitImpact(pos.x, pos.y, colors.paper, 0.75);
         return 0;
       }
       absorbed = Math.min(core.shield, remaining);
       core.shield = Math.max(0, core.shield - absorbed);
       remaining -= absorbed;
     }
-    if (isBossCoreInDomain(core, boss)) {
+    if (isBossCoreInDomain(core, boss) && !breakActive) {
       core.guardFlash = 0.28;
       if (absorbed > 0) {
         recordBossWeaponDamage(sourceWeaponId, sourceWeaponName, absorbed);
@@ -7939,6 +9899,14 @@
     }
     recordBossWeaponDamage(sourceWeaponId, sourceWeaponName, absorbed + hpDamage);
     core.hitFlash = 0.18;
+    if (absorbed + hpDamage > 0) {
+      if (breakActive) {
+        boss.breakHitCount = (boss.breakHitCount || 0) + 1;
+        boss.attackPauseTimer = Math.max(boss.attackPauseTimer || 0, 0.18);
+      }
+      const pos = corePosition(core);
+      registerTargetHit(pos.x, pos.y, core.shield > 0 ? colors.paper : core.color, clamp((absorbed + hpDamage) / 18, 0.65, 1.8), counterEligible);
+    }
     if (counterEligible && absorbed + hpDamage > 0) {
       triggerBossCounterHit(core, sourceWeaponId);
     }
@@ -7995,6 +9963,7 @@
       player.shield -= absorbed;
       remaining -= absorbed;
       burst(player.x, player.y, colors.cyan, 10);
+      if (absorbed > 0) registerPlayerHurt(absorbed, colors.cyan, true);
       if (absorbed > 0 && player.weapons?.some((weapon) => weapon.guardCounter)) {
         player.tacticalFocusTimer = Math.max(player.tacticalFocusTimer || 0, 0.55);
         player.tacticalFocusFlash = Math.max(player.tacticalFocusFlash || 0, 0.25);
@@ -8007,13 +9976,14 @@
       if (hasBuff(player, "错题本")) {
         player.mistakeBoostTimer = 4;
       }
+      registerPlayerHurt(remaining, color || colors.danger, false);
       burst(player.x, player.y, color || colors.danger, 16);
     }
 
     if (player.hp <= 0 && hasBuff(player, "绩点守护")) {
       removeBuff(player, "绩点守护");
       player.gpaGuardUsed = true;
-      player.hp = Math.ceil(player.maxHp * 0.45);
+      player.hp = Math.ceil(player.maxHp * 0.5);
       player.invuln = Math.max(player.invuln, 1.4);
       burst(player.x, player.y, colors.warning, 32);
     }
@@ -8081,6 +10051,7 @@
       curvePhase: options.curvePhase || 0,
       curveOffset: 0,
       shape: options.shape || "circle",
+      enemyWeapon: options.enemyWeapon || "",
       pulse: options.pulse || 0,
       label: options.label || "",
       ownerId: options.ownerId || "",
@@ -8114,6 +10085,7 @@
       width: options.width ?? 20,
       damage: options.damage ?? 18,
       color: options.color || colors.cyan,
+      warningColor: options.warningColor || "",
       sourceX: options.sourceX ?? options.x ?? 0,
       sourceY: options.sourceY ?? options.y ?? 0,
       ownerId: options.ownerId || "",
@@ -8139,7 +10111,1763 @@
     }
   }
 
+  function triggerScreenShake(power = 5, duration = 0.2) {
+    game.screenShake = Math.max(game.screenShake || 0, duration);
+    game.screenShakePower = Math.max(game.screenShakePower || 0, power);
+  }
+
+  function screenShakeOffset() {
+    const t = clamp((game.screenShake || 0) / 0.28, 0, 1);
+    if (t <= 0) return { x: 0, y: 0 };
+    const power = (game.screenShakePower || 0) * t * t;
+    return {
+      x: (Math.random() * 2 - 1) * power,
+      y: (Math.random() * 2 - 1) * power,
+    };
+  }
+
+  function spawnHitImpact(x, y, color, power = 1) {
+    game.hitImpacts.push({
+      x,
+      y,
+      color: color || dungeonPalette.heroCream,
+      life: 0.18 + clamp(power, 0.4, 2) * 0.04,
+      maxLife: 0.18 + clamp(power, 0.4, 2) * 0.04,
+      r: 10 + clamp(power, 0.4, 2) * 10,
+    });
+  }
+
+  function registerTargetHit(x, y, color, intensity = 1, critical = false) {
+    playSfx(critical ? "crit" : "hit", intensity);
+    spawnHitImpact(x, y, critical ? colors.paper : color, critical ? intensity * 1.35 : intensity);
+  }
+
+  function registerPlayerHurt(amount, color, blocked = false) {
+    const intensity = clamp((amount || 0) / 18, 0.55, 1.75);
+    playSfx(blocked ? "shield" : "hurt", intensity);
+    spawnHitImpact(game.player?.x || W / 2, game.player?.y || H / 2, blocked ? colors.cyan : color || colors.danger, blocked ? 0.85 : intensity);
+    game.playerHurtSeq = (game.playerHurtSeq || 0) + 1;
+    if (!blocked) {
+      game.hurtFlash = Math.max(game.hurtFlash || 0, 0.34);
+      triggerScreenShake(4 + intensity * 5, 0.18 + intensity * 0.08);
+    } else {
+      triggerScreenShake(2.5, 0.12);
+    }
+  }
+
+  function updateFeedback(dt) {
+    game.screenShake = Math.max(0, (game.screenShake || 0) - dt);
+    if (game.screenShake <= 0) game.screenShakePower = 0;
+    game.hurtFlash = Math.max(0, (game.hurtFlash || 0) - dt * 1.8);
+    game.hitImpacts.forEach((impact) => {
+      impact.life -= dt;
+    });
+    game.hitImpacts = game.hitImpacts.filter((impact) => impact.life > 0);
+  }
+
+  function drawHitImpacts() {
+    game.hitImpacts.forEach((impact) => {
+      const progress = 1 - clamp(impact.life / Math.max(0.001, impact.maxLife), 0, 1);
+      const alpha = 1 - progress;
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.82;
+      ctx.strokeStyle = impact.color;
+      ctx.lineWidth = Math.max(1, 3 - progress);
+      ctx.beginPath();
+      ctx.arc(impact.x, impact.y, impact.r * (0.45 + progress * 0.75), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = alpha * 0.62;
+      pixelLine(impact.x - impact.r * 0.72, impact.y, impact.x + impact.r * 0.72, impact.y, impact.color, 2);
+      pixelLine(impact.x, impact.y - impact.r * 0.52, impact.x, impact.y + impact.r * 0.52, impact.color, 2);
+      ctx.restore();
+    });
+  }
+
+  function drawHurtOverlay() {
+    const flash = clamp(game.hurtFlash || 0, 0, 1);
+    if (flash <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = flash * 0.24;
+    ctx.fillStyle = dungeonPalette.ruby;
+    ctx.fillRect(0, 0, W, H);
+    const gradient = ctx.createRadialGradient(W / 2, H / 2, W * 0.18, W / 2, H / 2, W * 0.78);
+    gradient.addColorStop(0, "rgba(216,56,75,0)");
+    gradient.addColorStop(1, `rgba(216,56,75,${0.55 * flash})`);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  const dungeonPalette = {
+    void: "#03080d",
+    abyss: "#07111a",
+    floor: "#314a59",
+    floorAlt: "#263c4a",
+    floorDark: "#172b38",
+    mortar: "#142838",
+    edge: "#6f8794",
+    wall: "#172838",
+    wallFace: "#0b1722",
+    wallLight: "#607684",
+    outline: "#071724",
+    toxic: "#6cff3f",
+    toxicDim: "#189a3a",
+    ember: "#ffb23c",
+    emberHot: "#fff0a3",
+    magenta: "#ff3fa6",
+    cyan: "#39f4dd",
+    ruby: "#d8384b",
+    purple: "#4d1f76",
+    emerald: "#15965e",
+    heroRed: "#c33742",
+    heroCream: "#ffe5a8",
+    stone: "#405969",
+    stoneDark: "#142635",
+    hatch: "rgba(8, 22, 32, 0.54)",
+    shadow: "rgba(0,0,0,0.58)",
+  };
+
+  const enemyModelIds = [
+    "lagrange",
+    "lagrangeRandomShade",
+    "lhopitalShade",
+    "taylorShade",
+    "archimedesShade",
+    "descartesShade",
+    "descartesRandomShade",
+    "euclidShade",
+    "gaussShade",
+    "gaussRandomShade",
+    "jacobiShade",
+    "jordanShade",
+    "bossProjection",
+    "shopGuard",
+  ];
+
+  function pixelSnap(value) {
+    return Math.round(value);
+  }
+
+  function pixelRect(x, y, w, h, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(pixelSnap(x), pixelSnap(y), pixelSnap(w), pixelSnap(h));
+  }
+
+  function pixelLine(x1, y1, x2, y2, color, width = 1) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(pixelSnap(x1) + 0.5, pixelSnap(y1) + 0.5);
+    ctx.lineTo(pixelSnap(x2) + 0.5, pixelSnap(y2) + 0.5);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawIsoShadow(x, y, w, h, alpha = 0.42) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = "#000";
+    ctx.beginPath();
+    ctx.ellipse(pixelSnap(x), pixelSnap(y + h * 0.34), w, h, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawPixelDiamond(x, y, w, h, fill, stroke = dungeonPalette.outline) {
+    ctx.save();
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(pixelSnap(x), pixelSnap(y - h));
+    ctx.lineTo(pixelSnap(x + w), pixelSnap(y));
+    ctx.lineTo(pixelSnap(x), pixelSnap(y + h));
+    ctx.lineTo(pixelSnap(x - w), pixelSnap(y));
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function isoStagePoints(inset = 0) {
+    const centerX = arenaCenterX();
+    return {
+      top: { x: centerX, y: arena.top + 18 + inset * 0.34 },
+      right: { x: arena.right - 18 - inset, y: arena.top + arena.height * 0.48 },
+      bottom: { x: centerX, y: arena.bottom + 4 - inset * 0.34 },
+      left: { x: arena.left + 18 + inset, y: arena.top + arena.height * 0.48 },
+    };
+  }
+
+  function dungeonRoomBounds(inset = 0) {
+    return {
+      left: arena.left + inset,
+      top: arena.top + inset,
+      right: arena.right - inset,
+      bottom: arena.bottom - inset,
+      width: Math.max(1, arena.width - inset * 2),
+      height: Math.max(1, arena.height - inset * 2),
+    };
+  }
+
+  function traceDungeonRect(bounds = dungeonRoomBounds()) {
+    ctx.beginPath();
+    ctx.rect(bounds.left, bounds.top, bounds.width, bounds.height);
+  }
+
+  function edgeXAtY(a, b, y) {
+    const dy = b.y - a.y;
+    if (Math.abs(dy) < 0.001) return (a.x + b.x) / 2;
+    const t = clamp((y - a.y) / dy, 0, 1);
+    return a.x + (b.x - a.x) * t;
+  }
+
+  function walkableFloorPoint(x, y, margin = 24) {
+    const room = dungeonRoomBounds();
+    return {
+      x: clamp(x, room.left + margin, room.right - margin),
+      y: clamp(y, room.top + margin, room.bottom - margin),
+    };
+  }
+
+  function constrainPlayerToWalkableFloor(player = game.player, margin = null) {
+    if (!player || mode !== "combat") return;
+    const safe = walkableFloorPoint(
+      player.x,
+      player.y,
+      margin ?? Math.max(22, (player.r || 13) + 12)
+    );
+    player.x = safe.x;
+    player.y = safe.y;
+  }
+
+  function traceIsoStage(points) {
+    ctx.beginPath();
+    ctx.moveTo(points.top.x, points.top.y);
+    ctx.lineTo(points.right.x, points.right.y);
+    ctx.lineTo(points.bottom.x, points.bottom.y);
+    ctx.lineTo(points.left.x, points.left.y);
+    ctx.closePath();
+  }
+
+  function fillIsoQuad(a, b, c, d, fill, stroke = "rgba(0,0,0,0.46)") {
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(pixelSnap(a.x), pixelSnap(a.y));
+    ctx.lineTo(pixelSnap(b.x), pixelSnap(b.y));
+    ctx.lineTo(pixelSnap(c.x), pixelSnap(c.y));
+    ctx.lineTo(pixelSnap(d.x), pixelSnap(d.y));
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  function drawIsoTileChip(x, y, w, h, color, stroke = "rgba(0,0,0,0.22)") {
+    ctx.save();
+    ctx.globalAlpha = 0.92;
+    drawPixelDiamond(x, y, w, h, color, stroke);
+    ctx.globalAlpha = 0.22;
+    pixelLine(x - w * 0.42, y - h * 0.18, x + w * 0.34, y - h * 0.56, "#fff", 1);
+    ctx.restore();
+  }
+
+  function drawIsoEdgeRail(a, b, height = 20, color = "#263830") {
+    const topA = { x: a.x, y: a.y - height };
+    const topB = { x: b.x, y: b.y - height };
+    fillIsoQuad(topA, topB, b, a, color, "rgba(2,4,3,0.78)");
+    pixelLine(topA.x, topA.y, topB.x, topB.y, "rgba(184,240,196,0.24)", 2);
+  }
+
+  function isoPointBetween(a, b, t) {
+    return {
+      x: a.x + (b.x - a.x) * t,
+      y: a.y + (b.y - a.y) * t,
+    };
+  }
+
+  function drawIsoWallBand(a, b, height = 48, color = "#182720") {
+    const topA = { x: a.x, y: a.y - height };
+    const topB = { x: b.x, y: b.y - height };
+    const wall = ctx.createLinearGradient(0, Math.min(topA.y, topB.y), 0, Math.max(a.y, b.y));
+    wall.addColorStop(0, color);
+    wall.addColorStop(0.62, "#102019");
+    wall.addColorStop(1, "#050806");
+    fillIsoQuad(topA, topB, b, a, wall, "rgba(2,4,3,0.84)");
+
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    const brickCount = Math.max(4, Math.floor(length / 76));
+    for (let i = 1; i < brickCount; i += 1) {
+      const p = isoPointBetween(a, b, i / brickCount);
+      pixelLine(p.x, p.y - height + 3, p.x, p.y - 4, "rgba(0,0,0,0.28)", 1);
+    }
+    for (let i = 0; i < 3; i += 1) {
+      const t = (i + 1) / 4;
+      const start = isoPointBetween(topA, topB, t);
+      const end = isoPointBetween(a, b, t);
+      pixelLine(start.x - 18, start.y + height * 0.34, end.x + 18, end.y + height * 0.34, "rgba(184,240,196,0.08)", 1);
+    }
+    pixelLine(topA.x, topA.y, topB.x, topB.y, "rgba(244,232,189,0.2)", 2);
+    pixelLine(a.x, a.y, b.x, b.y, "rgba(2,4,3,0.74)", 2);
+  }
+
+  function drawIsoEdgeStones(a, b, count = 5, height = 36) {
+    for (let i = 1; i < count; i += 1) {
+      const p = isoPointBetween(a, b, i / count);
+      drawIsoCornerPillar(p.x, p.y + 5, height + (i % 2) * 6);
+    }
+  }
+
+  function drawIsoCornerPillar(x, y, height = 58) {
+    const topY = y - height;
+    drawIsoShadow(x, y + 8, 28, 9, 0.42);
+    pixelRect(x - 14, topY + 14, 28, height - 8, dungeonPalette.outline);
+    pixelRect(x - 10, topY + 18, 20, height - 16, "#16251f");
+    pixelRect(x - 16, topY + 8, 32, 12, "#33463a");
+    pixelRect(x - 10, topY, 20, 10, "#53665b");
+    pixelLine(x - 8, topY + 20, x + 8, topY + 20, "rgba(244,232,189,0.18)", 1);
+  }
+
+  function floorHash(ix, iy, salt = 0) {
+    const value = Math.sin(ix * 127.1 + iy * 311.7 + salt * 74.7) * 43758.5453;
+    return value - Math.floor(value);
+  }
+
+  function floorPatchColor(ix, iy, alphaBase = 0.075) {
+    const warm = floorHash(ix, iy, 7) > 0.62;
+    const alpha = alphaBase + floorHash(ix, iy, 9) * 0.055;
+    return warm ? `rgba(244,232,189,${alpha})` : `rgba(184,240,196,${alpha})`;
+  }
+
+  function drawReferenceStoneTile(x, y, w, h, variant, row, col) {
+    const baseColors = ["#314a59", "#2d4453", "#354f5e", "#293f4d"];
+    const base = baseColors[variant % baseColors.length];
+    const dark = "#1a3140";
+    const deep = "#0d2130";
+    const light = "#78909d";
+    const midLight = "#5f7786";
+    ctx.save();
+
+    pixelRect(x, y, w, h, dungeonPalette.mortar);
+    pixelRect(x + 2, y + 2, w - 4, h - 4, base);
+    pixelRect(x + 2, y + h - 6, w - 4, 4, deep);
+
+    const capSteps = Math.max(7, Math.floor(w / 8));
+    for (let i = 0; i < capSteps; i += 1) {
+      const sx = x + 4 + i * Math.max(4, (w - 8) / capSteps);
+      const sw = Math.ceil(4 + floorHash(col + i, row, 61) * 9);
+      const sh = Math.ceil(3 + floorHash(row, col + i, 62) * 8);
+      pixelRect(sx, y + 3, Math.min(sw, x + w - sx - 3), sh, dark);
+    }
+
+    const shadowSteps = Math.max(6, Math.floor(w / 10));
+    for (let i = 0; i < shadowSteps; i += 1) {
+      const sx = x + 6 + i * Math.max(6, (w - 10) / shadowSteps);
+      const sw = Math.ceil(5 + floorHash(row + i, col, 63) * 11);
+      const sh = Math.ceil(2 + floorHash(col, row + i, 64) * 5);
+      const sy = y + h - 8 - floorHash(col + i, row, 65) * 10;
+      pixelRect(sx, sy, Math.min(sw, x + w - sx - 4), sh, deep);
+    }
+
+    if (floorHash(col, row, 66) > 0.34) {
+      const crackX = x + w * (0.18 + floorHash(col, row, 67) * 0.64);
+      const crackY = y + h * (0.24 + floorHash(row, col, 68) * 0.42);
+      pixelRect(crackX, crackY, 3, h * (0.26 + floorHash(col, row, 69) * 0.28), deep);
+      pixelRect(crackX + 3, crackY + 2, 2, 5 + floorHash(row, col, 70) * 7, midLight);
+    }
+
+    if (floorHash(col, row, 71) > 0.45) {
+      const scratchY = y + 8 + floorHash(row, col, 72) * Math.max(4, h - 18);
+      pixelRect(x + 7, scratchY, Math.min(w * (0.25 + floorHash(col, row, 73) * 0.24), w - 16), 3, midLight);
+      pixelRect(x + 9, scratchY + 3, Math.min(w * 0.14, w - 18), 2, deep);
+    }
+
+    pixelLine(x + 2, y + 2, x + w - 3, y + 2, light, 2);
+    pixelLine(x + 2, y + 3, x + 2, y + h - 4, midLight, 2);
+    pixelLine(x + w - 3, y + 4, x + w - 3, y + h - 5, deep, 2);
+    pixelLine(x + 2, y + h - 3, x + w - 4, y + h - 3, deep, 2);
+    ctx.restore();
+  }
+
+  function currentFloorTextureEntry() {
+    if (game.activeRoom === "boss") return floorTextureEntries.boss;
+    if (game.activeRoom === "monster") {
+      if (game.activeRoomKey === "geometry") return floorTextureEntries.geometry;
+      if (game.activeRoomKey === "linear") return floorTextureEntries.linear;
+      return floorTextureEntries.monster;
+    }
+    return floorTextureEntries.monster;
+  }
+
+  function scaledFloorTextureCanvas(entry) {
+    const image = entry?.image;
+    if (!image?.complete || image.naturalWidth <= 0) return null;
+    if (entry.canvas) return entry.canvas;
+
+    const target = document.createElement("canvas");
+    const sx = Math.round(image.naturalWidth * floorTextureCrop.x);
+    const sy = Math.round(image.naturalHeight * floorTextureCrop.y);
+    const sw = Math.max(1, Math.round(image.naturalWidth * floorTextureCrop.w));
+    const sh = Math.max(1, Math.round(image.naturalHeight * floorTextureCrop.h));
+    target.width = Math.max(1, Math.round(sw * floorTextureScale));
+    target.height = Math.max(1, Math.round(sh * floorTextureScale));
+    const targetCtx = target.getContext("2d");
+    targetCtx.imageSmoothingEnabled = false;
+    targetCtx.drawImage(image, sx, sy, sw, sh, 0, 0, target.width, target.height);
+    entry.canvas = target;
+    entry.pattern = null;
+    return entry.canvas;
+  }
+
+  function drawTexturedPixelFloor(room) {
+    const entry = currentFloorTextureEntry();
+    const texture = scaledFloorTextureCanvas(entry);
+    if (texture) {
+      entry.pattern ||= ctx.createPattern(texture, "repeat");
+      if (entry.pattern) {
+        ctx.save();
+        ctx.imageSmoothingEnabled = false;
+        ctx.translate(pixelSnap(room.left), pixelSnap(room.top));
+        ctx.fillStyle = entry.pattern;
+        ctx.fillRect(0, 0, pixelSnap(room.width), pixelSnap(room.height));
+        ctx.restore();
+        return;
+      }
+    }
+
+    const rowHeights = [64, 58, 70, 56, 66, 62];
+    let y = room.top;
+    for (let row = 0; y < room.bottom; row += 1) {
+      const h = rowHeights[row % rowHeights.length];
+      let x = room.left - (row % 2 ? 36 : 0);
+      let col = 0;
+      while (x < room.right) {
+        const w = 54 + Math.floor(floorHash(col, row, 75) * 96);
+        drawReferenceStoneTile(x, y, w, Math.min(h, room.bottom - y), Math.floor(floorHash(col, row, 76) * 8), row, col);
+        x += w - 2;
+        col += 1;
+      }
+      y += h - 2;
+    }
+  }
+
+  function drawDungeonFloor() {
+    const room = dungeonRoomBounds();
+    const depth = 34;
+    ctx.fillStyle = dungeonPalette.abyss;
+    ctx.fillRect(arena.left - W, arena.top - H, arena.width + W * 2, arena.height + H * 2);
+
+    const gradient = ctx.createLinearGradient(0, room.top, 0, room.bottom);
+    gradient.addColorStop(0, dungeonPalette.floor);
+    gradient.addColorStop(0.55, dungeonPalette.floorAlt);
+    gradient.addColorStop(1, dungeonPalette.floorDark);
+    ctx.fillStyle = gradient;
+    traceDungeonRect(room);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(120,144,157,0.5)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    fillIsoQuad(
+      { x: room.left, y: room.bottom },
+      { x: room.right, y: room.bottom },
+      { x: room.right - 42, y: room.bottom + depth },
+      { x: room.left + 42, y: room.bottom + depth },
+      "#0c1f2e",
+      "rgba(6,18,29,0.86)"
+    );
+    fillIsoQuad(
+      { x: room.right, y: room.top },
+      { x: room.right, y: room.bottom },
+      { x: room.right - 42, y: room.bottom + depth },
+      { x: room.right - 42, y: room.top + depth * 0.35 },
+      "#102a3a",
+      "rgba(6,18,29,0.8)"
+    );
+
+    ctx.save();
+    traceDungeonRect(room);
+    ctx.clip();
+
+    drawTexturedPixelFloor(room);
+
+    ctx.restore();
+    pixelLine(room.left, room.top, room.right, room.top, "rgba(244,232,189,0.18)", 2);
+    pixelLine(room.left, room.bottom, room.right, room.bottom, "rgba(6,18,29,0.84)", 3);
+    pixelLine(room.left, room.top, room.left, room.bottom, "rgba(120,144,157,0.34)", 2);
+    pixelLine(room.right, room.top, room.right, room.bottom, "rgba(6,18,29,0.72)", 3);
+  }
+
+  function drawDungeonWalls() {
+    const t = performance.now() / 1000;
+    const room = dungeonRoomBounds();
+    const wallHeight = Math.min(72, Math.max(48, room.height * 0.12));
+    ctx.save();
+
+    const backWall = ctx.createLinearGradient(0, room.top - wallHeight, 0, room.top + wallHeight * 0.9);
+    backWall.addColorStop(0, "#1b2b24");
+    backWall.addColorStop(0.58, "#102019");
+    backWall.addColorStop(1, "rgba(5,8,6,0.58)");
+    fillIsoQuad(
+      { x: room.left, y: room.top - wallHeight },
+      { x: room.right, y: room.top - wallHeight },
+      { x: room.right, y: room.top + 10 },
+      { x: room.left, y: room.top + 10 },
+      backWall,
+      "rgba(2,4,3,0.82)"
+    );
+    pixelLine(room.left, room.top + 10, room.right, room.top + 10, "rgba(244,232,189,0.18)", 2);
+
+    const sideDepth = 34;
+    fillIsoQuad(
+      { x: room.left, y: room.top },
+      { x: room.left + sideDepth, y: room.top + 16 },
+      { x: room.left + sideDepth, y: room.bottom - 10 },
+      { x: room.left, y: room.bottom },
+      "#102019",
+      "rgba(2,4,3,0.74)"
+    );
+    fillIsoQuad(
+      { x: room.right, y: room.top },
+      { x: room.right - sideDepth, y: room.top + 16 },
+      { x: room.right - sideDepth, y: room.bottom - 10 },
+      { x: room.right, y: room.bottom },
+      "#0b1712",
+      "rgba(2,4,3,0.74)"
+    );
+
+    const brickCount = Math.max(6, Math.floor(room.width / 96));
+    for (let i = 1; i < brickCount; i += 1) {
+      const x = room.left + (room.width * i) / brickCount;
+      pixelLine(x, room.top - wallHeight + 6, x, room.top + 6, "rgba(0,0,0,0.24)", 1);
+    }
+    for (let y = room.top + 42; y < room.bottom - 16; y += 96) {
+      pixelLine(room.left + 7, y, room.left + sideDepth - 5, y + 12, "rgba(244,232,189,0.08)", 1);
+      pixelLine(room.right - 7, y, room.right - sideDepth + 5, y + 12, "rgba(244,232,189,0.08)", 1);
+    }
+
+    const torchSpots = [
+      { p: { x: room.left + room.width * 0.18, y: room.top + 30 }, offset: 0 },
+      { p: { x: room.left + room.width * 0.38, y: room.top + 30 }, offset: 0.9 },
+      { p: { x: room.left + room.width * 0.62, y: room.top + 30 }, offset: 1.8 },
+      { p: { x: room.left + room.width * 0.82, y: room.top + 30 }, offset: 2.7 },
+      { p: { x: room.left + 28, y: room.top + room.height * 0.58 }, offset: 3.2, tall: true },
+      { p: { x: room.right - 28, y: room.top + room.height * 0.58 }, offset: 4.1, tall: true },
+    ];
+    torchSpots.forEach(({ p, offset, tall }) => {
+      drawTorch(p.x, p.y - (tall ? 30 : 22), t + offset, Boolean(tall));
+    });
+
+    drawIsoCornerPillar(room.left + 22, room.top + 44, 66);
+    drawIsoCornerPillar(room.right - 22, room.top + 44, 66);
+    drawIsoCornerPillar(room.left + 24, room.bottom - 8, 52);
+    drawIsoCornerPillar(room.right - 24, room.bottom - 8, 52);
+
+    ctx.restore();
+  }
+
+  function drawTorch(x, y, t, tall = true) {
+    const pulse = 0.75 + Math.sin(t * 7) * 0.12 + Math.sin(t * 13) * 0.06;
+    const glow = ctx.createRadialGradient(x, y, 4, x, y, tall ? 70 : 54);
+    glow.addColorStop(0, `rgba(76,255,70,${0.18 * pulse})`);
+    glow.addColorStop(0.45, `rgba(255,190,84,${0.09 * pulse})`);
+    glow.addColorStop(1, "rgba(76,255,70,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(x - 80, y - 74, 160, 148);
+    pixelRect(x - 7, y + 10, 14, tall ? 34 : 20, "#111814");
+    pixelRect(x - 10, y + 5, 20, 8, "#38483f");
+    pixelRect(x - 6, y - 8, 12, 15, dungeonPalette.toxic);
+    pixelRect(x - 3, y - 15, 6, 13, dungeonPalette.emberHot);
+    pixelRect(x + 5, y - 5, 5, 10, dungeonPalette.ember);
+  }
+
+  function drawToxicPits() {
+    const room = dungeonRoomBounds(16);
+    const pits = [
+      { x: room.left + room.width * 0.65, y: room.top + room.height * 0.68, w: 190, h: 58 },
+      { x: room.left + room.width * 0.10, y: room.top + room.height * 0.70, w: 118, h: 34 },
+      { x: room.left + room.width * 0.70, y: room.top + room.height * 0.10, w: 102, h: 32 },
+    ];
+    ctx.save();
+    traceDungeonRect(room);
+    ctx.clip();
+    pits.forEach((pit, index) => {
+      ctx.save();
+      ctx.globalAlpha = 0.62;
+      drawPixelDiamond(pit.x, pit.y, pit.w * 0.44, pit.h * 0.42, "rgba(14,33,48,0.36)", "rgba(101,124,136,0.34)");
+      drawPixelDiamond(pit.x + 3 - index * 2, pit.y + 1, pit.w * 0.28, pit.h * 0.24, "rgba(34,55,68,0.22)", "rgba(8,22,32,0.42)");
+      pixelLine(pit.x - pit.w * 0.24, pit.y - pit.h * 0.18, pit.x + pit.w * 0.2, pit.y - pit.h * 0.38, "rgba(101,124,136,0.34)", 3);
+      pixelLine(pit.x + pit.w * 0.08, pit.y + pit.h * 0.26, pit.x + pit.w * 0.26, pit.y + pit.h * 0.16, "rgba(8,22,32,0.46)", 2);
+      ctx.restore();
+    });
+    ctx.restore();
+  }
+
+  function drawDungeonVignette() {
+    const vignette = ctx.createRadialGradient(W * 0.5, H * 0.43, 120, W * 0.5, H * 0.52, 560);
+    vignette.addColorStop(0, "rgba(0,0,0,0)");
+    vignette.addColorStop(0.62, "rgba(0,0,0,0.18)");
+    vignette.addColorStop(1, "rgba(0,0,0,0.72)");
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.save();
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = "#000";
+    for (let y = 0; y < H; y += 4) {
+      ctx.fillRect(0, y, W, 1);
+    }
+    ctx.restore();
+  }
+
+  function drawPixelShield(x, y, radius, color, alpha = 0.38) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x, y - radius);
+    ctx.lineTo(x + radius, y - radius * 0.36);
+    ctx.lineTo(x + radius, y + radius * 0.36);
+    ctx.lineTo(x, y + radius);
+    ctx.lineTo(x - radius, y + radius * 0.36);
+    ctx.lineTo(x - radius, y - radius * 0.36);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.globalAlpha *= 0.42;
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function weaponModelIds() {
+    return Object.keys(weapons);
+  }
+
+  function enemyModelId(enemy) {
+    if (enemy?.modelId) return enemy.modelId;
+    if (enemy?.bossProjection) return "bossProjection";
+    const id = String(enemy?.id || "");
+    return enemyModelIds.find((modelId) => id === modelId || id.startsWith(`${modelId}-`)) || enemy?.kind || "unknown";
+  }
+
+  function enemyCastCharge(enemy) {
+    return clamp(1 - ((enemy?.fireTimer || 0) / Math.max(0.1, enemy?.fireEvery || 1)), 0, 1);
+  }
+
+  function drawEnemyHatching(model, color, charge = 0) {
+    ctx.save();
+    ctx.globalAlpha = 0.32 + charge * 0.18;
+    const ink = "rgba(2,7,10,0.62)";
+    if (model === "lagrange" || model === "lagrangeRandomShade") {
+      pixelLine(-18, -11, -4, -17, ink, 2);
+      pixelLine(4, 13, 19, 6, ink, 2);
+      pixelLine(-22, 4, -12, 13, color, 1);
+    } else if (model === "lhopitalShade") {
+      pixelLine(-12, -23, -3, 14, ink, 2);
+      pixelLine(5, -22, 13, 12, ink, 2);
+      pixelLine(-17, -5, 17, -10, "rgba(255,246,216,0.36)", 1);
+    } else if (model === "taylorShade") {
+      pixelLine(-18, -9, 11, -12, ink, 2);
+      pixelLine(-11, 11, 18, 5, ink, 2);
+      pixelLine(23, -15, 38, -20, color, 2);
+    } else if (model === "archimedesShade") {
+      pixelLine(-16, 13, 13, -15, ink, 2);
+      pixelLine(-22, 3, 20, 8, "rgba(189,252,255,0.28)", 1);
+    } else if (model === "descartesShade" || model === "descartesRandomShade") {
+      pixelLine(-18, -14, 18, 14, ink, 2);
+      pixelLine(-20, 13, 16, -15, "rgba(57,244,221,0.22)", 1);
+    } else if (model === "euclidShade") {
+      pixelLine(-13, 13, 0, -17, ink, 2);
+      pixelLine(14, 13, 0, -17, ink, 2);
+    } else if (model === "jacobiShade") {
+      pixelLine(-21, -14, 17, -14, ink, 2);
+      pixelLine(-19, 5, 19, 12, ink, 2);
+    } else if (model === "jordanShade") {
+      pixelLine(-22, -18, 21, 16, ink, 2);
+      pixelLine(-27, 20, 25, -18, "rgba(255,178,60,0.22)", 1);
+    } else if (model === "gaussShade" || model === "gaussRandomShade") {
+      pixelLine(-20, -12, 18, -4, ink, 2);
+      pixelLine(-17, 11, 18, 12, ink, 2);
+    } else if (model === "bossProjection") {
+      pixelLine(-18, 8, 18, -9, "rgba(2,7,10,0.44)", 2);
+    } else {
+      pixelLine(-16, -10, 15, 10, ink, 2);
+    }
+    ctx.restore();
+  }
+
+  function drawEnemySigil(model, color) {
+    ctx.save();
+    ctx.globalAlpha = 0.88;
+    if (model === "lagrange" || model === "lagrangeRandomShade") {
+      pixelLine(-8, -2, 8, -2, dungeonPalette.outline, 2);
+      pixelLine(-7, 3, 7, 3, dungeonPalette.outline, 2);
+      drawPixelDiamond(0, 0, 5, 4, color, dungeonPalette.outline);
+    } else if (model === "lhopitalShade") {
+      pixelLine(-7, -4, 7, 4, dungeonPalette.outline, 3);
+      pixelLine(-5, 3, 8, -5, "#fff6d8", 1);
+    } else if (model === "taylorShade") {
+      [-6, 0, 6].forEach((x, index) => pixelRect(x - 2, index % 2 ? -2 : 1, 4, 4, index === 1 ? dungeonPalette.emberHot : color));
+    } else if (model === "archimedesShade") {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, 8, -0.6, Math.PI * 1.25);
+      ctx.stroke();
+      pixelLine(0, 0, 9, -5, dungeonPalette.outline, 2);
+    } else if (model === "descartesShade" || model === "descartesRandomShade") {
+      pixelLine(-10, 0, 10, 0, color, 2);
+      pixelLine(0, -10, 0, 10, color, 2);
+    } else if (model === "euclidShade") {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, -9);
+      ctx.lineTo(9, 7);
+      ctx.lineTo(-9, 7);
+      ctx.closePath();
+      ctx.stroke();
+    } else if (model === "jacobiShade" || model === "gaussShade" || model === "gaussRandomShade") {
+      for (let row = 0; row < 2; row += 1) {
+        for (let col = 0; col < 2; col += 1) {
+          pixelRect(-7 + col * 8, -5 + row * 7, 4, 3, row === col ? color : dungeonPalette.emberHot);
+        }
+      }
+    } else if (model === "jordanShade") {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-8, -7, 16, 14);
+      pixelLine(-8, 0, 8, 0, dungeonPalette.emberHot, 2);
+    } else if (model === "bossProjection") {
+      drawPixelDiamond(0, 0, 8, 6, color, dungeonPalette.outline);
+    }
+    ctx.restore();
+  }
+
+  function drawEnemyChargeFx(model, enemy, color, charge) {
+    if (charge < 0.48 && !(enemy.quadrantWarnTimer || enemy.dashWarnTimer || enemy.taylorDashWarnTimer || enemy.archimedesDashWarnTimer)) return;
+    const t = performance.now() / 1000;
+    ctx.save();
+    ctx.globalAlpha = 0.12 + charge * 0.36;
+    ctx.strokeStyle = charge > 0.76 ? dungeonPalette.emberHot : color;
+    ctx.lineWidth = 2 + charge * 2;
+    ctx.setLineDash([6, 7]);
+    if (model === "lagrange" || model === "lagrangeRandomShade") {
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 38 + charge * 12, 14 + charge * 4, Math.sin(t) * 0.16, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      for (let i = 0; i < 4; i += 1) {
+        const a = t * 2 + i * Math.PI * 0.5;
+        drawPixelDiamond(Math.cos(a) * 36, Math.sin(a) * 12 - 3, 5, 4, color, dungeonPalette.outline);
+      }
+    } else if (model === "taylorShade") {
+      [-9, 0, 9].forEach((dy, index) => {
+        pixelLine(30, dy, 54 + charge * 16, dy + (index - 1) * 5, index === 1 ? dungeonPalette.emberHot : color, 2);
+      });
+    } else if (model === "descartesShade" || model === "descartesRandomShade") {
+      pixelLine(-62 - charge * 10, 0, 62 + charge * 10, 0, color, 2);
+      pixelLine(0, -48 - charge * 10, 0, 48 + charge * 10, color, 2);
+      drawPixelDiamond(0, 0, 13 + charge * 7, 13 + charge * 7, "rgba(57,244,221,0.18)", color);
+    } else if (model === "gaussShade" || model === "gaussRandomShade" || model === "jacobiShade") {
+      for (let row = -1; row <= 1; row += 1) {
+        for (let col = -1; col <= 1; col += 1) {
+          ctx.strokeRect(col * 16 - 5, row * 12 - 4, 10, 8);
+        }
+      }
+    } else if (model === "archimedesShade" || model === "euclidShade") {
+      ctx.beginPath();
+      ctx.moveTo(0, -42 - charge * 8);
+      ctx.lineTo(42 + charge * 8, 24 + charge * 4);
+      ctx.lineTo(-42 - charge * 8, 24 + charge * 4);
+      ctx.closePath();
+      ctx.stroke();
+    } else if (model === "lhopitalShade" || model === "jordanShade") {
+      ctx.beginPath();
+      ctx.arc(0, 0, 34 + charge * 18, -Math.PI * 0.82, Math.PI * 0.82);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      pixelLine(-38 - charge * 12, -24, 42 + charge * 14, 20, color, 2);
+    } else {
+      ctx.beginPath();
+      ctx.arc(0, 0, 32 + charge * 12, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawHeldWeaponModel(weapon, x, y, angle) {
+    const id = weapon?.id || "sword";
+    const awakened = Boolean(weapon?.directBossAwakened);
+    const scale = {
+      sword: awakened ? 0.92 : 0.82,
+      functionGun: 0.78,
+      integralSniper: 0.72,
+      taylorCannon: 0.74,
+      coordinateBlade: 0.76,
+      polarShotgun: 0.74,
+      geometryShield: 0.78,
+      matrixRpg: 0.72,
+      luStaff: 0.68,
+      determinantLaser: 0.72,
+    }[id] || 0.76;
+    ctx.save();
+    ctx.translate(pixelSnap(x), pixelSnap(y));
+    ctx.rotate(angle);
+    ctx.scale(scale, scale);
+    ctx.shadowColor = weapon?.color || dungeonPalette.ember;
+    ctx.shadowBlur = awakened ? 14 : 5;
+
+    if (id === "sword") {
+      const bladeGlow = awakened ? "rgba(255, 221, 91, 0.36)" : "rgba(255, 242, 190, 0.2)";
+      ctx.save();
+      ctx.globalAlpha = awakened ? 0.56 : 0.34;
+      ctx.strokeStyle = bladeGlow;
+      ctx.lineWidth = awakened ? 7 : 5;
+      ctx.beginPath();
+      ctx.moveTo(10, 0);
+      ctx.lineTo(56, 0);
+      ctx.stroke();
+      ctx.restore();
+      pixelRect(1, -7, 10, 14, dungeonPalette.outline);
+      pixelRect(3, -5, 6, 10, "#6f332a");
+      pixelRect(8, -10, 5, 20, dungeonPalette.outline);
+      pixelRect(9, -8, 3, 16, awakened ? dungeonPalette.emberHot : dungeonPalette.ember);
+      pixelRect(12, -2, 42, 4, dungeonPalette.outline);
+      pixelRect(16, -1, 35, 2, awakened ? dungeonPalette.emberHot : "#fff6d8");
+      pixelRect(51, -3, 6, 6, dungeonPalette.outline);
+      pixelRect(52, -1, 4, 2, awakened ? "#fff7b4" : "#fffdf0");
+      pixelRect(21, -3, 2, 2, awakened ? "#fffdf0" : "#fff3c7");
+      pixelRect(34, 1, 2, 2, awakened ? "#fff0a3" : "rgba(255,255,255,0.72)");
+    } else if (id === "functionGun") {
+      pixelRect(6, -8, 31, 16, dungeonPalette.outline);
+      pixelRect(10, -6, 23, 12, "#234331");
+      pixelRect(31, -7, 19, 5, dungeonPalette.toxic);
+      pixelRect(31, 2, 19, 5, dungeonPalette.toxic);
+      pixelRect(15, -12, 9, 5, "#9dffad");
+      pixelRect(12, 9, 6, 10, "#16241e");
+    } else if (id === "integralSniper") {
+      pixelRect(4, -5, 59, 10, dungeonPalette.outline);
+      pixelRect(11, -3, 45, 5, "#f4e8bd");
+      pixelRect(26, -14, 17, 7, dungeonPalette.outline);
+      pixelRect(29, -12, 11, 3, dungeonPalette.cyan);
+      pixelRect(57, -2, 13, 4, "#fff7cf");
+      pixelRect(13, 5, 9, 14, "#2a2d28");
+    } else if (id === "taylorCannon") {
+      pixelRect(4, -12, 46, 24, dungeonPalette.outline);
+      pixelRect(9, -9, 32, 18, "#315031");
+      pixelRect(39, -7, 16, 14, dungeonPalette.chalk || colors.chalk);
+      pixelRect(14, -16, 7, 7, dungeonPalette.toxic);
+      pixelRect(25, -16, 7, 7, dungeonPalette.toxic);
+      pixelRect(15, 10, 19, 6, dungeonPalette.ember);
+    } else if (id === "coordinateBlade") {
+      pixelRect(6, -3, 47, 6, dungeonPalette.outline);
+      pixelRect(12, -2, 39, 3, dungeonPalette.cyan);
+      pixelRect(30, -18, 6, 36, dungeonPalette.outline);
+      pixelRect(32, -15, 3, 30, "#bdfcff");
+      pixelRect(1, -9, 8, 18, "#183b3e");
+    } else if (id === "polarShotgun") {
+      pixelRect(5, -10, 34, 20, dungeonPalette.outline);
+      pixelRect(10, -7, 22, 14, "#16373d");
+      [-8, 0, 8].forEach((offset) => {
+        pixelRect(32, offset - 3, 24, 6, dungeonPalette.cyan);
+      });
+      pixelRect(12, 9, 10, 9, "#1d2422");
+    } else if (id === "geometryShield") {
+      pixelRect(2, -4, 16, 8, dungeonPalette.outline);
+      drawPixelDiamond(25, 0, 23, 23, "rgba(94,231,214,0.52)", dungeonPalette.outline);
+      pixelRect(18, -3, 14, 6, "#bdfcff");
+      pixelRect(23, -16, 5, 32, dungeonPalette.cyan);
+    } else if (id === "matrixRpg") {
+      pixelRect(3, -13, 54, 26, dungeonPalette.outline);
+      pixelRect(8, -10, 38, 20, "#4d4527");
+      pixelRect(14, -6, 7, 5, dungeonPalette.emberHot);
+      pixelRect(25, -6, 7, 5, dungeonPalette.emberHot);
+      pixelRect(14, 2, 7, 5, dungeonPalette.emberHot);
+      pixelRect(25, 2, 7, 5, dungeonPalette.emberHot);
+      pixelRect(47, -6, 14, 12, dungeonPalette.ember);
+    } else if (id === "luStaff") {
+      pixelRect(7, -4, 53, 8, dungeonPalette.outline);
+      pixelRect(12, -2, 40, 4, dungeonPalette.warning || colors.warning);
+      pixelRect(49, -18, 7, 35, dungeonPalette.outline);
+      pixelRect(53, -18, 14, 6, dungeonPalette.emberHot);
+      pixelRect(53, 11, 14, 6, dungeonPalette.emberHot);
+      pixelRect(2, -10, 8, 20, "#332a19");
+    } else if (id === "determinantLaser") {
+      pixelRect(5, -7, 52, 14, dungeonPalette.outline);
+      pixelRect(9, -4, 40, 8, "#522526");
+      pixelRect(17, -12, 5, 24, dungeonPalette.danger || colors.danger);
+      pixelRect(29, -12, 5, 24, dungeonPalette.danger || colors.danger);
+      pixelRect(51, -3, 21, 6, "#ffb1a8");
+    }
+    ctx.restore();
+  }
+
+  function playerWeaponAnchor(player, angle) {
+    const weapon = player.weapon;
+    const heavy = ["integralSniper", "taylorCannon", "matrixRpg", "determinantLaser", "luStaff"].includes(weapon?.id);
+    const forward = heavy ? 18 : 15;
+    const side = Math.cos(angle) < 0 ? -1 : 1;
+    return {
+      x: player.x + Math.cos(angle) * forward - Math.sin(angle) * 4,
+      y: player.y + Math.sin(angle) * 7 + 4,
+      side,
+    };
+  }
+
+  function drawPlayerSprite(player) {
+    const angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+    const flip = Math.cos(angle) < 0 ? -1 : 1;
+    const anchor = playerWeaponAnchor(player, angle);
+    drawIsoShadow(player.x, player.y + 11, 24, 8, 0.48);
+
+    drawHeldWeaponModel(player.weapon, anchor.x, anchor.y, angle);
+
+    ctx.save();
+    ctx.translate(pixelSnap(player.x), pixelSnap(player.y));
+    ctx.globalAlpha = player.invuln > 0 ? 0.62 : 1;
+    ctx.scale(flip, 1);
+
+    pixelRect(-10, 1, 20, 22, dungeonPalette.outline);
+    pixelRect(-8, 3, 16, 18, dungeonPalette.heroRed);
+    pixelRect(-5, 6, 10, 11, "#e7c277");
+    pixelRect(-14, 10, 7, 11, dungeonPalette.outline);
+    pixelRect(7, 10, 7, 11, dungeonPalette.outline);
+    pixelRect(-12, 10, 5, 9, "#73343a");
+    pixelRect(7, 10, 5, 9, "#73343a");
+    pixelRect(-8, 22, 6, 8, dungeonPalette.outline);
+    pixelRect(2, 22, 6, 8, dungeonPalette.outline);
+    pixelRect(-7, 22, 5, 6, "#2a3430");
+    pixelRect(2, 22, 5, 6, "#2a3430");
+
+    pixelRect(-8, -13, 16, 14, dungeonPalette.outline);
+    pixelRect(-6, -11, 12, 10, dungeonPalette.heroCream);
+    pixelRect(-8, -16, 16, 7, "#151413");
+    pixelRect(-5, -2, 4, 3, "#111");
+    pixelRect(3, -2, 4, 3, "#111");
+    pixelRect(-1, 1, 2, 2, "#61291f");
+
+    pixelRect(7, 3, 9, 7, dungeonPalette.outline);
+    pixelRect(9, 5, 6, 5, "#e7c277");
+    pixelRect(-16, 3, 9, 7, dungeonPalette.outline);
+    pixelRect(-15, 5, 6, 5, "#e7c277");
+    ctx.restore();
+  }
+
+  function drawEnemyModelBody(model, enemy, color, pulse) {
+    const blink = Math.sin((enemy.moveT || 0) * 8) > 0.72;
+    const eye = blink ? "#07100d" : dungeonPalette.emberHot;
+
+    if (model === "lagrange" || model === "lagrangeRandomShade") {
+      const elite = model === "lagrangeRandomShade";
+      pixelRect(-24, -16, 48, 34, dungeonPalette.outline);
+      pixelRect(-20, -12, 40, 26, elite ? "#284e36" : "#1f3f31");
+      pixelRect(-18, -26, 12, 15, dungeonPalette.outline);
+      pixelRect(6, -26, 12, 15, dungeonPalette.outline);
+      pixelRect(-15, -23, 8, 11, color);
+      pixelRect(7, -23, 8, 11, color);
+      pixelRect(-11, -3, 7, 6, eye);
+      pixelRect(4, -3, 7, 6, eye);
+      pixelRect(-15, 10, 30, 4, elite ? dungeonPalette.emberHot : dungeonPalette.magenta);
+      if (elite) {
+        pixelRect(-30, 0, 9, 18, dungeonPalette.outline);
+        pixelRect(21, 0, 9, 18, dungeonPalette.outline);
+        pixelRect(-28, 3, 6, 12, color);
+        pixelRect(22, 3, 6, 12, color);
+      }
+      return;
+    }
+
+    if (model === "lhopitalShade") {
+      pixelRect(-18, -28, 36, 48, dungeonPalette.outline);
+      pixelRect(-14, -24, 28, 40, "#e6dec2");
+      pixelRect(-22, -11, 44, 7, dungeonPalette.outline);
+      pixelRect(-20, -9, 40, 3, "#101916");
+      pixelRect(-8, -13, 5, 6, "#07100d");
+      pixelRect(4, -13, 5, 6, "#07100d");
+      pixelRect(-5, 3, 10, 4, dungeonPalette.magenta);
+      pixelRect(15, -20, 23, 6, dungeonPalette.cyan);
+      pixelRect(-36, -20, 23, 6, dungeonPalette.cyan);
+      return;
+    }
+
+    if (model === "taylorShade") {
+      pixelRect(-27, -14, 54, 30, dungeonPalette.outline);
+      pixelRect(-22, -10, 44, 22, "#365832");
+      pixelRect(20, -8, 17, 16, dungeonPalette.outline);
+      pixelRect(24, -5, 11, 10, color);
+      [-16, -4, 8].forEach((x) => pixelRect(x, -22, 8, 8, dungeonPalette.toxic));
+      pixelRect(-11, 3, 7, 5, eye);
+      pixelRect(5, 3, 7, 5, eye);
+      pixelRect(-26, 17, 15, 7, "#17231e");
+      pixelRect(12, 17, 15, 7, "#17231e");
+      return;
+    }
+
+    if (model === "archimedesShade") {
+      drawPixelDiamond(0, 0, 28, 26, "#173f43", dungeonPalette.outline);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, 18, -0.4, Math.PI * 1.7);
+      ctx.stroke();
+      pixelRect(-5, -25, 10, 13, dungeonPalette.outline);
+      pixelRect(-3, -23, 6, 9, dungeonPalette.cyan);
+      pixelRect(-30, 7, 15, 7, dungeonPalette.outline);
+      pixelRect(15, 7, 15, 7, dungeonPalette.outline);
+      pixelRect(-5, -5, 4, 4, eye);
+      pixelRect(7, -5, 4, 4, eye);
+      return;
+    }
+
+    if (model === "descartesShade" || model === "descartesRandomShade") {
+      const prism = model === "descartesRandomShade";
+      pixelRect(-24, -19, 48, 38, dungeonPalette.outline);
+      pixelRect(-19, -15, 38, 30, prism ? "#123943" : "#173f43");
+      pixelRect(-2, -22, 4, 44, color);
+      pixelRect(-25, -2, 50, 4, color);
+      pixelRect(-11, -11, 5, 5, eye);
+      pixelRect(7, 7, 5, 5, eye);
+      if (prism) {
+        pixelRect(-35, -21, 10, 16, dungeonPalette.cyan);
+        pixelRect(25, -21, 10, 16, dungeonPalette.cyan);
+        pixelRect(-5, 19, 10, 11, dungeonPalette.magenta);
+      }
+      return;
+    }
+
+    if (model === "euclidShade") {
+      ctx.fillStyle = dungeonPalette.outline;
+      ctx.beginPath();
+      ctx.moveTo(0, -31);
+      ctx.lineTo(31, 21);
+      ctx.lineTo(-31, 21);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#1f4848";
+      ctx.beginPath();
+      ctx.moveTo(0, -24);
+      ctx.lineTo(23, 16);
+      ctx.lineTo(-23, 16);
+      ctx.closePath();
+      ctx.fill();
+      pixelRect(-6, -8, 5, 5, eye);
+      pixelRect(4, -8, 5, 5, eye);
+      pixelRect(-14, 7, 28, 4, dungeonPalette.emberHot);
+      pixelRect(-38, 1, 18, 7, dungeonPalette.cyan);
+      pixelRect(20, 1, 18, 7, dungeonPalette.cyan);
+      return;
+    }
+
+    if (model === "jacobiShade") {
+      pixelRect(-27, -22, 54, 44, dungeonPalette.outline);
+      pixelRect(-22, -17, 44, 34, "#4c4630");
+      for (let row = 0; row < 3; row += 1) {
+        for (let col = 0; col < 3; col += 1) {
+          pixelRect(-16 + col * 13, -12 + row * 10, 7, 5, row === col ? color : "#20231e");
+        }
+      }
+      pixelRect(-32, -2, 8, 14, dungeonPalette.outline);
+      pixelRect(24, -2, 8, 14, dungeonPalette.outline);
+      pixelRect(-7, 22, 14, 6, dungeonPalette.magenta);
+      return;
+    }
+
+    if (model === "jordanShade") {
+      pixelRect(-24, -17, 48, 36, dungeonPalette.outline);
+      pixelRect(-19, -12, 38, 26, "#4a3c28");
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(-31, -25, 62, 50);
+      ctx.strokeRect(-19, -13, 38, 26);
+      pixelRect(-10, -4, 6, 6, eye);
+      pixelRect(4, -4, 6, 6, eye);
+      pixelRect(-17, 11, 34, 4, dungeonPalette.emberHot);
+      return;
+    }
+
+    if (model === "gaussShade" || model === "gaussRandomShade") {
+      const echelon = model === "gaussRandomShade";
+      pixelRect(-25, -20, 50, 40, dungeonPalette.outline);
+      pixelRect(-20, -15, 40, 30, echelon ? "#5a4b24" : "#4c4630");
+      for (let row = 0; row < 3; row += 1) {
+        const limit = echelon ? 3 - row : 3;
+        for (let col = 0; col < limit; col += 1) {
+          pixelRect(-14 + col * 13 + (echelon ? row * 5 : 0), -10 + row * 10, 8, 6, row === col ? dungeonPalette.emberHot : color);
+        }
+      }
+      pixelRect(-31, -4, 8, 17, dungeonPalette.outline);
+      pixelRect(23, -4, 8, 17, dungeonPalette.outline);
+      pixelRect(-17, 19, 12, 7, dungeonPalette.outline);
+      pixelRect(5, 19, 12, 7, dungeonPalette.outline);
+      return;
+    }
+
+    if (model === "bossProjection") {
+      ctx.globalAlpha *= 0.82;
+      drawPixelDiamond(0, -2, 24, 28, "rgba(94,231,214,0.52)", dungeonPalette.outline);
+      pixelRect(-7, -12, 14, 6, "#bdfcff");
+      pixelRect(-5, 0, 4, 5, "#07100d");
+      pixelRect(5, 0, 4, 5, "#07100d");
+      pixelRect(-15, 11, 30, 4, dungeonPalette.magenta);
+      pixelRect(-33, -3, 12, 8, "rgba(94,231,214,0.55)");
+      pixelRect(21, -3, 12, 8, "rgba(94,231,214,0.55)");
+      return;
+    }
+
+    if (model === "shopGuard") {
+      const enrage = Boolean(enemy.shopEnrage);
+      pixelRect(-25, -19, 50, 38, dungeonPalette.outline);
+      pixelRect(-20, -14, 40, 28, enrage ? "#392422" : "#253226");
+      pixelRect(-16, -28, 32, 11, dungeonPalette.outline);
+      pixelRect(-12, -25, 24, 5, enrage ? dungeonPalette.ruby : dungeonPalette.emberHot);
+      pixelRect(-11, -5, 6, 6, "#07100d");
+      pixelRect(5, -5, 6, 6, "#07100d");
+      pixelRect(-15, 10, 30, 4, enrage ? dungeonPalette.emberHot : colors.warning);
+      pixelRect(-31, -2, 10, 22, dungeonPalette.outline);
+      pixelRect(21, -2, 10, 22, dungeonPalette.outline);
+      return;
+    }
+
+    pixelRect(-23, -14, 46, 31, dungeonPalette.outline);
+    pixelRect(-19, -11, 38, 25, "#1f3f31");
+    pixelRect(-10, -4, 7, 6, eye);
+    pixelRect(4, -4, 7, 6, eye);
+    pixelRect(-14, 9, 28, 4, dungeonPalette.magenta);
+  }
+
+  function drawEnemyInkAccents(model, enemy, color) {
+    const charge = clamp(1 - ((enemy.fireTimer || 0) / Math.max(0.1, enemy.fireEvery || 1)), 0, 1);
+    const accent = charge > 0.72 ? dungeonPalette.emberHot : color;
+    ctx.save();
+    ctx.globalAlpha = 0.78;
+    if (model === "lhopitalShade") {
+      pixelLine(-13, -20, 11, -23, "rgba(0,0,0,0.42)", 2);
+      pixelLine(-11, 12, 9, 8, "rgba(0,0,0,0.5)", 2);
+    } else if (model === "euclidShade" || model === "archimedesShade") {
+      pixelLine(-15, 10, 12, -10, "rgba(0,0,0,0.46)", 2);
+      pixelLine(-8, 17, 17, 2, accent, 2);
+    } else if (model === "gaussShade" || model === "gaussRandomShade" || model === "jacobiShade" || model === "jordanShade") {
+      pixelLine(-18, -16, 18, -16, "rgba(255,240,163,0.24)", 2);
+      pixelLine(-17, 14, 16, 10, "rgba(0,0,0,0.55)", 2);
+      pixelLine(-12, -6, -2, -11, accent, 1);
+      pixelLine(3, 4, 14, -2, accent, 1);
+    } else {
+      pixelLine(-18, -11, 16, -13, "rgba(255,240,163,0.2)", 2);
+      pixelLine(-16, 14, 14, 10, "rgba(0,0,0,0.5)", 2);
+      pixelLine(-23, -3, -12, -7, accent, 1);
+    }
+    ctx.restore();
+  }
+
+  function drawEnemyWeaponRig(model, enemy, color, pulse) {
+    const t = performance.now() / 1000;
+    const charge = clamp(1 - ((enemy.fireTimer || 0) / Math.max(0.1, enemy.fireEvery || 1)), 0, 1);
+    const glow = charge > 0.72 ? dungeonPalette.emberHot : color;
+    ctx.save();
+    ctx.globalAlpha = 0.88 + Math.sin(t * 6 + pulse) * 0.06;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 3 + charge * 8;
+
+    if (model === "lagrange" || model === "lagrangeRandomShade") {
+      const orbit = t * (model === "lagrangeRandomShade" ? 2.2 : 1.65);
+      for (let i = 0; i < 3; i += 1) {
+        const a = orbit + i * Math.PI * 2 / 3;
+        const x = Math.cos(a) * 35;
+        const y = -5 + Math.sin(a) * 12;
+        drawPixelDiamond(x, y, 7, 5, i === 0 ? dungeonPalette.emberHot : color, dungeonPalette.outline);
+      }
+      pixelLine(-34, -21, 34, 15, "rgba(184,240,196,0.34)", 1);
+      pixelLine(-34, 15, 34, -21, "rgba(184,240,196,0.18)", 1);
+      ctx.restore();
+      return;
+    }
+
+    if (model === "lhopitalShade") {
+      const swing = Math.sin(t * 5.4) * 5;
+      pixelRect(-42, -24 + swing, 34, 5, dungeonPalette.outline);
+      pixelRect(-39, -23 + swing, 28, 2, "#f7f0d0");
+      pixelRect(8, -24 - swing, 34, 5, dungeonPalette.outline);
+      pixelRect(11, -23 - swing, 28, 2, "#f7f0d0");
+      pixelRect(-7, -31, 14, 5, dungeonPalette.cyan);
+      ctx.restore();
+      return;
+    }
+
+    if (model === "taylorShade") {
+      const recoil = charge > 0.78 ? Math.sin(t * 24) * 3 : 0;
+      [ -8, 0, 8 ].forEach((dy, index) => {
+        pixelRect(24 - recoil, dy - 3, 28, 6, dungeonPalette.outline);
+        pixelRect(27 - recoil, dy - 1, 20, 2, index === 1 ? dungeonPalette.emberHot : color);
+      });
+      pixelRect(16 - recoil, -15, 10, 30, "#1b2c24");
+      ctx.restore();
+      return;
+    }
+
+    if (model === "archimedesShade") {
+      const open = 0.34 + Math.sin(t * 3.3) * 0.1;
+      pixelLine(-7, -24, -38, 18, dungeonPalette.outline, 4);
+      pixelLine(7, -24, 38, 18, dungeonPalette.outline, 4);
+      pixelLine(-7, -24, -36, 18, color, 2);
+      pixelLine(7, -24, 36, 18, color, 2);
+      ctx.strokeStyle = glow;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 3, 24, Math.PI * (0.64 - open), Math.PI * (0.36 + open));
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    if (model === "descartesShade" || model === "descartesRandomShade") {
+      const sweep = Math.sin(t * 4.2) * 3;
+      pixelRect(-47, -3 + sweep, 94, 6, dungeonPalette.outline);
+      pixelRect(-43, -1 + sweep, 86, 2, color);
+      pixelRect(-3, -38, 6, 76, dungeonPalette.outline);
+      pixelRect(-1, -34, 2, 68, color);
+      drawPixelDiamond(0, 0, 9 + charge * 4, 9 + charge * 4, dungeonPalette.cyan, dungeonPalette.outline);
+      ctx.restore();
+      return;
+    }
+
+    if (model === "euclidShade") {
+      const spin = t * 3.4;
+      ctx.rotate(spin);
+      for (let i = 0; i < 3; i += 1) {
+        ctx.rotate(Math.PI * 2 / 3);
+        pixelLine(10, 0, 42, 0, dungeonPalette.outline, 5);
+        pixelLine(13, 0, 39, 0, color, 2);
+        pixelRect(38, -4, 8, 8, dungeonPalette.emberHot);
+      }
+      ctx.restore();
+      return;
+    }
+
+    if (model === "jacobiShade") {
+      const slide = Math.sin(t * 4.8) * 4;
+      pixelRect(-45, -20, 18, 40, dungeonPalette.outline);
+      pixelRect(-41, -16, 10, 32, "#302b1a");
+      for (let i = 0; i < 4; i += 1) {
+        pixelRect(-39, -12 + i * 8 + (i % 2 ? slide : -slide) * 0.25, 6, 3, i % 2 ? color : dungeonPalette.emberHot);
+      }
+      pixelLine(-27, -14, -10, -7, color, 2);
+      pixelLine(-27, 14, -10, 7, color, 2);
+      ctx.restore();
+      return;
+    }
+
+    if (model === "jordanShade") {
+      const slam = charge > 0.78 ? Math.sin(t * 18) * 4 : 0;
+      pixelRect(27, -32 + slam, 9, 64, dungeonPalette.outline);
+      pixelRect(30, -28 + slam, 3, 56, color);
+      pixelRect(18, -34 + slam, 27, 9, dungeonPalette.outline);
+      pixelRect(20, -32 + slam, 23, 5, dungeonPalette.emberHot);
+      pixelLine(-32, -24, 32, 24, "rgba(240,195,93,0.32)", 1);
+      ctx.restore();
+      return;
+    }
+
+    if (model === "gaussShade" || model === "gaussRandomShade") {
+      const side = model === "gaussRandomShade" ? -1 : 1;
+      pixelRect(side * 25 - (side < 0 ? 30 : 0), -24, 30, 13, dungeonPalette.outline);
+      pixelRect(side * 28 - (side < 0 ? 24 : 0), -20, 22, 6, "#5f5226");
+      pixelRect(side * 51 - (side < 0 ? 5 : 0), -18, 11, 6, glow);
+      for (let i = 0; i < 3; i += 1) {
+        pixelLine(side * 17, -8 + i * 7, side * 39, -8 + i * 7, i === 1 ? dungeonPalette.emberHot : color, 2);
+      }
+      ctx.restore();
+      return;
+    }
+
+    if (model === "bossProjection") {
+      pixelRect(-42, -9, 84, 8, dungeonPalette.outline);
+      pixelRect(-37, -7, 74, 4, "rgba(94,231,214,0.72)");
+      drawPixelDiamond(0, -5, 11, 7, dungeonPalette.emberHot, dungeonPalette.outline);
+      ctx.restore();
+      return;
+    }
+
+    if (model === "shopGuard") {
+      const blink = Math.sin(t * 5) > 0 ? 1 : -1;
+      pixelRect(-46, -12, 28, 17, dungeonPalette.outline);
+      pixelRect(-42, -8, 20, 9, "#3a3420");
+      pixelRect(-39, -5, 14, 3, dungeonPalette.emberHot);
+      pixelRect(19, -18 + blink * 2, 27, 23, dungeonPalette.outline);
+      pixelRect(23, -14 + blink * 2, 19, 15, "#10281f");
+      pixelLine(24, -9 + blink * 2, 39, -9 + blink * 2, colors.warning, 2);
+      pixelLine(24, -3 + blink * 2, 36, -3 + blink * 2, color, 2);
+      ctx.restore();
+      return;
+    }
+
+    pixelLine(-30, -16, 30, 16, color, 2);
+    ctx.restore();
+  }
+
+  function drawEnemySprite(enemy) {
+    const model = enemyModelId(enemy);
+    const artColor = enemy.color || colors.danger;
+    const artPulse = Math.sin((enemy.moveT || 0) * 5) * 1.5;
+    const charge = enemyCastCharge(enemy);
+    drawIsoShadow(enemy.x, enemy.y + enemy.r * 0.82, enemy.r + 16, 9, 0.5);
+    ctx.save();
+    ctx.translate(pixelSnap(enemy.x), pixelSnap(enemy.y + artPulse));
+    drawEnemyChargeFx(model, enemy, artColor, charge);
+    drawEnemyModelBody(model, enemy, artColor, artPulse);
+    drawEnemyHatching(model, artColor, charge);
+    drawEnemyInkAccents(model, enemy, artColor);
+    drawEnemyWeaponRig(model, enemy, artColor, artPulse);
+    const hitFlash = clamp((enemy.hitFlash || 0) / 0.2, 0, 1);
+    if (hitFlash > 0) {
+      ctx.save();
+      ctx.globalAlpha = hitFlash * 0.58;
+      pixelRect(-28, -30, 56, 58, "#ffffff");
+      ctx.globalAlpha = hitFlash * 0.9;
+      pixelRect(-18, -20, 36, 8, colors.paper);
+      pixelRect(-22, 4, 44, 7, colors.paper);
+      ctx.restore();
+    }
+    drawEnemySigil(model, artColor);
+    ctx.restore();
+    return;
+
+    const color = enemy.color || colors.danger;
+    const kind = enemy.kind || "calculus";
+    const pulse = Math.sin((enemy.moveT || 0) * 5) * 1.5;
+    drawIsoShadow(enemy.x, enemy.y + enemy.r * 0.82, enemy.r + 16, 9, 0.5);
+
+    ctx.save();
+    ctx.translate(pixelSnap(enemy.x), pixelSnap(enemy.y + pulse));
+    if (kind === "geometry") {
+      pixelRect(-22, -15, 44, 31, dungeonPalette.outline);
+      drawPixelDiamond(0, -2, 24, 24, "#173f43", dungeonPalette.outline);
+      drawPixelDiamond(0, -5, 15, 16, color, dungeonPalette.outline);
+      pixelRect(-31, -5, 12, 10, dungeonPalette.outline);
+      pixelRect(19, -5, 12, 10, dungeonPalette.outline);
+      pixelRect(-6, -31, 12, 10, dungeonPalette.outline);
+      pixelRect(-5, -11, 4, 4, "#04100f");
+      pixelRect(7, -11, 4, 4, "#04100f");
+    } else if (kind === "linear") {
+      pixelRect(-24, -18, 48, 36, dungeonPalette.outline);
+      pixelRect(-20, -15, 40, 30, "#4c4630");
+      pixelRect(-14, -10, 11, 9, color);
+      pixelRect(3, -10, 11, 9, color);
+      pixelRect(-14, 5, 11, 9, "#20231e");
+      pixelRect(3, 5, 11, 9, "#20231e");
+      pixelRect(-27, -2, 7, 17, dungeonPalette.outline);
+      pixelRect(20, -2, 7, 17, dungeonPalette.outline);
+      pixelRect(-18, 18, 11, 7, dungeonPalette.outline);
+      pixelRect(7, 18, 11, 7, dungeonPalette.outline);
+    } else {
+      pixelRect(-23, -14, 46, 31, dungeonPalette.outline);
+      pixelRect(-19, -11, 38, 25, "#1f3f31");
+      pixelRect(-15, -22, 10, 12, dungeonPalette.outline);
+      pixelRect(5, -22, 10, 12, dungeonPalette.outline);
+      pixelRect(-12, -19, 7, 9, color);
+      pixelRect(5, -19, 7, 9, color);
+      pixelRect(-10, -4, 7, 6, dungeonPalette.emberHot);
+      pixelRect(4, -4, 7, 6, dungeonPalette.emberHot);
+      pixelRect(-14, 9, 28, 4, dungeonPalette.magenta);
+      pixelRect(-9, 13, 4, 5, dungeonPalette.emberHot);
+      pixelRect(4, 13, 4, 5, dungeonPalette.emberHot);
+    }
+
+    ctx.fillStyle = "#07100d";
+    ctx.font = "bold 13px Consolas, Microsoft YaHei, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(enemy.shortName || "?", 0, kind === "linear" ? 1 : -1);
+    ctx.restore();
+  }
+
+  function drawBossBody(boss) {
+    drawIsoShadow(boss.x, boss.y + 36, 116, 18, 0.38);
+    ctx.save();
+    ctx.translate(pixelSnap(boss.x), pixelSnap(boss.y));
+    const t = performance.now();
+    const pulse = Math.sin(t / 230) * 2;
+    ctx.globalAlpha = 0.82;
+    ctx.strokeStyle = boss.rotating ? dungeonPalette.emberHot : "rgba(244,240,230,0.42)";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.ellipse(0, 14 + pulse, 58, 24, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(94,231,214,0.42)";
+    ctx.beginPath();
+    ctx.ellipse(0, 14 - pulse * 0.4, 36, 13, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    pixelRect(-48, 11 + pulse, 96, 7, dungeonPalette.outline);
+    pixelRect(-41, 12 + pulse, 82, 3, "#314236");
+    pixelRect(-6, 5 - pulse, 12, 18, dungeonPalette.outline);
+    pixelRect(-3, 8 - pulse, 6, 12, dungeonPalette.emberHot);
+    [-32, 0, 32].forEach((x, index) => {
+      const y = 15 + Math.sin(t / 170 + index) * 4;
+      drawPixelDiamond(x, y, 7, 5, index === 1 ? dungeonPalette.cyan : dungeonPalette.toxic, dungeonPalette.outline);
+    });
+    ctx.restore();
+  }
+
+  function drawBossCoreSprite(core, pos, options = {}) {
+    const {
+      alive = true,
+      invulnerable = false,
+      overload = false,
+      flash = 0,
+      pulse = 1,
+    } = options;
+    const size = overload ? 38 : core.enraged ? 36 : 34;
+    const fill = invulnerable ? "#65706c" : core.enraged ? "#873d34" : core.color;
+    drawIsoShadow(pos.x, pos.y + 27 * bossSizeScale, (size + 20) * bossSizeScale, 10 * bossSizeScale, alive ? 0.42 : 0.22);
+    ctx.save();
+    ctx.translate(pixelSnap(pos.x), pixelSnap(pos.y));
+    ctx.scale(pulse * bossSizeScale, pulse * bossSizeScale);
+    if (core.id === "cauchy") {
+      drawPixelDiamond(0, -2, size + 9, size, dungeonPalette.outline, dungeonPalette.outline);
+      drawPixelDiamond(0, -2, size + 2, size - 7, fill, dungeonPalette.outline);
+      pixelRect(-8, -size - 13, 16, 12, dungeonPalette.outline);
+      pixelRect(-5, -size - 10, 10, 7, dungeonPalette.toxic);
+      pixelRect(-28, -10, 9, 28, dungeonPalette.outline);
+      pixelRect(-25, -7, 5, 20, "#284035");
+      pixelRect(19, -10, 9, 28, dungeonPalette.outline);
+      pixelRect(20, -7, 5, 20, "#284035");
+      pixelRect(-16, -11, 9, 8, "#06110f");
+      pixelRect(7, -11, 9, 8, "#06110f");
+      ctx.strokeStyle = overload ? dungeonPalette.emberHot : dungeonPalette.toxic;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-22, 17);
+      ctx.bezierCurveTo(-8, 30, 8, 3, 22, 17);
+      ctx.stroke();
+      pixelRect(-23, 23, 46, 7, dungeonPalette.outline);
+      pixelRect(-18, 24, 36, 3, dungeonPalette.magenta);
+      ctx.fillStyle = "#07100d";
+      ctx.font = "bold 13px Consolas, Microsoft YaHei, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(core.symbol || "S", 0, 2);
+      if (flash > 0) {
+        ctx.globalAlpha = flash * 0.5;
+        drawPixelDiamond(0, -2, size + 1, size - 8, "#fff", "#fff");
+      }
+      ctx.restore();
+      return;
+    }
+    if (core.id === "descartes") {
+      pixelRect(-size - 2, -size - 2, size * 2 + 4, size * 2 + 4, dungeonPalette.outline);
+      pixelRect(-size + 5, -size + 5, size * 2 - 10, size * 2 - 10, "#21383f");
+      pixelRect(-4, -size - 13, 8, size * 2 + 26, dungeonPalette.cyan);
+      pixelRect(-size - 13, -4, size * 2 + 26, 8, dungeonPalette.cyan);
+      pixelRect(-size + 10, -size + 10, 14, 14, fill);
+      pixelRect(size - 24, -size + 10, 14, 14, fill);
+      pixelRect(-size + 10, size - 24, 14, 14, fill);
+      pixelRect(size - 24, size - 24, 14, 14, fill);
+      pixelRect(-17, -15, 9, 8, "#06110f");
+      pixelRect(8, 7, 9, 8, "#06110f");
+      ctx.strokeStyle = dungeonPalette.magenta;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-28, 24);
+      ctx.lineTo(28, -24);
+      ctx.stroke();
+      pixelRect(-14, size - 15, 28, 5, dungeonPalette.magenta);
+      ctx.fillStyle = "#07100d";
+      ctx.font = "bold 13px Consolas, Microsoft YaHei, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(core.symbol || "xy", 0, 1);
+      if (flash > 0) {
+        ctx.globalAlpha = flash * 0.48;
+        pixelRect(-size + 4, -size + 4, size * 2 - 8, size * 2 - 8, "#fff");
+      }
+      ctx.restore();
+      return;
+    }
+    if (core.id === "gauss") {
+      pixelRect(-size - 5, -size + 8, size * 2 + 10, size * 2 - 3, dungeonPalette.outline);
+      pixelRect(-size + 1, -size + 13, size * 2 - 2, size * 2 - 14, "#3e341d");
+      pixelRect(-22, -size - 6, 44, 16, dungeonPalette.outline);
+      pixelRect(-16, -size - 2, 32, 8, fill);
+      pixelRect(-28, -size + 20, 56, 8, dungeonPalette.outline);
+      for (let row = 0; row < 3; row += 1) {
+        for (let col = 0; col < 3; col += 1) {
+          pixelRect(-18 + col * 13, -15 + row * 13, 8, 8, row === col ? dungeonPalette.emberHot : "#232817");
+        }
+      }
+      pixelRect(-20, size - 10, 40, 6, dungeonPalette.magenta);
+      ctx.fillStyle = "#07100d";
+      ctx.font = "bold 13px Consolas, Microsoft YaHei, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(core.symbol || "A", 0, 1);
+      if (flash > 0) {
+        ctx.globalAlpha = flash * 0.48;
+        pixelRect(-size + 3, -size + 14, size * 2 - 6, size * 2 - 16, "#fff");
+      }
+      ctx.restore();
+      return;
+    }
+    pixelRect(-size, -size, size * 2, size * 2, dungeonPalette.outline);
+    pixelRect(-size + 5, -size + 5, size * 2 - 10, size * 2 - 10, fill);
+    pixelRect(-size + 10, -size + 9, 9, 8, "#06110f");
+    pixelRect(size - 19, -size + 9, 9, 8, "#06110f");
+    pixelRect(-13, size - 15, 26, 5, overload ? dungeonPalette.emberHot : dungeonPalette.magenta);
+    if (flash > 0) {
+      ctx.globalAlpha = flash * 0.55;
+      pixelRect(-size + 4, -size + 4, size * 2 - 8, size * 2 - 8, "#fff");
+    }
+    ctx.fillStyle = "#07100d";
+    ctx.font = "bold 14px Consolas, Microsoft YaHei, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(core.symbol || core.name.slice(0, 2), 0, 1);
+    ctx.restore();
+  }
+
+  function drawWeaponProjectileShape(shot, color, size) {
+    const id = shot.weaponId || "";
+    if (id === "functionGun") {
+      drawPixelDiamond(0, 0, size * 0.62, size * 0.38, color, dungeonPalette.outline);
+      pixelRect(-size * 0.15, -size * 0.72, size * 0.3, size * 0.34, dungeonPalette.toxic);
+      pixelRect(-size * 0.16, size * 0.38, size * 0.32, size * 0.18, "#baff7c");
+      return true;
+    }
+    if (id === "integralSniper") {
+      const angle = shot.angle ?? Math.atan2(shot.vy, shot.vx);
+      ctx.rotate(angle);
+      pixelRect(-18, -3, 50, 6, dungeonPalette.outline);
+      pixelRect(-13, -1, 42, 2, "#fff7cf");
+      pixelRect(21, -5, 13, 10, color);
+      return true;
+    }
+    if (id === "taylorCannon") {
+      ctx.rotate((shot.angle || 0) + (shot.age || 0) * 4);
+      pixelRect(-size * 0.62, -size * 0.62, size * 1.24, size * 1.24, dungeonPalette.outline);
+      pixelRect(-size * 0.42, -size * 0.42, size * 0.84, size * 0.84, color);
+      pixelRect(-2, -size * 0.86, 4, size * 0.35, dungeonPalette.emberHot);
+      pixelRect(-2, size * 0.5, 4, size * 0.35, dungeonPalette.emberHot);
+      pixelRect(-size * 0.86, -2, size * 0.35, 4, dungeonPalette.emberHot);
+      pixelRect(size * 0.5, -2, size * 0.35, 4, dungeonPalette.emberHot);
+      return true;
+    }
+    if (id === "polarShotgun") {
+      ctx.rotate(shot.angle || 0);
+      ctx.fillStyle = dungeonPalette.outline;
+      ctx.beginPath();
+      ctx.moveTo(size * 0.8, 0);
+      ctx.lineTo(-size * 0.5, -size * 0.48);
+      ctx.lineTo(-size * 0.26, 0);
+      ctx.lineTo(-size * 0.5, size * 0.48);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(size * 0.55, 0);
+      ctx.lineTo(-size * 0.32, -size * 0.28);
+      ctx.lineTo(-size * 0.16, 0);
+      ctx.lineTo(-size * 0.32, size * 0.28);
+      ctx.closePath();
+      ctx.fill();
+      return true;
+    }
+    if (id === "matrixRpg") {
+      ctx.rotate(shot.angle || 0);
+      pixelRect(-13, -8, 30, 16, dungeonPalette.outline);
+      pixelRect(-8, -5, 20, 10, "#6b5726");
+      pixelRect(12, -4, 12, 8, dungeonPalette.emberHot);
+      pixelRect(-17, -11, 8, 6, color);
+      pixelRect(-17, 5, 8, 6, color);
+      return true;
+    }
+    if (id === "luStaff") {
+      ctx.rotate((shot.angle || 0) + Math.PI / 4);
+      pixelRect(-size * 0.7, -size * 0.7, size * 1.4, size * 1.4, dungeonPalette.outline);
+      pixelRect(-size * 0.46, -size * 0.46, size * 0.92, size * 0.92, color);
+      pixelRect(-size * 0.46, -size * 0.1, size * 0.92, size * 0.2, dungeonPalette.emberHot);
+      pixelRect(-size * 0.1, -size * 0.46, size * 0.2, size * 0.92, dungeonPalette.emberHot);
+      return true;
+    }
+    if (id === "determinantLaser") {
+      const angle = shot.angle ?? Math.atan2(shot.vy, shot.vx);
+      const len = shot.beamLength || 58;
+      ctx.rotate(angle);
+      pixelRect(-len * 0.35, -5, len * 1.22, 10, dungeonPalette.outline);
+      pixelRect(-len * 0.28, -2, len * 1.08, 4, color);
+      pixelRect(-2, -9, 4, 18, "#ffb1a8");
+      pixelRect(12, -9, 4, 18, "#ffb1a8");
+      return true;
+    }
+    return false;
+  }
+
+  function drawEnemyProjectileShape(shot, color, size) {
+    const kind = shot.enemyWeapon || "";
+    if (kind === "lagrangeOrb") {
+      ctx.rotate((shot.angle || 0) + (shot.age || 0) * 5);
+      drawPixelDiamond(0, 0, size * 0.68, size * 0.46, color, dungeonPalette.outline);
+      pixelRect(-2, -size * 0.72, 4, size * 0.38, dungeonPalette.toxic);
+      pixelRect(-2, size * 0.34, 4, size * 0.28, dungeonPalette.emberHot);
+      return true;
+    }
+    if (kind === "lhopitalBlade") {
+      ctx.rotate(shot.angle || Math.atan2(shot.vy, shot.vx));
+      pixelRect(-size * 0.85, -3, size * 1.7, 6, dungeonPalette.outline);
+      pixelRect(-size * 0.72, -1, size * 1.28, 2, "#fff6d8");
+      pixelRect(size * 0.48, -5, size * 0.28, 10, color);
+      return true;
+    }
+    if (kind === "taylorTerm") {
+      ctx.rotate((shot.angle || 0) + (shot.age || 0) * 7);
+      pixelRect(-size * 0.55, -size * 0.28, size * 1.1, size * 0.56, dungeonPalette.outline);
+      pixelRect(-size * 0.36, -size * 0.14, size * 0.72, size * 0.28, color);
+      pixelRect(-2, -size * 0.64, 4, size * 0.34, dungeonPalette.emberHot);
+      pixelRect(-2, size * 0.3, 4, size * 0.34, dungeonPalette.emberHot);
+      return true;
+    }
+    if (kind === "archCompass") {
+      ctx.rotate((shot.angle || 0) + (shot.age || 0) * 2);
+      pixelLine(-size * 0.55, size * 0.45, 0, -size * 0.58, dungeonPalette.outline, 4);
+      pixelLine(size * 0.55, size * 0.45, 0, -size * 0.58, dungeonPalette.outline, 4);
+      pixelLine(-size * 0.45, size * 0.38, 0, -size * 0.45, color, 2);
+      pixelLine(size * 0.45, size * 0.38, 0, -size * 0.45, color, 2);
+      return true;
+    }
+    if (kind === "axisBolt") {
+      ctx.rotate(shot.angle || 0);
+      pixelRect(-size * 0.75, -2, size * 1.5, 4, dungeonPalette.outline);
+      pixelRect(-2, -size * 0.75, 4, size * 1.5, dungeonPalette.outline);
+      pixelRect(-size * 0.55, -1, size * 1.1, 2, color);
+      pixelRect(-1, -size * 0.55, 2, size * 1.1, color);
+      return true;
+    }
+    if (kind === "euclidShard") {
+      ctx.rotate(shot.angle || 0);
+      ctx.fillStyle = dungeonPalette.outline;
+      ctx.beginPath();
+      ctx.moveTo(size * 0.78, 0);
+      ctx.lineTo(-size * 0.44, -size * 0.54);
+      ctx.lineTo(-size * 0.22, size * 0.48);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(size * 0.48, 0);
+      ctx.lineTo(-size * 0.24, -size * 0.28);
+      ctx.lineTo(-size * 0.12, size * 0.24);
+      ctx.closePath();
+      ctx.fill();
+      return true;
+    }
+    if (kind === "jacobiMatrix") {
+      ctx.rotate((shot.angle || 0) + Math.PI / 4);
+      pixelRect(-size * 0.48, -size * 0.48, size * 0.96, size * 0.96, dungeonPalette.outline);
+      pixelRect(-size * 0.3, -size * 0.3, size * 0.18, size * 0.18, color);
+      pixelRect(size * 0.12, -size * 0.3, size * 0.18, size * 0.18, dungeonPalette.emberHot);
+      pixelRect(-size * 0.3, size * 0.12, size * 0.18, size * 0.18, dungeonPalette.emberHot);
+      pixelRect(size * 0.12, size * 0.12, size * 0.18, size * 0.18, color);
+      return true;
+    }
+    if (kind === "jordanFrame") {
+      ctx.rotate((shot.angle || 0) + (shot.age || 0) * 1.7);
+      pixelRect(-size * 0.58, -size * 0.58, size * 1.16, size * 1.16, dungeonPalette.outline);
+      pixelRect(-size * 0.38, -size * 0.38, size * 0.76, size * 0.76, "rgba(0,0,0,0)");
+      pixelLine(-size * 0.5, 0, size * 0.5, 0, color, 2);
+      pixelLine(0, -size * 0.5, 0, size * 0.5, color, 2);
+      return true;
+    }
+    if (kind === "gaussRow") {
+      ctx.rotate(shot.angle || 0);
+      pixelRect(-size * 0.82, -size * 0.32, size * 1.64, size * 0.64, dungeonPalette.outline);
+      for (let i = 0; i < 3; i += 1) {
+        pixelRect(-size * 0.56 + i * size * 0.38, -size * 0.16, size * 0.22, size * 0.32, i === 1 ? dungeonPalette.emberHot : color);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function drawEnemyProjectileTrail(shot, color) {
+    const kind = shot.enemyWeapon || "";
+    const speed = Math.hypot(shot.vx || 0, shot.vy || 0) || 1;
+    const nx = (shot.vx || Math.cos(shot.angle || 0)) / speed;
+    const ny = (shot.vy || Math.sin(shot.angle || 0)) / speed;
+    const px = -ny;
+    const py = nx;
+    const age = shot.age || 0;
+    ctx.save();
+    ctx.lineCap = "square";
+    if (kind === "lagrangeOrb") {
+      ctx.globalAlpha = 0.22;
+      pixelLine(shot.x - nx * 12 + px * 5, shot.y - ny * 12 + py * 5, shot.x - nx * 34 - px * 3, shot.y - ny * 34 - py * 3, color, 2);
+      pixelLine(shot.x - nx * 7 - px * 4, shot.y - ny * 7 - py * 4, shot.x - nx * 24 + px * 4, shot.y - ny * 24 + py * 4, dungeonPalette.emberHot, 1);
+    } else if (kind === "taylorTerm") {
+      ctx.globalAlpha = 0.2;
+      [-1, 0, 1].forEach((lane) => {
+        pixelLine(shot.x - nx * 8 + px * lane * 4, shot.y - ny * 8 + py * lane * 4, shot.x - nx * (24 + lane * 3) + px * lane * 7, shot.y - ny * (24 + lane * 3) + py * lane * 7, lane === 0 ? dungeonPalette.emberHot : color, 1);
+      });
+    } else if (kind === "axisBolt") {
+      ctx.globalAlpha = 0.18;
+      pixelLine(shot.x - nx * 28, shot.y - ny * 28, shot.x + nx * 8, shot.y + ny * 8, color, 2);
+      pixelLine(shot.x + px * 8, shot.y + py * 8, shot.x - px * 8, shot.y - py * 8, color, 1);
+    } else if (kind === "gaussRow" || kind === "jacobiMatrix") {
+      ctx.globalAlpha = 0.18;
+      for (let i = 1; i <= 3; i += 1) {
+        const back = 9 + i * 8;
+        pixelRect(shot.x - nx * back - 4 + Math.sin(age * 8 + i) * 2, shot.y - ny * back - 3, 8, 6, i === 2 ? dungeonPalette.emberHot : color);
+      }
+    } else if (kind === "archCompass" || kind === "euclidShard") {
+      ctx.globalAlpha = 0.2;
+      pixelLine(shot.x - nx * 10 + px * 7, shot.y - ny * 10 + py * 7, shot.x - nx * 32, shot.y - ny * 32, color, 2);
+      pixelLine(shot.x - nx * 10 - px * 7, shot.y - ny * 10 - py * 7, shot.x - nx * 32, shot.y - ny * 32, color, 2);
+    } else if (kind === "jordanFrame" || kind === "lhopitalBlade") {
+      ctx.globalAlpha = 0.2;
+      pixelLine(shot.x - nx * 8 - px * 8, shot.y - ny * 8 - py * 8, shot.x - nx * 34 + px * 5, shot.y - ny * 34 + py * 5, color, 2);
+      pixelLine(shot.x - nx * 8 + px * 8, shot.y - ny * 8 + py * 8, shot.x - nx * 28 - px * 5, shot.y - ny * 28 - py * 5, dungeonPalette.emberHot, 1);
+    }
+    ctx.restore();
+  }
+
+  function drawPixelProjectile(shot, enemy = false) {
+    const color = shot.color || (enemy ? colors.danger : colors.mint);
+    const pulse = enemy ? 1 + Math.sin(((shot.age || 0) + (shot.pulse || 0)) * 12) * 0.08 : 1;
+    const size = Math.max(5, (shot.r || 4) * 2.1 * pulse);
+    if (enemy) drawEnemyProjectileTrail(shot, color);
+    ctx.save();
+    ctx.translate(pixelSnap(shot.x), pixelSnap(shot.y));
+    ctx.shadowColor = color;
+    ctx.shadowBlur = enemy ? 8 : 10;
+    if (!enemy && drawWeaponProjectileShape(shot, color, size)) {
+      ctx.restore();
+      return;
+    }
+    if (enemy && drawEnemyProjectileShape(shot, color, size)) {
+      ctx.restore();
+      return;
+    }
+    if (shot.shape === "beam") {
+      const angle = shot.angle ?? Math.atan2(shot.vy, shot.vx);
+      const len = shot.beamLength || 48;
+      ctx.rotate(angle);
+      pixelRect(-len * 0.35, -4, len * 1.18, 8, dungeonPalette.outline);
+      pixelRect(-len * 0.3, -2, len * 1.08, 4, color);
+    } else if (shot.shape === "square") {
+      ctx.rotate((shot.angle || 0) + Math.PI / 4);
+      pixelRect(-size / 2 - 2, -size / 2 - 2, size + 4, size + 4, dungeonPalette.outline);
+      pixelRect(-size / 2, -size / 2, size, size, color);
+      pixelRect(-size / 4, -size / 4, size / 2, size / 2, enemy ? dungeonPalette.emberHot : "#fff");
+    } else {
+      drawPixelDiamond(0, 0, size * 0.62, size * 0.42, color, dungeonPalette.outline);
+      pixelRect(-2, -2, 4, 4, enemy ? dungeonPalette.emberHot : "#fff");
+    }
+    ctx.restore();
+  }
+
   function draw() {
+    frameShake = mode === "combat" ? screenShakeOffset() : { x: 0, y: 0 };
     drawBackground();
     if (mode === "combat") {
       drawCombat();
@@ -8149,6 +11877,7 @@
     if (isBossIntroActive()) {
       drawBossIntroOverlay();
     }
+    drawHurtOverlay();
     requestAnimationFrame(loop);
   }
 
@@ -8289,44 +12018,19 @@
 
   function drawBackground() {
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = "#151718";
+    ctx.fillStyle = dungeonPalette.void;
     ctx.fillRect(0, 0, W, H);
-
-    const camera = mode === "combat" ? combatCamera() : { x: 0, y: 0 };
+    const camera = mode === "combat" && game.activeRoom === "boss" && game.player
+      ? combatCamera()
+      : { x: 0, y: 0 };
+    const roomLift = mode === "combat" ? combatRoomLift : 0;
     ctx.save();
-    ctx.translate(-camera.x, -camera.y);
-    ctx.strokeStyle = "rgba(255,255,255,0.045)";
-    ctx.lineWidth = 1;
-    const gridLeft = mode === "combat" ? arena.left : 0;
-    const gridRight = mode === "combat" ? arena.right : W;
-    const gridTop = mode === "combat" ? arena.top : 0;
-    const gridBottom = mode === "combat" ? arena.bottom : H;
-    const displayArena = mode === "combat"
-      ? arena
-      : {
-        left: baseArena.left,
-        top: baseArena.top,
-        width: baseArena.width,
-        height: baseArena.height,
-      };
-    for (let x = gridLeft; x <= gridRight; x += 40) {
-      ctx.beginPath();
-      ctx.moveTo(x, gridTop);
-      ctx.lineTo(x, gridBottom);
-      ctx.stroke();
-    }
-    for (let y = gridTop; y <= gridBottom; y += 40) {
-      ctx.beginPath();
-      ctx.moveTo(gridLeft, y);
-      ctx.lineTo(gridRight, y);
-      ctx.stroke();
-    }
-
-    ctx.fillStyle = "rgba(244,240,230,0.035)";
-    ctx.fillRect(displayArena.left, displayArena.top, displayArena.width, displayArena.height);
-    ctx.strokeStyle = "rgba(244,240,230,0.08)";
-    ctx.strokeRect(displayArena.left, displayArena.top, displayArena.width, displayArena.height);
+    ctx.translate(frameShake.x - camera.x, frameShake.y - camera.y - roomLift);
+    drawDungeonFloor();
+    drawToxicPits();
+    drawDungeonWalls();
     ctx.restore();
+    drawDungeonVignette();
   }
 
   function drawAmbientMath() {
@@ -8344,7 +12048,7 @@
   function drawCombat() {
     const camera = combatCamera();
     ctx.save();
-    ctx.translate(-camera.x, -camera.y);
+    ctx.translate(frameShake.x - camera.x, frameShake.y - camera.y - combatRoomLift);
     if (game.activeRoom === "monster") {
       drawMonsterRoom();
     } else if (game.activeRoom === "boss") {
@@ -8355,9 +12059,11 @@
     drawShots();
     drawSlashes();
     drawParticles();
+    drawHitImpacts();
     drawPlayer();
     drawAimLine();
     ctx.restore();
+    drawVisualCombatHud();
   }
 
   function drawMonsterMechanicFloor() {
@@ -8465,21 +12171,148 @@
     ctx.restore();
   }
 
+  function drawShopGuardTelegraphs(enemy) {
+    if (!hasEnemyMechanic(enemy, "shopGuard")) return;
+    const player = game.player || enemy;
+    const level = Math.max(1, enemy.betaMechanicLevel || betaDifficultyMechanicLevel());
+    const dangerStroke = enemy.shopEnrage ? "rgba(216,56,75,0.82)" : "rgba(240,195,93,0.72)";
+    const dangerFill = enemy.shopEnrage ? "rgba(216,56,75,0.08)" : "rgba(240,195,93,0.055)";
+    const hotStroke = "rgba(255,240,163,0.82)";
+
+    if ((enemy.shopEnrageIntroTimer || 0) > 0) {
+      const max = Math.max(0.01, enemy.shopEnrageIntroMax || betaShopGuardEnrageIntroDuration);
+      const progress = 1 - clamp((enemy.shopEnrageIntroTimer || 0) / max, 0, 1);
+      const pulse = 0.5 + Math.sin(performance.now() / 54) * 0.5;
+      ctx.save();
+      ctx.globalAlpha = 0.26 + pulse * 0.18;
+      ctx.fillStyle = "rgba(216,56,75,0.1)";
+      circle(enemy.x, enemy.y, enemy.r + 42 + progress * 42);
+      ctx.globalAlpha = 0.48 + pulse * 0.26;
+      ctx.strokeStyle = hotStroke;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([10, 6]);
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, enemy.r + 52 + progress * 34, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      for (let i = 0; i < 4; i += 1) {
+        const angle = Math.PI / 4 + i * Math.PI / 2 + progress * 0.35;
+        const x = enemy.x + Math.cos(angle) * (enemy.r + 64);
+        const y = enemy.y + Math.sin(angle) * (enemy.r + 48);
+        drawPixelDiamond(x, y, 14, 10, "rgba(216,56,75,0.42)", dungeonPalette.emberHot);
+      }
+      ctx.restore();
+    }
+
+    if ((enemy.shopTaxWarnTimer || 0) > 0) {
+      const max = Math.max(0.01, enemy.shopTaxWarnMax || betaShopGuardTaxWarning);
+      const progress = 1 - clamp((enemy.shopTaxWarnTimer || 0) / max, 0, 1);
+      const radius = enemy.r + 42 + progress * (96 + level * 10);
+      const count = 10 + level * 3;
+      ctx.save();
+      ctx.globalAlpha = 0.18 + progress * 0.36;
+      ctx.fillStyle = dangerFill;
+      circle(enemy.x, enemy.y, radius);
+      ctx.strokeStyle = dangerStroke;
+      ctx.lineWidth = 2 + progress * 2;
+      ctx.setLineDash([8, 7]);
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      for (let i = 0; i < count; i += 1) {
+        const angle = (Math.PI * 2 * i) / count + progress * 0.35;
+        const inner = radius - 9;
+        const outer = radius + 9;
+        pixelLine(
+          enemy.x + Math.cos(angle) * inner,
+          enemy.y + Math.sin(angle) * inner,
+          enemy.x + Math.cos(angle) * outer,
+          enemy.y + Math.sin(angle) * outer,
+          hotStroke,
+          2
+        );
+      }
+      ctx.restore();
+    }
+
+    if ((enemy.shopPressureWarnTimer || 0) > 0) {
+      const max = Math.max(0.01, enemy.shopPressureWarnMax || betaShopGuardPressureWarning);
+      const progress = 1 - clamp((enemy.shopPressureWarnTimer || 0) / max, 0, 1);
+      const baseAngle = enemy.shopPressureWarnAngle ?? Math.atan2(player.y - enemy.y, player.x - enemy.x);
+      const offsets = enemy.shopEnrage || level >= 3 ? [-0.34, -0.14, 0.14, 0.34] : [-0.22, 0, 0.22];
+      const length = 168 + level * 18 + progress * 36;
+      ctx.save();
+      ctx.globalAlpha = 0.22 + progress * 0.42;
+      ctx.strokeStyle = dangerStroke;
+      ctx.lineWidth = 2 + progress * 2;
+      ctx.setLineDash([12, 7]);
+      offsets.forEach((offset, index) => {
+        const angle = baseAngle + offset;
+        const side = index % 2 === 0 ? 1 : -1;
+        const ex = enemy.x + Math.cos(angle) * length;
+        const ey = enemy.y + Math.sin(angle) * length;
+        const mx = enemy.x + Math.cos(angle) * length * 0.55 - Math.sin(angle) * side * (20 + level * 4);
+        const my = enemy.y + Math.sin(angle) * length * 0.55 + Math.cos(angle) * side * (20 + level * 4);
+        ctx.beginPath();
+        ctx.moveTo(enemy.x, enemy.y);
+        ctx.quadraticCurveTo(mx, my, ex, ey);
+        ctx.stroke();
+        drawPixelDiamond(ex, ey, 10 + progress * 7, 8 + progress * 5, "rgba(240,195,93,0.18)", hotStroke);
+      });
+      ctx.restore();
+    }
+
+    if ((enemy.fireTimer || 0) > 0 && (enemy.fireTimer || 0) <= betaShopGuardFocusWarning) {
+      const progress = 1 - clamp((enemy.fireTimer || 0) / betaShopGuardFocusWarning, 0, 1);
+      const baseAngle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+      const length = 190 + progress * 55;
+      ctx.save();
+      ctx.globalAlpha = 0.16 + progress * 0.34;
+      ctx.strokeStyle = enemy.shopEnrage ? "rgba(255,240,163,0.8)" : "rgba(240,195,93,0.62)";
+      ctx.lineWidth = 1.5 + progress * 1.6;
+      ctx.setLineDash([8, 6]);
+      for (let i = -3; i <= 3; i += 1) {
+        const angle = baseAngle + i * 0.15;
+        ctx.beginPath();
+        ctx.moveTo(enemy.x, enemy.y);
+        ctx.lineTo(enemy.x + Math.cos(angle) * length, enemy.y + Math.sin(angle) * length);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
   function drawEnemyTelegraphs(enemy) {
+    drawShopGuardTelegraphs(enemy);
     if (enemy.quadrantWarnTimer > 0) {
       const progress = 1 - clamp(enemy.quadrantWarnTimer / Math.max(0.01, enemy.quadrantWarnMax || 0.58), 0, 1);
+      const tx = enemy.quadrantTargetX;
+      const ty = enemy.quadrantTargetY;
       ctx.save();
       ctx.globalAlpha = 0.25 + progress * 0.35;
       ctx.strokeStyle = enemy.color || colors.cyan;
       ctx.lineWidth = 2 + progress * 3;
       ctx.setLineDash([5, 6]);
       ctx.beginPath();
-      ctx.arc(enemy.quadrantTargetX, enemy.quadrantTargetY, 24 + progress * 18, 0, Math.PI * 2);
+      ctx.arc(tx, ty, 24 + progress * 18, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.setLineDash([]);
+      pixelLine(tx - 38, ty, tx + 38, ty, enemy.color || colors.cyan, 2);
+      pixelLine(tx, ty - 32, tx, ty + 32, enemy.color || colors.cyan, 2);
+      for (let i = 0; i < 4; i += 1) {
+        const sx = tx + (i % 2 ? 1 : -1) * (31 + progress * 8);
+        const sy = ty + (i > 1 ? 1 : -1) * (25 + progress * 8);
+        pixelLine(sx, sy, sx - (i % 2 ? 10 : -10), sy, dungeonPalette.emberHot, 2);
+        pixelLine(sx, sy, sx, sy - (i > 1 ? 10 : -10), dungeonPalette.emberHot, 2);
+      }
       ctx.restore();
     }
     if (enemy.dashWarnTimer > 0) {
       const progress = 1 - clamp(enemy.dashWarnTimer / Math.max(0.01, enemy.dashWarnMax || 0.58), 0, 1);
+      const tx = enemy.dashTargetX || enemy.x;
+      const ty = enemy.dashTargetY || enemy.y;
+      const angle = Math.atan2(ty - enemy.y, tx - enemy.x);
       ctx.save();
       ctx.globalAlpha = 0.25 + progress * 0.35;
       ctx.strokeStyle = enemy.color || colors.cyan;
@@ -8487,12 +12320,22 @@
       ctx.setLineDash([9, 7]);
       ctx.beginPath();
       ctx.moveTo(enemy.x, enemy.y);
-      ctx.lineTo(enemy.dashTargetX || enemy.x, enemy.dashTargetY || enemy.y);
+      ctx.lineTo(tx, ty);
       ctx.stroke();
+      ctx.setLineDash([]);
+      for (let i = 0; i < 4; i += 1) {
+        const d = 24 + i * 18 + progress * 12;
+        const x = enemy.x + Math.cos(angle) * d;
+        const y = enemy.y + Math.sin(angle) * d;
+        pixelLine(x - Math.sin(angle) * 7, y + Math.cos(angle) * 7, x + Math.sin(angle) * 7, y - Math.cos(angle) * 7, dungeonPalette.emberHot, 2);
+      }
       ctx.restore();
     }
     if ((enemy.lhopitalSlashWarnTimer || 0) > 0) {
       const progress = 1 - clamp(enemy.lhopitalSlashWarnTimer / Math.max(0.01, enemy.lhopitalSlashWarnMax || lhopitalSlashWarning), 0, 1);
+      const tx = enemy.lhopitalSlashTargetX || enemy.x;
+      const ty = enemy.lhopitalSlashTargetY || enemy.y;
+      const angle = Math.atan2(ty - enemy.y, tx - enemy.x);
       ctx.save();
       ctx.globalAlpha = 0.28 + progress * 0.34;
       ctx.strokeStyle = enemy.color || colors.paper;
@@ -8500,12 +12343,56 @@
       ctx.setLineDash([7, 5]);
       ctx.beginPath();
       ctx.moveTo(enemy.x, enemy.y);
-      ctx.lineTo(enemy.lhopitalSlashTargetX || enemy.x, enemy.lhopitalSlashTargetY || enemy.y);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.translate(enemy.x, enemy.y);
+      ctx.rotate(angle);
+      ctx.beginPath();
+      ctx.arc(0, 0, 44 + progress * 26, -0.42, 0.42);
+      ctx.stroke();
+      pixelLine(28, -10, 56 + progress * 18, 10, dungeonPalette.emberHot, 2);
+      ctx.restore();
+    }
+    if ((enemy.jordanRageDashWarnTimer || 0) > 0) {
+      const progress = 1 - clamp(enemy.jordanRageDashWarnTimer / Math.max(0.01, enemy.jordanRageDashWarnMax || jordanRageDashWarning), 0, 1);
+      const tx = enemy.jordanRageDashTargetX || enemy.x;
+      const ty = enemy.jordanRageDashTargetY || enemy.y;
+      const angle = Math.atan2(ty - enemy.y, tx - enemy.x);
+      const nx = -Math.sin(angle);
+      const ny = Math.cos(angle);
+      ctx.save();
+      ctx.globalAlpha = 0.24 + progress * 0.4;
+      ctx.strokeStyle = enemy.color || colors.warning;
+      ctx.lineWidth = 2 + progress * 3;
+      ctx.setLineDash([10, 5]);
+      [-8, 8].forEach((offset) => {
+        ctx.beginPath();
+        ctx.moveTo(enemy.x + nx * offset, enemy.y + ny * offset);
+        ctx.lineTo(tx + nx * offset, ty + ny * offset);
+        ctx.stroke();
+      });
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(tx, ty, 16 + progress * 16, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (hasEnemyMechanic(enemy, "jordanOrbitDash") && isJordanOrbiting(enemy) && game.player) {
+      ctx.save();
+      ctx.globalAlpha = 0.1 + Math.sin((enemy.moveT || 0) * 5) * 0.025;
+      ctx.strokeStyle = enemy.color || colors.warning;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([7, 9]);
+      ctx.beginPath();
+      ctx.arc(game.player.x, game.player.y, jordanOrbitRadius, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
     if ((enemy.archimedesDashWarnTimer || 0) > 0) {
       const progress = 1 - clamp(enemy.archimedesDashWarnTimer / Math.max(0.01, enemy.archimedesDashWarnMax || archimedesDashWarning), 0, 1);
+      const tx = enemy.archimedesDashTargetX || enemy.x;
+      const ty = enemy.archimedesDashTargetY || enemy.y;
       ctx.save();
       ctx.globalAlpha = 0.2 + progress * 0.38;
       ctx.strokeStyle = enemy.color || colors.cyan;
@@ -8513,26 +12400,40 @@
       ctx.setLineDash([12, 8]);
       ctx.beginPath();
       ctx.moveTo(enemy.x, enemy.y);
-      ctx.lineTo(enemy.archimedesDashTargetX || enemy.x, enemy.archimedesDashTargetY || enemy.y);
+      ctx.lineTo(tx, ty);
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(enemy.archimedesDashTargetX || enemy.x, enemy.archimedesDashTargetY || enemy.y, 18 + progress * 14, 0, Math.PI * 2);
+      ctx.arc(tx, ty, 18 + progress * 14, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(tx, ty - 34 - progress * 10);
+      ctx.lineTo(tx + 35 + progress * 8, ty + 22 + progress * 5);
+      ctx.lineTo(tx - 35 - progress * 8, ty + 22 + progress * 5);
+      ctx.closePath();
       ctx.stroke();
       ctx.restore();
     }
     if ((enemy.taylorDashWarnTimer || 0) > 0) {
       const progress = 1 - clamp(enemy.taylorDashWarnTimer / Math.max(0.01, enemy.taylorDashWarnMax || taylorDashWarning), 0, 1);
+      const tx = enemy.taylorDashTargetX || enemy.x;
+      const ty = enemy.taylorDashTargetY || enemy.y;
+      const angle = Math.atan2(ty - enemy.y, tx - enemy.x);
+      const nx = -Math.sin(angle);
+      const ny = Math.cos(angle);
       ctx.save();
       ctx.globalAlpha = 0.26 + progress * 0.36;
       ctx.strokeStyle = enemy.color || colors.chalk;
       ctx.lineWidth = 2 + progress * 2;
       ctx.setLineDash([8, 6]);
+      [-14, 0, 14].forEach((offset) => {
+        ctx.beginPath();
+        ctx.moveTo(enemy.x + nx * offset, enemy.y + ny * offset);
+        ctx.lineTo(tx + nx * offset, ty + ny * offset);
+        ctx.stroke();
+      });
       ctx.beginPath();
-      ctx.moveTo(enemy.x, enemy.y);
-      ctx.lineTo(enemy.taylorDashTargetX || enemy.x, enemy.taylorDashTargetY || enemy.y);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(enemy.taylorDashTargetX || enemy.x, enemy.taylorDashTargetY || enemy.y, 18 + progress * 12, 0, Math.PI * 2);
+      ctx.arc(tx, ty, 18 + progress * 12, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
@@ -8546,6 +12447,12 @@
       ctx.beginPath();
       ctx.arc(enemy.jacobiBlinkTarget.x, enemy.jacobiBlinkTarget.y, 22 + progress * 15, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.setLineDash([]);
+      for (let row = 0; row < 2; row += 1) {
+        for (let col = 0; col < 2; col += 1) {
+          ctx.strokeRect(enemy.jacobiBlinkTarget.x - 13 + col * 13, enemy.jacobiBlinkTarget.y - 10 + row * 11, 8, 6);
+        }
+      }
       ctx.restore();
     }
     if ((enemy.jordanSlashWarnTimer || 0) > 0 || (enemy.jordanSlashActiveTimer || 0) > 0) {
@@ -8567,6 +12474,13 @@
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      if (active) {
+        ctx.setLineDash([]);
+        for (let i = -2; i <= 2; i += 1) {
+          const a = angle + i * 0.22;
+          pixelLine(enemy.x + Math.cos(a) * 20, enemy.y + Math.sin(a) * 20, enemy.x + Math.cos(a) * radius, enemy.y + Math.sin(a) * radius, dungeonPalette.emberHot, 2);
+        }
+      }
       ctx.restore();
     }
     if ((enemy.betaPulseWarnTimer || 0) > 0) {
@@ -8686,20 +12600,31 @@
       circle(enemy.x, enemy.y, enemy.r + 22 * characterSizeScale);
       ctx.restore();
     }
-    drawHealthBar(enemy.x - 38 * characterSizeScale, enemy.y - 44 * characterSizeScale, 76 * characterSizeScale, Math.max(3, 7 * characterSizeScale), enemy.hp / enemy.maxHp, enemy.color);
-    if ((enemy.staggerMax || 0) > 0 && !enemy.bossProjection) {
-      const staggerRatio = (enemy.staggerTimer || 0) > 0 ? 1 : clamp((enemy.stagger || 0) / Math.max(1, enemy.staggerMax || 1), 0, 1);
-      drawHealthBar(enemy.x - 32 * characterSizeScale, enemy.y - 34 * characterSizeScale, 64 * characterSizeScale, Math.max(2, 4 * characterSizeScale), staggerRatio, colors.warning);
-    }
-    ctx.fillStyle = "rgba(255,255,255,0.12)";
-    circle(enemy.x, enemy.y, enemy.r + 10 * characterSizeScale);
-    ctx.fillStyle = enemy.color;
-    circle(enemy.x, enemy.y, enemy.r);
+    drawEnemySprite(enemy);
     drawEnemyFacing(enemy);
-    ctx.fillStyle = "#101514";
-    ctx.font = `bold ${Math.max(9, 18 * characterSizeScale)}px Microsoft YaHei, sans-serif`;
-    ctx.textAlign = "center";
-    ctx.fillText(enemy.shortName || "?", enemy.x, enemy.y + 6 * characterSizeScale);
+    drawEnemyStatusBars(enemy);
+  }
+
+  function drawEnemyStatusBars(enemy) {
+    const barWidth = 50;
+    const barHeight = 5;
+    const topY = Math.round(enemy.y - enemy.r - 18);
+    drawHealthBar(Math.round(enemy.x - barWidth / 2), topY, barWidth, barHeight, enemy.hp / enemy.maxHp, enemy.color);
+    if ((enemy.staggerMax || 0) <= 0 || enemy.bossProjection) return;
+    const staggerRatio = (enemy.staggerTimer || 0) > 0 ? 1 : clamp((enemy.stagger || 0) / Math.max(1, enemy.staggerMax || 1), 0, 1);
+    const staggerWidth = 5;
+    const staggerHeight = 32;
+    const staggerX = Math.round(enemy.x - enemy.r - 14);
+    const staggerY = Math.round(enemy.y - staggerHeight / 2);
+    drawVerticalBar(staggerX, staggerY, staggerWidth, staggerHeight, staggerRatio, colors.warning);
+  }
+
+  function drawVerticalBar(x, y, w, h, ratio, color) {
+    const fill = clamp(ratio, 0, 1);
+    pixelRect(x - 2, y - 2, w + 4, h + 4, dungeonPalette.outline);
+    pixelRect(x, y, w, h, "rgba(5,8,6,0.86)");
+    pixelRect(x, y + h * (1 - fill), w, h * fill, color);
+    pixelRect(x, y, 1, h, "rgba(255,255,255,0.34)");
   }
 
   function drawMonsterRoom() {
@@ -8707,6 +12632,106 @@
     drawKnowledgeSynergyFloor();
     game.enemies.forEach(drawMonsterEnemy);
     ctx.textAlign = "start";
+  }
+
+  function drawDungeonObstacle(obstacle) {
+    const marked = Boolean(obstacle.marked);
+    const markProgress = marked ? 1 - clamp((obstacle.markTimer || 0) / (obstacle.maxMarkTimer || 1), 0, 1) : 0;
+    const top = marked ? "#5b4228" : dungeonPalette.stone;
+    const side = marked ? "#2e1f16" : dungeonPalette.stoneDark;
+    const light = marked ? dungeonPalette.ember : "rgba(184,240,196,0.22)";
+    const alpha = obstacle.broken ? 0.35 : 1;
+
+    if (obstacle.shape === "rect") {
+      const skew = clamp(Math.min(obstacle.w, obstacle.h) * 0.44, 3, 13);
+      const drop = { x: 8, y: 12 };
+      const p1 = { x: obstacle.x + skew, y: obstacle.y };
+      const p2 = { x: obstacle.x + obstacle.w, y: obstacle.y + obstacle.h * 0.34 };
+      const p3 = { x: obstacle.x + obstacle.w - skew, y: obstacle.y + obstacle.h };
+      const p4 = { x: obstacle.x, y: obstacle.y + obstacle.h * 0.66 };
+      drawIsoShadow(obstacle.x + obstacle.w / 2 + 7, obstacle.y + obstacle.h + 12, obstacle.w * 0.54, 8, 0.34 * alpha);
+      fillIsoQuad(
+        p4,
+        p3,
+        { x: p3.x + drop.x, y: p3.y + drop.y },
+        { x: p4.x + drop.x, y: p4.y + drop.y },
+        side,
+        dungeonPalette.outline
+      );
+      fillIsoQuad(
+        p3,
+        p2,
+        { x: p2.x + drop.x, y: p2.y + drop.y },
+        { x: p3.x + drop.x, y: p3.y + drop.y },
+        marked ? "#1c120f" : "#14241e",
+        dungeonPalette.outline
+      );
+      fillIsoQuad(p1, p2, p3, p4, top, dungeonPalette.outline);
+      const shineStart = isoPointBetween(p1, p2, 0.12);
+      const shineEnd = isoPointBetween(p1, p2, 0.78);
+      pixelLine(shineStart.x, shineStart.y + 2, shineEnd.x, shineEnd.y + 2, light, 2);
+      const crackA = isoPointBetween(p4, p2, 0.36);
+      const crackB = isoPointBetween(p4, p2, 0.62);
+      pixelLine(crackA.x, crackA.y, crackB.x, crackB.y, "rgba(0,0,0,0.2)", 1);
+      if (marked) {
+        const markA = isoPointBetween(p4, p3, 0.08);
+        const markB = isoPointBetween(p4, p3, 0.08 + 0.84 * markProgress);
+        pixelLine(markA.x, markA.y - 2, markB.x, markB.y - 2, dungeonPalette.emberHot, 4);
+      }
+      ctx.restore();
+      return;
+    }
+
+    if (obstacle.shape === "blob") {
+      ctx.save();
+      ctx.translate(8, 10);
+      ctx.globalAlpha = 0.28 * alpha;
+      ctx.fillStyle = "#000";
+      drawObstacleShape(obstacle, true, markProgress);
+      ctx.restore();
+      ctx.fillStyle = marked ? "rgba(240,195,93,0.32)" : "rgba(76,255,70,0.20)";
+      ctx.strokeStyle = marked ? dungeonPalette.ember : dungeonPalette.toxic;
+      ctx.shadowColor = marked ? dungeonPalette.ember : dungeonPalette.toxic;
+      ctx.shadowBlur = 10;
+      drawObstacleShape(obstacle, true, markProgress);
+      ctx.shadowBlur = 0;
+      ctx.restore();
+      return;
+    }
+
+    ctx.lineCap = "square";
+    ctx.lineJoin = "miter";
+    ctx.save();
+    ctx.translate(8, 10);
+    ctx.strokeStyle = "rgba(0,0,0,0.34)";
+    ctx.lineWidth = Math.max(10, (obstacle.thickness || 9) + 8);
+    drawObstacleShape(obstacle, false, markProgress);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(4, 6);
+    ctx.strokeStyle = "rgba(4,8,6,0.72)";
+    ctx.lineWidth = Math.max(8, (obstacle.thickness || 9) + 4);
+    drawObstacleShape(obstacle, false, markProgress);
+    ctx.restore();
+    ctx.strokeStyle = dungeonPalette.outline;
+    ctx.lineWidth = Math.max(9, (obstacle.thickness || 9) + 7);
+    drawObstacleShape(obstacle, false, markProgress);
+    ctx.strokeStyle = side;
+    ctx.lineWidth = Math.max(7, (obstacle.thickness || 9) + 3);
+    drawObstacleShape(obstacle, false, markProgress);
+    ctx.strokeStyle = top;
+    ctx.lineWidth = Math.max(5, obstacle.thickness || 9);
+    drawObstacleShape(obstacle, false, markProgress);
+    ctx.strokeStyle = light;
+    ctx.lineWidth = 2;
+    drawObstacleShape(obstacle, false, markProgress);
+    if (obstacle.broken) {
+      ctx.setLineDash([7, 7]);
+      ctx.strokeStyle = "rgba(244,240,230,0.2)";
+      drawObstacleShape(obstacle, false, markProgress);
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
   }
 
   function drawObstacles() {
@@ -8724,13 +12749,11 @@
       }
 
       const marked = Boolean(obstacle.marked);
-      const cauchyMarked = Boolean(obstacle.cauchyDomain);
       const markProgress = marked ? 1 - clamp((obstacle.markTimer || 0) / (obstacle.maxMarkTimer || 1), 0, 1) : 0;
-      const markColor = cauchyMarked ? "143, 209, 158" : "240, 195, 93";
-      ctx.fillStyle = marked ? (cauchyMarked ? "rgba(22, 46, 33, 0.98)" : "rgba(50, 38, 24, 0.98)") : "rgba(36, 40, 40, 0.96)";
-      ctx.strokeStyle = marked ? `rgba(${markColor}, ${0.48 + markProgress * 0.42})` : "rgba(244, 240, 230, 0.24)";
+      ctx.fillStyle = marked ? "rgba(50, 38, 24, 0.98)" : "rgba(36, 40, 40, 0.96)";
+      ctx.strokeStyle = marked ? `rgba(240, 195, 93, ${0.48 + markProgress * 0.42})` : "rgba(244, 240, 230, 0.24)";
       ctx.lineWidth = 2;
-      ctx.shadowColor = marked ? (cauchyMarked ? colors.chalk : colors.warning) : "transparent";
+      ctx.shadowColor = marked ? colors.warning : "transparent";
       ctx.shadowBlur = marked ? 12 + markProgress * 12 : 0;
       drawObstacleShape(obstacle, true, markProgress);
       ctx.shadowBlur = 0;
@@ -8739,7 +12762,7 @@
         ctx.fillRect(obstacle.x + 6, obstacle.y + 5, Math.max(0, obstacle.w - 12), 3);
       }
       if (marked && obstacle.shape === "rect") {
-        ctx.fillStyle = `rgba(${markColor}, ${0.14 + markProgress * 0.16})`;
+        ctx.fillStyle = `rgba(240, 195, 93, ${0.14 + markProgress * 0.16})`;
         ctx.fillRect(obstacle.x + 4, obstacle.y + obstacle.h - 7, Math.max(0, (obstacle.w - 8) * markProgress), 3);
       }
       if (obstacle.shape === "rect") {
@@ -8808,6 +12831,254 @@
     roundRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h, 5, true, true);
   }
 
+  function obstacleMaterial(obstacle, markProgress = 0) {
+    const cauchyMarked = Boolean(obstacle.cauchyDomain);
+    const marked = Boolean(obstacle.marked);
+    const pulse = clamp(markProgress, 0, 1);
+    if (marked) {
+      return cauchyMarked
+        ? {
+            base: "#2e443d",
+            mid: "#233833",
+            side: "#122520",
+            dark: "#071724",
+            light: "rgba(126,166,142,0.42)",
+            hatch: "rgba(6,18,29,0.56)",
+            glow: `rgba(143,209,158,${0.1 + pulse * 0.14})`,
+            accent: `rgba(143,209,158,${0.36 + pulse * 0.3})`,
+          }
+        : {
+            base: "#4a3d33",
+            mid: "#342c26",
+            side: "#1d1917",
+            dark: "#071724",
+            light: "rgba(196,154,99,0.38)",
+            hatch: "rgba(8,18,25,0.58)",
+            glow: `rgba(255,178,60,${0.1 + pulse * 0.12})`,
+            accent: `rgba(255,178,60,${0.36 + pulse * 0.28})`,
+          };
+    }
+    return {
+      base: "#3a494d",
+      mid: "#2d3b40",
+      side: "#19282f",
+      dark: "#071724",
+      light: "rgba(170,194,194,0.4)",
+      hatch: "rgba(5,16,22,0.68)",
+      glow: "rgba(57,244,221,0)",
+      accent: "rgba(154,183,192,0.48)",
+    };
+  }
+
+  function obstacleSeed(obstacle, salt = 0) {
+    return Math.round((obstacle.x || 0) * 0.37 + (obstacle.y || 0) * 0.61 + (obstacle.w || 0) * 0.23 + (obstacle.h || 0) * 0.19 + salt);
+  }
+
+  function obstaclePathSegments(obstacle) {
+    if (obstacle.shape === "brokenLine") {
+      return (obstacle.segments || []).flatMap((segment) => (
+        segment.slice(1).map((point, index) => [segment[index], point])
+      ));
+    }
+    if (obstacle.points?.length) {
+      return obstacle.points.slice(1).map((point, index) => [obstacle.points[index], point]);
+    }
+    return [];
+  }
+
+  function drawObstaclePathStoneDetails(obstacle, material) {
+    const thickness = Math.max(5, obstacle.thickness || 9);
+    const segments = obstaclePathSegments(obstacle);
+    segments.forEach(([a, b], index) => {
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 14) return;
+      const nx = -dy / len;
+      const ny = dx / len;
+      const seed = obstacleSeed(obstacle, index * 11);
+      const ticks = Math.max(1, Math.floor(len / 42));
+      for (let i = 0; i < ticks; i += 1) {
+        const t = clamp((i + 0.45 + floorHash(seed + i, index, 7) * 0.22) / ticks, 0.08, 0.92);
+        const cx = a.x + dx * t;
+        const cy = a.y + dy * t;
+        const half = thickness * (0.28 + floorHash(seed, i, 8) * 0.24);
+        pixelLine(cx - nx * half, cy - ny * half, cx + nx * half, cy + ny * half, material.hatch, 1);
+        if (floorHash(seed, i, 9) > 0.45) {
+          pixelLine(cx - dx / len * half * 0.55, cy - dy / len * half * 0.55, cx + dx / len * half * 0.45, cy + dy / len * half * 0.45, "rgba(120,144,157,0.18)", 1);
+        }
+      }
+    });
+  }
+
+  function drawObstacleBlockDetails(obstacle, material) {
+    const seed = obstacleSeed(obstacle, 31);
+    const inset = 5;
+    const maxX = obstacle.x + Math.max(inset + 1, obstacle.w - inset);
+    const maxY = obstacle.y + Math.max(inset + 1, obstacle.h - inset);
+    for (let i = 0; i < 4; i += 1) {
+      const sx = obstacle.x + inset + floorHash(seed, i, 21) * Math.max(1, obstacle.w - inset * 2);
+      const sy = obstacle.y + inset + floorHash(seed, i, 22) * Math.max(1, obstacle.h - inset * 2);
+      const ex = Math.min(maxX, sx + 7 + floorHash(seed, i, 23) * Math.max(8, obstacle.w * 0.22));
+      const ey = sy + (floorHash(seed, i, 24) - 0.5) * Math.max(5, obstacle.h * 0.18);
+      pixelLine(sx, sy, ex, clamp(ey, obstacle.y + inset, maxY), i % 2 ? material.hatch : "rgba(120,144,157,0.2)", 1);
+    }
+    pixelRect(obstacle.x + 6, obstacle.y + 5, Math.max(0, obstacle.w - 12), 2, "rgba(144,166,154,0.12)");
+    pixelRect(obstacle.x + 6, obstacle.y + obstacle.h - 7, Math.max(0, obstacle.w - 12), 3, "rgba(6,18,29,0.38)");
+  }
+
+  function drawObstacles() {
+    game.obstacles.forEach((obstacle) => {
+      ctx.save();
+      if (obstacle.broken) {
+        const material = obstacleMaterial(obstacle, 0);
+        ctx.save();
+        ctx.translate(5, 7);
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = "#000";
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = Math.max(6, (obstacle.thickness || 9) + 5);
+        drawObstacleShape(obstacle, obstacle.shape === "rect" || obstacle.shape === "blob", 0);
+        ctx.restore();
+        ctx.globalAlpha = 0.42;
+        ctx.fillStyle = "rgba(23,43,56,0.46)";
+        ctx.strokeStyle = "rgba(120,144,157,0.22)";
+        ctx.setLineDash([6, 6]);
+        ctx.lineWidth = Math.max(2, (obstacle.thickness || 8) * 0.36);
+        drawObstacleShape(obstacle, false, 0);
+        ctx.setLineDash([]);
+        if (obstacle.shape === "rect") drawObstacleBlockDetails(obstacle, material);
+        else drawObstaclePathStoneDetails(obstacle, material);
+        ctx.restore();
+        return;
+      }
+
+      const marked = Boolean(obstacle.marked);
+      const markProgress = marked ? 1 - clamp((obstacle.markTimer || 0) / (obstacle.maxMarkTimer || 1), 0, 1) : 0;
+      const material = obstacleMaterial(obstacle, markProgress);
+      if (obstacle.shape === "line" || obstacle.shape === "curve" || obstacle.shape === "corner" || obstacle.shape === "brokenLine") {
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.save();
+        ctx.translate(7, 9);
+        ctx.strokeStyle = "rgba(0,0,0,0.34)";
+        ctx.lineWidth = Math.max(11, (obstacle.thickness || 9) + 9);
+        drawObstacleShape(obstacle, false, markProgress);
+        ctx.restore();
+
+        ctx.strokeStyle = material.dark;
+        ctx.lineWidth = Math.max(10, (obstacle.thickness || 9) + 8);
+        drawObstacleShape(obstacle, false, markProgress);
+        ctx.strokeStyle = material.side;
+        ctx.lineWidth = Math.max(8, (obstacle.thickness || 9) + 5);
+        drawObstacleShape(obstacle, false, markProgress);
+        ctx.strokeStyle = material.mid;
+        ctx.lineWidth = Math.max(6, (obstacle.thickness || 9) + 1);
+        drawObstacleShape(obstacle, false, markProgress);
+        ctx.strokeStyle = material.base;
+        ctx.lineWidth = Math.max(5, obstacle.thickness || 9);
+        drawObstacleShape(obstacle, false, markProgress);
+        ctx.save();
+        ctx.translate(-1, -1);
+        ctx.strokeStyle = material.light;
+        ctx.globalAlpha = 0.36;
+        ctx.lineWidth = 2;
+        drawObstacleShape(obstacle, false, markProgress);
+        ctx.restore();
+        if (!marked) {
+          ctx.save();
+          ctx.strokeStyle = material.accent;
+          ctx.globalAlpha = 0.22;
+          ctx.lineWidth = Math.max(2, (obstacle.thickness || 9) * 0.22);
+          drawObstacleShape(obstacle, false, markProgress);
+          ctx.restore();
+        }
+        drawObstaclePathStoneDetails(obstacle, material);
+      } else {
+        ctx.save();
+        ctx.translate(7, 9);
+        ctx.globalAlpha = 0.32;
+        ctx.fillStyle = "#000";
+        ctx.strokeStyle = "#000";
+        drawObstacleShape(obstacle, true, markProgress);
+        ctx.restore();
+        ctx.fillStyle = material.mid;
+        ctx.strokeStyle = material.dark;
+        ctx.lineWidth = 4;
+        drawObstacleShape(obstacle, true, markProgress);
+        ctx.fillStyle = material.base;
+        ctx.strokeStyle = marked ? material.dark : material.accent;
+        ctx.lineWidth = marked ? 2 : 2.4;
+        if (obstacle.shape === "rect") roundRect(obstacle.x + 2, obstacle.y + 2, Math.max(1, obstacle.w - 4), Math.max(1, obstacle.h - 4), 4, true, false);
+        else drawObstacleShape(obstacle, true, markProgress);
+        drawObstacleBlockDetails(obstacle, material);
+      }
+      if (marked) {
+        ctx.strokeStyle = material.accent;
+        ctx.lineWidth = obstacle.shape === "rect" || obstacle.shape === "blob" ? 2 : Math.max(2, (obstacle.thickness || 9) * 0.26);
+        ctx.shadowColor = material.accent;
+        ctx.shadowBlur = 7 + markProgress * 7;
+        drawObstacleShape(obstacle, false, markProgress);
+        ctx.shadowBlur = 0;
+      }
+      ctx.restore();
+    });
+  }
+
+  function drawObstacleShape(obstacle, solid = true, markProgress = 0) {
+    if (obstacle.shape === "line" || obstacle.shape === "curve" || obstacle.shape === "corner") {
+      ctx.lineCap = obstacle.shape === "curve" ? "round" : "butt";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = Math.max(5, obstacle.thickness || 9);
+      ctx.beginPath();
+      obstacle.points.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      });
+      ctx.stroke();
+      if (solid) {
+        ctx.strokeStyle = `rgba(244, 240, 230, ${0.07 + markProgress * 0.08})`;
+        ctx.lineWidth = Math.max(2, (obstacle.thickness || 9) * 0.34);
+        ctx.stroke();
+      }
+      return;
+    }
+
+    if (obstacle.shape === "brokenLine") {
+      ctx.lineCap = "butt";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = Math.max(5, obstacle.thickness || 9);
+      ctx.beginPath();
+      (obstacle.segments || []).forEach((segment) => {
+        segment.forEach((point, index) => {
+          if (index === 0) ctx.moveTo(point.x, point.y);
+          else ctx.lineTo(point.x, point.y);
+        });
+      });
+      ctx.stroke();
+      if (solid) {
+        ctx.strokeStyle = `rgba(244, 240, 230, ${0.07 + markProgress * 0.08})`;
+        ctx.lineWidth = Math.max(2, (obstacle.thickness || 9) * 0.34);
+        ctx.stroke();
+      }
+      return;
+    }
+
+    if (obstacle.shape === "blob") {
+      ctx.beginPath();
+      obstacle.points.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      });
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      return;
+    }
+
+    roundRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h, 5, true, true);
+  }
+
   function drawEnemyFacing(enemy) {
     const angle = enemy.facingAngle ?? Math.PI / 2;
     const backAngle = angle + Math.PI;
@@ -8839,15 +13110,131 @@
     ctx.restore();
   }
 
+  function bossCoreRgba(coreId, alpha) {
+    const rgb = {
+      cauchy: "143,209,158",
+      descartes: "102,207,255",
+      gauss: "240,195,93",
+    }[coreId] || "244,240,230";
+    return `rgba(${rgb},${alpha})`;
+  }
+
+  function drawBossArenaPulse(color, progress, strength = 1) {
+    const inset = 10 + progress * 18;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = clamp((1 - progress) * strength, 0, 1);
+    ctx.lineWidth = 2 + progress * 4;
+    ctx.setLineDash([18, 12]);
+    ctx.strokeRect(arena.left + inset, arena.top + inset, arena.width - inset * 2, arena.height - inset * 2);
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  function drawBossPhaseFlashes(boss) {
+    if (!boss) return;
+    const now = performance.now();
+
+    if ((boss.domainFlashTimer || 0) > 0) {
+      const core = bossCoreById(boss.domainFlashCoreId) || bossCoreById(boss.domainCoreId);
+      const coreId = core?.id || boss.domainFlashCoreId;
+      const progress = 1 - clamp((boss.domainFlashTimer || 0) / 0.9, 0, 1);
+      const alpha = 1 - progress;
+      const pos = core ? corePosition(core) : { x: arenaCenterX(), y: arenaCenterY() };
+      ctx.save();
+      ctx.globalAlpha = 0.95;
+      ctx.strokeStyle = bossCoreRgba(coreId, 0.3 + alpha * 0.34);
+      ctx.fillStyle = bossCoreRgba(coreId, 0.03 + alpha * 0.05);
+      ctx.lineWidth = 2;
+      if (coreId === "descartes") {
+        const midX = arenaCenterX();
+        const midY = arenaCenterY();
+        ctx.fillRect(arena.left, arena.top, arena.width, arena.height);
+        ctx.beginPath();
+        ctx.moveTo(midX, arena.top);
+        ctx.lineTo(midX, arena.bottom);
+        ctx.moveTo(arena.left, midY);
+        ctx.lineTo(arena.right, midY);
+        ctx.stroke();
+      } else if (coreId === "cauchy") {
+        const player = game.player || { x: arenaCenterX(), y: arenaCenterY() };
+        const radius = 92 + progress * 86;
+        ctx.setLineDash([18, 10]);
+        for (let i = 0; i < 3; i += 1) {
+          ctx.beginPath();
+          ctx.arc(player.x, player.y, radius + i * 18, now / 520 + i * 2.1, now / 520 + i * 2.1 + Math.PI * 0.95);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+      } else if (coreId === "gauss") {
+        ctx.fillStyle = `rgba(4,6,9,${0.12 * alpha})`;
+        ctx.fillRect(arena.left, arena.top, arena.width, arena.height);
+        ctx.strokeStyle = bossCoreRgba(coreId, 0.18 + alpha * 0.28);
+        for (let i = 0; i < 5; i += 1) {
+          const y = arena.top + ((now / 18 + i * 82) % arena.height);
+          pixelLine(arena.left, y, arena.right, y, ctx.strokeStyle, 1);
+        }
+      }
+      ctx.strokeStyle = bossCoreRgba(coreId, 0.36 + alpha * 0.42);
+      ctx.lineWidth = 2.5 + alpha * 2.5;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 74 * bossSizeScale + progress * 160, 0, Math.PI * 2);
+      ctx.stroke();
+      drawBossArenaPulse(bossCoreRgba(coreId, 0.45), progress, 0.9);
+      ctx.restore();
+    }
+
+    if ((boss.coreDefeatFlashTimer || 0) > 0) {
+      const progress = 1 - clamp((boss.coreDefeatFlashTimer || 0) / 0.95, 0, 1);
+      const core = bossCoreById(boss.coreDefeatFlashCoreId);
+      const pos = core ? corePosition(core) : { x: arenaCenterX(), y: arenaCenterY() };
+      ctx.save();
+      ctx.strokeStyle = `rgba(244,240,230,${0.62 * (1 - progress)})`;
+      ctx.fillStyle = `rgba(244,240,230,${0.035 * (1 - progress)})`;
+      ctx.lineWidth = 4 + progress * 8;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 52 * bossSizeScale + progress * 260, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      drawBossArenaPulse("rgba(244,240,230,0.46)", progress, 0.8);
+      ctx.restore();
+    }
+
+    if ((boss.finalCoreFlashTimer || 0) > 0) {
+      const core = bossCoreById(boss.finalCoreFlashCoreId) || bossCoreById(boss.fullPowerCoreId);
+      const coreId = core?.id || boss.finalCoreFlashCoreId;
+      const progress = 1 - clamp((boss.finalCoreFlashTimer || 0) / 1.35, 0, 1);
+      const pos = core ? corePosition(core) : { x: arenaCenterX(), y: arenaCenterY() };
+      ctx.save();
+      ctx.strokeStyle = bossCoreRgba(coreId, 0.46 + (1 - progress) * 0.28);
+      ctx.fillStyle = `rgba(244,240,230,${0.028 * (1 - progress)})`;
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([24, 9, 5, 9]);
+      ctx.strokeRect(arena.left + 18, arena.top + 18, arena.width - 36, arena.height - 36);
+      ctx.setLineDash([]);
+      for (let i = 0; i < 4; i += 1) {
+        const angle = now / 420 + i * (Math.PI / 2);
+        const r = 92 * bossSizeScale + progress * 118;
+        pixelLine(pos.x + Math.cos(angle) * 32, pos.y + Math.sin(angle) * 32, pos.x + Math.cos(angle) * r, pos.y + Math.sin(angle) * r, bossCoreRgba(coreId, 0.48), 2);
+      }
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 68 * bossSizeScale + Math.sin(now / 60) * 5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   function drawBossRoom() {
     const boss = game.boss;
     if (!boss) return;
     drawBossDomainField(boss);
+    drawBossPhaseFlashes(boss);
     drawBossBombs(boss);
 
     const introActive = isBossIntroActive();
-    const visibleAliveCores = boss.cores.filter((core) => core.hp > 0 && (introActive || !isBossCoreHidden(core)));
+    const visibleAliveCores = boss.cores.filter((core) => core.hp > 0 && (introActive || !isBossCoreHidden(core) || boss.fullPowerCoreId === core.id));
     if (visibleAliveCores.length > 0) {
+      drawBossBody(boss);
       ctx.save();
       ctx.translate(boss.x, boss.y);
       ctx.rotate(boss.angle * 0.35);
@@ -8878,11 +13265,12 @@
     boss.cores.forEach((core, index) => {
       const pos = corePosition(core);
       const alive = core.hp > 0;
+      if (!alive && !introActive) return;
       const front = alive && frontIds.has(core.id);
       const invulnerable = alive && !front;
       const hidden = alive && isBossCoreHidden(core);
       const revealed = alive && isBossCoreRevealed(core);
-      if (hidden && !introActive) return;
+      if (hidden && !introActive && boss.fullPowerCoreId !== core.id) return;
       const introAlpha = bossIntroCoreAlpha(index);
       const overload = front && alive && ((core.domainFireMultiplier || 1) > 1 || (core.domainDamageMultiplier || 1) > 1);
       const tell = front && alive && !boss.rotating && (core.fireTimer || 0) > 0 && (core.fireTimer || 0) < 0.46;
@@ -8891,24 +13279,21 @@
       const overloadFlash = clamp((core.overloadFlash || 0) / bossDomainCycleSeconds, 0, 1);
       const counterProgress = clamp((core.counterWindowTimer || 0) / 1.05, 0, 1);
       const counterFlash = clamp((core.counterFlash || 0) / 0.45, 0, 1);
+      const breakProgress = clamp((core.breakTimer || 0) / bossBreakWindowSeconds, 0, 1);
+      const breakFlash = clamp((core.breakFlash || 0) / bossBreakWindowSeconds, 0, 1);
       const pulse = 1 + Math.sin(performance.now() / (overload ? 92 : 180) + core.offset) * (overload ? 0.09 : 0.05);
       ctx.save();
-      ctx.globalAlpha = alive ? introAlpha * (invulnerable ? 0.52 : 1) : 0.24;
-      ctx.shadowColor = revealed ? colors.paper : invulnerable ? colors.paper : overload ? colors.warning : core.enraged ? colors.danger : core.color;
-      ctx.shadowBlur = alive ? ((invulnerable ? guardFlash * 18 : overload ? 30 : core.enraged ? 24 : 10) + flash * 16) * bossSizeScale : 0;
-      ctx.fillStyle = invulnerable ? "rgba(244,240,230,0.045)" : overload ? "rgba(240,195,93,0.16)" : core.enraged ? "rgba(231,111,97,0.18)" : "rgba(255,255,255,0.08)";
+      ctx.globalAlpha = alive ? introAlpha * (hidden ? 0.32 : invulnerable ? 0.52 : 1) : 0.24;
+      ctx.shadowColor = breakProgress > 0 ? colors.paper : revealed ? colors.paper : invulnerable ? colors.paper : overload ? colors.warning : core.enraged ? colors.danger : core.color;
+      ctx.shadowBlur = alive ? ((breakProgress > 0 ? 28 : invulnerable ? guardFlash * 18 : overload ? 30 : core.enraged ? 24 : 10) + flash * 16) * bossSizeScale : 0;
+      ctx.fillStyle = breakProgress > 0 ? "rgba(244,240,230,0.18)" : invulnerable ? "rgba(244,240,230,0.045)" : overload ? "rgba(240,195,93,0.16)" : core.enraged ? "rgba(231,111,97,0.18)" : "rgba(255,255,255,0.08)";
       circle(pos.x, pos.y, ((overload ? 43 : core.enraged ? 40 : 34) * pulse + flash * 3) * bossSizeScale);
       ctx.shadowBlur = 0;
       drawCoreGlyph(core, pos);
-      ctx.fillStyle = invulnerable ? "rgba(244,240,230,0.45)" : core.color;
-      circle(pos.x, pos.y, (core.enraged ? 27 : 25) * pulse * bossSizeScale);
-      ctx.fillStyle = "#111";
-      ctx.font = `bold ${Math.max(8, 16 * bossSizeScale)}px Microsoft YaHei, sans-serif`;
-      ctx.textAlign = "center";
-      ctx.fillText(core.symbol || core.name.slice(0, 2), pos.x, pos.y + 5 * bossSizeScale);
-      drawHealthBar(pos.x - 42 * bossSizeScale, pos.y - 52 * bossSizeScale, 84 * bossSizeScale, Math.max(3, 7 * bossSizeScale), Math.max(0, core.hp / core.maxHp), core.color);
+      drawBossCoreSprite(core, pos, { alive, invulnerable, overload, flash, pulse });
+      drawHealthBar(pos.x - 46 * bossSizeScale, pos.y - 58 * bossSizeScale, 92 * bossSizeScale, Math.max(3, 7 * bossSizeScale), Math.max(0, core.hp / core.maxHp), core.color);
       if ((core.maxShield || 0) > 0) {
-        drawHealthBar(pos.x - 42 * bossSizeScale, pos.y - 42 * bossSizeScale, 84 * bossSizeScale, Math.max(2, 4 * bossSizeScale), Math.max(0, (core.shield || 0) / core.maxShield), colors.cyan);
+        drawHealthBar(pos.x - 46 * bossSizeScale, pos.y - 48 * bossSizeScale, 92 * bossSizeScale, Math.max(2, 4 * bossSizeScale), Math.max(0, (core.shield || 0) / core.maxShield), colors.cyan);
       }
       if (invulnerable) {
         ctx.strokeStyle = `rgba(244,240,230,${0.42 + guardFlash * 0.32})`;
@@ -8939,6 +13324,15 @@
         ctx.setLineDash([5, 7]);
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, (47 + counterProgress * 10 + Math.sin(performance.now() / 58) * 2) * bossSizeScale, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      if (breakProgress > 0) {
+        ctx.strokeStyle = `rgba(244,240,230,${0.36 + breakProgress * 0.32 + breakFlash * 0.16})`;
+        ctx.lineWidth = Math.max(1, (2.5 + breakFlash * 2) * bossSizeScale);
+        ctx.setLineDash([3, 7]);
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, (54 + Math.sin(performance.now() / 42) * 3) * bossSizeScale, 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -9019,6 +13413,25 @@
         ctx.stroke();
         ctx.setLineDash([]);
       });
+      (boss.gaussShockwaves || []).forEach((wave) => {
+        const activeAge = wave.age - wave.warnTime;
+        const warning = activeAge < 0;
+        const progress = warning
+          ? clamp(wave.age / Math.max(0.001, wave.warnTime), 0, 1)
+          : clamp(activeAge / Math.max(0.001, wave.activeTime), 0, 1);
+        const radius = warning ? wave.r * progress : wave.r * progress;
+        ctx.globalAlpha = warning ? 0.18 + progress * 0.18 : 0.52 * (1 - progress);
+        ctx.fillStyle = warning ? "rgba(240,195,93,0.055)" : "rgba(240,195,93,0.02)";
+        ctx.strokeStyle = warning ? "rgba(240,195,93,0.55)" : "rgba(240,195,93,0.78)";
+        ctx.lineWidth = warning ? 2 : gaussShockwaveWidth;
+        ctx.setLineDash(warning ? [9, 7] : []);
+        ctx.beginPath();
+        ctx.arc(wave.x, wave.y, Math.max(4, radius), 0, Math.PI * 2);
+        if (warning) ctx.fill();
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+      });
     } else {
       ctx.fillStyle = "rgba(240,195,93,0.035)";
       ctx.fillRect(arena.left, arena.top, arena.width, arena.height);
@@ -9073,6 +13486,23 @@
 
   function drawShots() {
     game.playerShots.forEach((shot) => {
+      drawPixelProjectile(shot, false);
+    });
+    game.enemyShots.forEach((shot) => {
+      drawPixelProjectile(shot, true);
+      if (shot.label) {
+        ctx.save();
+        ctx.fillStyle = colors.ink;
+        ctx.font = "bold 12px Microsoft YaHei, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(shot.label, shot.x, shot.y + 0.5);
+        ctx.restore();
+      }
+    });
+    return;
+
+    game.playerShots.forEach((shot) => {
       ctx.save();
       ctx.fillStyle = shot.color || colors.mint;
       ctx.strokeStyle = shot.color || colors.mint;
@@ -9108,21 +13538,6 @@
         ctx.lineWidth = 1.5;
         ctx.strokeRect(-size / 2, -size / 2, size, size);
         ctx.restore();
-      } else if (shot.shape === "triangle") {
-        const size = shot.r * 2.65 * pulse;
-        ctx.save();
-        ctx.translate(shot.x, shot.y);
-        ctx.rotate(shot.angle || 0);
-        ctx.beginPath();
-        ctx.moveTo(size * 0.62, 0);
-        ctx.lineTo(-size * 0.42, -size * 0.5);
-        ctx.lineTo(-size * 0.42, size * 0.5);
-        ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = "rgba(255,255,255,0.42)";
-        ctx.lineWidth = 1.4;
-        ctx.stroke();
-        ctx.restore();
       } else {
         circle(shot.x, shot.y, shot.r * pulse);
       }
@@ -9142,11 +13557,15 @@
     game.enemyLasers.forEach((laser) => {
       const active = isLaserActive(laser);
       const pulse = 0.5 + Math.sin(laser.age * 26) * 0.5;
+      const warningColor = laser.warningColor || dungeonPalette.magenta;
       ctx.save();
       if (active) {
         ctx.globalAlpha = 0.78;
         ctx.shadowColor = laser.color;
         ctx.shadowBlur = 18;
+        ctx.strokeStyle = dungeonPalette.outline;
+        ctx.lineWidth = laser.width + 8;
+        traceLaser(laser);
         ctx.strokeStyle = laser.color;
         ctx.lineWidth = laser.width;
         traceLaser(laser);
@@ -9156,13 +13575,24 @@
         ctx.lineWidth = Math.max(4, laser.width * 0.24);
         traceLaser(laser);
       } else {
-        ctx.globalAlpha = 0.22 + pulse * 0.18;
-        ctx.strokeStyle = laser.color;
+        ctx.globalAlpha = 0.48;
+        ctx.strokeStyle = "rgba(3,8,13,0.95)";
+        ctx.lineWidth = 7;
+        ctx.setLineDash([14, 10]);
+        traceLaser(laser);
+        ctx.globalAlpha = 0.34 + pulse * 0.26;
+        ctx.strokeStyle = warningColor;
         ctx.lineWidth = 3;
         ctx.setLineDash([14, 10]);
         traceLaser(laser);
+        ctx.globalAlpha = 0.18 + pulse * 0.18;
+        ctx.strokeStyle = "rgba(255,240,163,0.78)";
+        ctx.setLineDash([3, 16]);
+        ctx.lineWidth = 8;
+        traceLaser(laser);
         ctx.setLineDash([]);
-        ctx.globalAlpha = 0.15;
+        ctx.globalAlpha = 0.2;
+        ctx.strokeStyle = warningColor;
         ctx.lineWidth = 1.5;
         if (laser.orientation === "ray") {
           traceLaser(laser);
@@ -9209,12 +13639,69 @@
       ctx.save();
       ctx.translate(slash.x, slash.y);
       ctx.rotate(slash.angle);
-      ctx.globalAlpha = Math.max(0, progress);
-      ctx.strokeStyle = slash.color || colors.mint;
-      ctx.lineWidth = 12;
-      ctx.beginPath();
-      ctx.arc(0, 0, slash.r * 0.68, -0.8, 0.8);
-      ctx.stroke();
+      if (slash.swordSlash) {
+        const age = 1 - clamp(progress, 0, 1);
+        const awakened = Boolean(slash.awakened);
+        const focused = Boolean(slash.focus || slash.tactical);
+        const blade = awakened ? "#fff0a3" : "#fff8df";
+        const core = awakened ? "#ffd85a" : "#ffe5a8";
+        const edge = focused ? "#ffffff" : blade;
+        const glow = awakened ? "rgba(255,196,93,0.72)" : "rgba(255,229,168,0.56)";
+        const arcRadius = slash.r * (0.66 + age * 0.08);
+        const alpha = clamp(progress, 0, 1);
+        ctx.lineCap = "round";
+        ctx.globalCompositeOperation = "lighter";
+        ctx.shadowColor = awakened ? "rgba(255,196,93,0.82)" : "rgba(255,245,215,0.62)";
+        ctx.shadowBlur = awakened ? 18 : 11;
+
+        ctx.globalAlpha = alpha * 0.22;
+        ctx.strokeStyle = glow;
+        ctx.lineWidth = awakened ? 22 : 18;
+        ctx.beginPath();
+        ctx.arc(0, 0, arcRadius * 1.08, -1.02 - age * 0.12, 0.98 + age * 0.08);
+        ctx.stroke();
+
+        ctx.globalAlpha = alpha * 0.74;
+        ctx.strokeStyle = core;
+        ctx.lineWidth = awakened ? 9 : 7;
+        ctx.beginPath();
+        ctx.arc(0, 0, arcRadius, -0.92, 0.92);
+        ctx.stroke();
+
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = edge;
+        ctx.lineWidth = focused ? 4 : 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, arcRadius * 0.96, -0.74, 0.76);
+        ctx.stroke();
+
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = alpha * 0.72;
+        [-0.82, -0.32, 0.26, 0.84].forEach((sparkAngle, index) => {
+          const sparkR = arcRadius * (0.82 + index * 0.055);
+          const sx = Math.cos(sparkAngle) * sparkR;
+          const sy = Math.sin(sparkAngle) * sparkR;
+          const len = awakened || focused ? 10 + index * 2 : 7 + index;
+          pixelLine(sx, sy, sx + len, sy + (index % 2 ? -3 : 3), index % 2 ? blade : core, index === 2 ? 2 : 1);
+        });
+
+        if (awakened || focused) {
+          ctx.globalAlpha = alpha * 0.5;
+          ctx.setLineDash([6, 8]);
+          ctx.strokeStyle = awakened ? "rgba(255,240,163,0.72)" : "rgba(255,255,255,0.56)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(0, 0, arcRadius * 1.22, -0.86 + age * 0.18, 0.86 + age * 0.18);
+          ctx.stroke();
+        }
+      } else {
+        ctx.globalAlpha = Math.max(0, progress);
+        ctx.strokeStyle = slash.color || colors.mint;
+        ctx.lineWidth = 12;
+        ctx.beginPath();
+        ctx.arc(0, 0, slash.r * 0.68, -0.8, 0.8);
+        ctx.stroke();
+      }
       ctx.restore();
     });
   }
@@ -9263,17 +13750,7 @@
       ctx.stroke();
       ctx.restore();
     }
-    ctx.globalAlpha = player.invuln > 0 ? 0.62 : 1;
-    ctx.fillStyle = "rgba(244,240,230,0.16)";
-    circle(player.x, player.y, player.r + 9 * characterSizeScale);
-    ctx.fillStyle = colors.paper;
-    circle(player.x, player.y, player.r);
-    ctx.fillStyle = colors.ink;
-    ctx.font = `bold ${Math.max(9, 18 * characterSizeScale)}px Microsoft YaHei, sans-serif`;
-    ctx.textAlign = "center";
-    ctx.fillText("学", player.x, player.y + 6 * characterSizeScale);
-    ctx.textAlign = "start";
-    ctx.globalAlpha = 1;
+    drawPlayerSprite(player);
   }
 
   function drawAimLine() {
@@ -9288,7 +13765,253 @@
     ctx.stroke();
   }
 
+  function weaponHudColor(weapon) {
+    if (!weapon) return dungeonPalette.heroCream;
+    if (weapon.kind === "calculus") return dungeonPalette.toxic;
+    if (weapon.kind === "geometry") return dungeonPalette.cyan;
+    if (weapon.kind === "linear") return dungeonPalette.ember;
+    if (weapon.id === "sword") return dungeonPalette.heroCream;
+    return weapon.color || dungeonPalette.emberHot;
+  }
+
+  function drawHudFrame(x, y, w, h, alpha = 0.9) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    pixelRect(x - 3, y - 3, w + 6, h + 6, "rgba(2,4,6,0.9)");
+    pixelRect(x, y, w, h, "rgba(8,14,18,0.84)");
+    pixelLine(x, y, x + w, y, "rgba(255,240,163,0.28)", 2);
+    pixelLine(x, y + h, x + w, y + h, "rgba(0,0,0,0.82)", 3);
+    pixelLine(x, y, x, y + h, "rgba(120,144,157,0.42)", 2);
+    pixelLine(x + w, y, x + w, y + h, "rgba(0,0,0,0.72)", 3);
+    ctx.restore();
+  }
+
+  function drawHudText(text, x, y, size = 10, color = dungeonPalette.heroCream, align = "left") {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.font = `bold ${size}px Consolas, Microsoft YaHei, sans-serif`;
+    ctx.textAlign = align;
+    ctx.textBaseline = "middle";
+    ctx.shadowColor = "rgba(0,0,0,0.9)";
+    ctx.shadowBlur = 3;
+    ctx.fillText(text, x, y);
+    ctx.restore();
+  }
+
+  function drawHudWeaponModel(weapon, x, y, scale = 0.58, angle = 0) {
+    ctx.save();
+    ctx.translate(pixelSnap(x), pixelSnap(y));
+    ctx.scale(scale, scale);
+    drawHeldWeaponModel(weapon, 0, 0, angle);
+    ctx.restore();
+  }
+
+  function buffIconColor(index) {
+    return [
+      dungeonPalette.ruby,
+      dungeonPalette.cyan,
+      dungeonPalette.ember,
+      dungeonPalette.toxic,
+      dungeonPalette.magenta,
+      dungeonPalette.heroCream,
+      dungeonPalette.purple,
+      dungeonPalette.emerald,
+    ][index % 8] || dungeonPalette.heroCream;
+  }
+
+  function compactBuffStacks(player) {
+    const counts = new Map();
+    (player?.buffs || []).forEach((buff) => {
+      counts.set(buff, (counts.get(buff) || 0) + 1);
+    });
+    return Array.from(counts.entries()).map(([name, count]) => ({
+      name,
+      count,
+      index: Math.max(0, buffRewardIds.indexOf(name)),
+    }));
+  }
+
+  function drawBuffGlyph(x, y, size, index, count = 1) {
+    const color = buffIconColor(index);
+    const half = size / 2;
+    pixelRect(x - half - 2, y - half - 2, size + 4, size + 4, dungeonPalette.outline);
+    pixelRect(x - half, y - half, size, size, "rgba(12,20,24,0.9)");
+    ctx.save();
+    ctx.translate(pixelSnap(x), pixelSnap(y));
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 6;
+    if (index % 8 === 0) {
+      drawPixelDiamond(0, 0, half * 0.72, half * 0.72, color, dungeonPalette.outline);
+      pixelLine(-half * 0.4, 0, half * 0.4, 0, dungeonPalette.heroCream, 2);
+    } else if (index % 8 === 1) {
+      pixelRect(-half * 0.38, -half * 0.62, half * 0.76, half * 1.24, color);
+      pixelRect(-half * 0.68, -half * 0.1, half * 1.36, half * 0.22, dungeonPalette.emberHot);
+    } else if (index % 8 === 2) {
+      pixelRect(-half * 0.55, -half * 0.45, half * 1.1, half * 0.9, dungeonPalette.outline);
+      pixelLine(-half * 0.35, -half * 0.2, half * 0.35, -half * 0.2, color, 2);
+      pixelLine(-half * 0.35, half * 0.16, half * 0.2, half * 0.16, color, 2);
+    } else if (index % 8 === 3) {
+      pixelRect(-half * 0.45, -half * 0.5, half * 0.9, half, color);
+      pixelRect(-half * 0.22, half * 0.08, half * 0.44, half * 0.42, dungeonPalette.heroCream);
+    } else if (index % 8 === 4) {
+      pixelLine(-half * 0.48, -half * 0.48, half * 0.48, half * 0.48, color, 3);
+      pixelLine(-half * 0.48, half * 0.48, half * 0.48, -half * 0.48, dungeonPalette.emberHot, 2);
+    } else if (index % 8 === 5) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, half * 0.58, 0, Math.PI * 2);
+      ctx.stroke();
+      pixelRect(-2, -half * 0.45, 4, half * 0.9, dungeonPalette.heroCream);
+    } else if (index % 8 === 6) {
+      pixelLine(-half * 0.52, half * 0.4, half * 0.48, -half * 0.42, color, 3);
+      pixelRect(-half * 0.48, -half * 0.35, half * 0.38, half * 0.2, dungeonPalette.heroCream);
+      pixelRect(half * 0.08, half * 0.18, half * 0.38, half * 0.2, dungeonPalette.heroCream);
+    } else {
+      pixelRect(-half * 0.58, -half * 0.2, half * 1.16, half * 0.54, color);
+      pixelRect(-half * 0.42, -half * 0.52, half * 0.84, half * 0.3, dungeonPalette.emberHot);
+    }
+    ctx.restore();
+    if (count > 1) {
+      drawHudText(String(count), x + half - 1, y + half - 2, 9, dungeonPalette.emberHot, "right");
+    }
+  }
+
+  function drawItemGlyph(itemId, x, y, size, showLabel = true) {
+    const item = betaItemMap[itemId];
+    const color = itemId === "firstAid"
+      ? dungeonPalette.toxic
+      : itemId === "chalkSmoke"
+        ? dungeonPalette.heroCream
+        : itemId === "spareMagazine"
+          ? dungeonPalette.ember
+          : dungeonPalette.cyan;
+    const half = size / 2;
+    pixelRect(x - half - 2, y - half - 2, size + 4, size + 4, dungeonPalette.outline);
+    pixelRect(x - half, y - half, size, size, "rgba(13,19,23,0.92)");
+    ctx.save();
+    ctx.translate(pixelSnap(x), pixelSnap(y));
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 6;
+    if (itemId === "firstAid") {
+      pixelRect(-2, -half * 0.55, 4, half * 1.1, color);
+      pixelRect(-half * 0.55, -2, half * 1.1, 4, color);
+    } else if (itemId === "chalkSmoke") {
+      for (let i = 0; i < 3; i += 1) {
+        ctx.strokeStyle = i === 1 ? dungeonPalette.heroCream : color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(-5 + i * 5, 1 - i * 3, half * (0.34 + i * 0.08), 0.4, Math.PI * 1.6);
+        ctx.stroke();
+      }
+    } else if (itemId === "spareMagazine") {
+      pixelRect(-half * 0.42, -half * 0.52, half * 0.84, half * 1.04, dungeonPalette.outline);
+      for (let i = 0; i < 3; i += 1) pixelRect(-half * 0.2, -half * 0.34 + i * 5, half * 0.4, 2, color);
+    } else {
+      drawPixelDiamond(0, 0, half * 0.62, half * 0.5, color, dungeonPalette.outline);
+      pixelLine(-half * 0.36, 0, half * 0.36, 0, dungeonPalette.heroCream, 2);
+    }
+    ctx.restore();
+    if (showLabel && item?.icon) drawHudText(item.icon.slice(0, 3), x, y + half + 9, 7, color, "center");
+  }
+
+  function drawVisualCombatHud() {
+    const player = game.player;
+    if (!player || mode !== "combat" || isBossIntroActive()) return;
+
+    const x = 8;
+    const h = combatHudHeight;
+    const y = H - h - combatHudMargin;
+    const w = W - x * 2;
+    const hpRatio = player.maxHp > 0 ? player.hp / player.maxHp : 0;
+    const shieldRatio = player.maxHp > 0 ? (player.shield || 0) / player.maxHp : 0;
+    const weapon = player.weapon;
+    const weaponColor = weaponHudColor(weapon);
+    const healthW = clamp(w * 0.2, 148, 188);
+    const rightW = clamp(w * 0.19, 150, 184);
+    const healthX = x + 10;
+    const weaponX = healthX + healthW + 16;
+    const weaponW = clamp(w * 0.23, 172, 218);
+    const auxX = x + w - rightW - 10;
+    const slotX = weaponX + weaponW + 12;
+    const slotEnd = auxX - 12;
+    const slotSpace = Math.max(0, slotEnd - slotX);
+    const slotSize = 16;
+    const slotGap = 5;
+    const visibleSlotCount = Math.max(1, Math.min(player.weapons.length, 9, Math.floor((slotSpace + slotGap) / (slotSize + slotGap))));
+    const slots = player.weapons.slice(0, visibleSlotCount);
+    const ammoRatio = weapon?.infiniteAmmo ? 1 : (weapon?.magazine ? (weapon.ammo || 0) / weapon.magazine : 0);
+    const reloadRatio = weapon?.reloading ? 1 - clamp((weapon.reloadTimer || 0) / Math.max(0.01, weaponReloadTime(weapon)), 0, 1) : 0;
+
+    drawHudFrame(x, y, w, h, 0.82);
+
+    drawHudText("HP", healthX, y + 22, 9, dungeonPalette.toxic);
+    drawHealthBar(healthX + 28, y + 18, healthW - 40, 8, hpRatio, hpRatio < 0.32 ? dungeonPalette.ruby : dungeonPalette.toxic);
+    drawHudText(`${Math.max(0, Math.ceil(player.hp))}/${Math.ceil(player.maxHp)}`, healthX + healthW - 5, y + 22, 8, dungeonPalette.heroCream, "right");
+    pixelRect(healthX + 28, y + 31, healthW - 40, 4, "rgba(5,8,6,0.78)");
+    if (shieldRatio > 0) pixelRect(healthX + 28, y + 31, Math.min(healthW - 40, shieldRatio * (healthW - 40)), 4, dungeonPalette.cyan);
+
+    drawHudWeaponModel(weapon, weaponX + 24, y + 25, 0.3, -0.08);
+    drawHudText(`${player.weaponIndex + 1}`, weaponX + 4, y + 24, 13, weaponColor, "center");
+    drawHudText(displayWeaponName(weapon).slice(0, 15), weaponX + 48, y + 14, 8, dungeonPalette.heroCream);
+    drawHealthBar(weaponX + 48, y + 26, 76, 5, ammoRatio, weapon?.infiniteAmmo ? dungeonPalette.heroCream : weaponColor);
+    if (weapon?.reloading) {
+      pixelRect(weaponX + 48, y + 26, 76 * reloadRatio, 5, dungeonPalette.emberHot);
+    }
+    drawHudText(ammoLabel(weapon), weaponX + 132, y + 29, 8, weapon?.reloading ? dungeonPalette.emberHot : dungeonPalette.heroCream);
+
+    const slotY = y + 13;
+    slots.forEach((slotWeapon, index) => {
+      const sx = slotX + index * (slotSize + slotGap);
+      const selected = index === player.weaponIndex;
+      const sealed = isWeaponSealed(slotWeapon);
+      const color = sealed ? "#65706c" : weaponHudColor(slotWeapon);
+      pixelRect(sx - 1, slotY - 1, slotSize + 4, slotSize + 4, selected ? color : dungeonPalette.outline);
+      pixelRect(sx + 1, slotY + 1, slotSize, slotSize, "rgba(8,14,18,0.92)");
+      if (selected) pixelRect(sx + 3, slotY + slotSize - 1, slotSize - 4, 2, color);
+      ctx.save();
+      ctx.translate(sx + slotSize / 2 + 1, slotY + slotSize / 2 + 1);
+      ctx.scale(0.17, 0.17);
+      drawHeldWeaponModel(slotWeapon, 0, 0, 0);
+      ctx.restore();
+      if (sealed) {
+        pixelLine(sx + 1, slotY + slotSize + 1, sx + slotSize + 1, slotY + 1, dungeonPalette.ruby, 2);
+      }
+    });
+    if (visibleSlotCount < player.weapons.length) {
+      drawHudText(`+${player.weapons.length - visibleSlotCount}`, slotEnd, slotY + 10, 8, dungeonPalette.heroCream, "right");
+    }
+
+    const buffs = compactBuffStacks(player).slice(0, 3);
+    drawHudText("BUFF", auxX, y + 13, 8, dungeonPalette.ember);
+    if (!buffs.length) {
+      pixelRect(auxX + 36, y + 7, 11, 11, "rgba(255,255,255,0.08)");
+      pixelRect(auxX + 55, y + 7, 11, 11, "rgba(255,255,255,0.08)");
+    } else {
+      buffs.forEach((buff, index) => {
+        drawBuffGlyph(auxX + 42 + index * 21, y + 13, 12, buff.index, buff.count);
+      });
+    }
+
+    drawHudText("ITEM", auxX, y + 32, 8, dungeonPalette.cyan);
+    const items = (game.betaItems || []).slice(0, 3);
+    if (!items.length) {
+      for (let i = 0; i < 2; i += 1) {
+        pixelRect(auxX + 36 + i * 20, y + 26, 12, 12, "rgba(255,255,255,0.07)");
+      }
+    } else {
+      items.forEach((itemId, index) => drawItemGlyph(itemId, auxX + 42 + index * 21, y + 32, 12, false));
+    }
+  }
+
   function drawHealthBar(x, y, w, h, ratio, color) {
+    const fill = clamp(ratio, 0, 1);
+    pixelRect(x - 2, y - 2, w + 4, h + 4, dungeonPalette.outline);
+    pixelRect(x, y, w, h, "rgba(5,8,6,0.86)");
+    pixelRect(x, y, w * fill, h, color);
+    pixelRect(x, y, Math.max(0, w * fill), 1, "rgba(255,255,255,0.38)");
+    return;
+
     ctx.fillStyle = "rgba(0,0,0,0.42)";
     ctx.fillRect(x, y, w, h);
     ctx.fillStyle = color;
@@ -9326,7 +14049,7 @@
     const angle = boss.angle + core.offset - Math.PI / 2;
     return {
       x: boss.x + Math.cos(angle) * radius,
-      y: boss.y + Math.sin(angle) * radius,
+      y: boss.y + Math.sin(angle) * radius * 0.72,
     };
   }
 
@@ -9341,8 +14064,7 @@
           ? " | 非几何封锁：直到目标倒下"
           : ` | 非几何封锁${Math.ceil(player.weaponSealTimer)}s`
         : "";
-      const developerText = game.developerMode ? " | DEV" : "";
-      hud.hp.textContent = `${Math.max(0, Math.ceil(player.hp))} / ${player.maxHp}${shieldText}${sealText}${developerText}`;
+      hud.hp.textContent = `${Math.max(0, Math.ceil(player.hp))} / ${player.maxHp}${shieldText}${sealText}`;
     }
     const weaponNames = player.weapons
       .map((weapon, index) => `${index + 1}.${displayWeaponName(weapon)} ${ammoLabel(weapon)}`)
@@ -9359,7 +14081,7 @@
       const nextItem = game.betaItems?.[0] || "";
       const itemCount = game.betaItems?.length || 0;
       hud.item.textContent = nextItem ? `${betaItemName(nextItem)}${itemCount > 1 ? ` x${itemCount}` : ""}` : "无";
-      hud.item.title = nextItem ? `按 F 使用：${betaItemMap[nextItem]?.effect || ""}` : "β 补给房可能获得一次性局内道具";
+      hud.item.title = nextItem ? `按 F 使用，G 切换：${betaItemEffectText(nextItem)}` : "β 补给房可能获得一次性局内道具";
     }
     if (hud.inventory) {
       hud.inventory.title = `按 B 打开背包；击败 ${game.kills}，拥有武器 ${game.weaponsFound}`;
@@ -9755,8 +14477,8 @@
           <strong>${escapeHtml(item.name)}</strong>
           <span>${escapeHtml(item.type)}</span>
         </header>
-        <p>${escapeHtml(item.effect)}</p>
-        <small>按 F 使用队首道具，最多携带 ${betaItemLimit} 个。</small>
+        <p>${escapeHtml(betaItemEffectText(item.id))}</p>
+        <small>按 F 使用当前道具，按 G 切换道具，最多携带 ${betaItemLimit} 个。</small>
       </article>
     `).join("");
     return `
@@ -9785,6 +14507,73 @@
           <h3>局内道具</h3>
           ${betaItemInfoMarkup()}
         </section>
+      </div>
+    `;
+  }
+
+  function knowledgeCodexMarkup() {
+    const cards = [
+      {
+        icon: "∫",
+        title: "微积分与优化基础",
+        keywords: "函数、导数、积分、泰勒展开、优化思想",
+        body: "微积分房间把函数增长、连续伤害和近似展开做成武器弹道与敌人行为。",
+      },
+      {
+        icon: "◇",
+        title: "坐标系统与分类边界",
+        keywords: "坐标系、距离公式、特征空间、分类边界",
+        body: "几何房间用地图站位、敌人距离、命中区域和边界划分体现二维特征空间。",
+      },
+      {
+        icon: "A",
+        title: "矩阵与线性代数",
+        keywords: "矩阵、行列式、LU 分解、线性变换",
+        body: "线性代数房间用矩阵核心、连锁护盾、旋转区域和强化路径表现线性变换。",
+      },
+      {
+        icon: "?",
+        title: "随机算法与过程生成",
+        keywords: "概率、随机事件、资源抽样、路线选择",
+        body: "随机教室会生成不同敌人、补给或奖励，体现概率分布和策略期望。",
+      },
+      {
+        icon: "$",
+        title: "资源管理与贪心策略",
+        keywords: "状态变量、局部最优、背包选择、风险收益",
+        body: "宝箱、补给和工坊要求玩家在武器、增益、学分和生命之间做取舍。",
+      },
+      {
+        icon: "Ω",
+        title: "综合系统评估",
+        keywords: "综合应用、模块协作、模型评估、系统实现",
+        body: "最终 Boss 汇总微积分、几何和线性代数三类核心机制，检验玩家构建路线。",
+      },
+      {
+        icon: "AI",
+        title: "人工智能与数据处理",
+        keywords: "回归、分类、聚类、MNIST、模型评估",
+        body: "敌人类型、图鉴、成绩结算和知识报告共同模拟数据标签、分类结果和评估指标。",
+      },
+      {
+        icon: "CS",
+        title: "Web 系统与工程实现",
+        keywords: "前端交互、状态管理、模块化、数据持久化",
+        body: "Canvas 战斗、HTML UI、排行榜、音效和地图状态共同构成一个可运行智能网站。",
+      },
+    ];
+    return `
+      <div class="knowledge-codex-grid">
+        ${cards.map((card) => `
+          <article class="knowledge-codex-card">
+            <span class="knowledge-codex-icon">${escapeHtml(card.icon)}</span>
+            <div>
+              <h3>${escapeHtml(card.title)}</h3>
+              <strong>${escapeHtml(card.keywords)}</strong>
+              <p>${escapeHtml(card.body)}</p>
+            </div>
+          </article>
+        `).join("")}
       </div>
     `;
   }
@@ -9880,8 +14669,8 @@
           {
             name: "局内道具",
             meta: "补给房 / F 使用",
-            body: "β 补给房会获得一次性道具，最多携带三个。急救包回复已损失生命，粉笔烟幕清弹并压制敌人，备用弹匣立刻装填并给战术专注，学分券直接获得学分。",
-            tip: "道具是高难容错来源，不要等到已经被弹幕围死才使用。",
+            body: "β 补给房会出现局内道具三选一，精英房还会额外给一次道具选择。急救包带短暂无敌，粉笔烟幕可清弹并让 Boss 核心显形，备用弹匣能立即装填并延长战术专注，学分券直接获得学分。",
+            tip: "按 F 使用当前道具，按 G 切换道具。道具是高难容错来源，不要等到已经被弹幕围死才使用。",
           },
           {
             name: "工坊房",
@@ -9951,7 +14740,6 @@
     const refreshCost = Math.max(1, Math.round(Number(shop.refreshCost || 1)));
     const freeClaim = Boolean(game.betaShopRaid?.freeClaim);
     const refreshLocked = Boolean(game.betaShopRaid?.refreshLocked);
-    const canBuy = freeClaim || hp > betaShopItemHpCost;
     const canRaidShop = isBetaVersion() && !game.betaShopRaid?.started;
     const raidLabel = game.betaShopRaid?.completed
       ? "商人已让步"
@@ -9960,9 +14748,11 @@
         : "挑战商人";
     const refreshLabel = refreshLocked ? "刷新已锁定" : `刷新商店（${refreshCost} 学分）`;
     const cards = shop.stock.map((item, index) => {
+      const cost = betaShopItemCost(item);
       const name = betaShopItemName(item);
       const weapon = item.type === "weapon" ? weapons[item.id] : null;
-      const buyLabel = item.purchased ? "已领取" : freeClaim ? "免费领取" : `${betaShopItemHpCost} 生命兑换`;
+      const canBuyItem = freeClaim || hp > cost;
+      const buyLabel = item.purchased ? "已领取" : freeClaim ? "免费领取" : `${cost} 生命兑换`;
       const meta = item.type === "weapon"
         ? `${weaponKindLabel(weapon?.kind)} / ${weapon?.ranged ? "远程" : "近战"} / ${weaponDamageLabel(weapon)}`
         : `${buffDetails[item.id]?.type || "增益"} / ${buffBriefText(item.id)}`;
@@ -9977,8 +14767,8 @@
           </header>
           <p>${escapeHtml(meta)}</p>
           <small>${escapeHtml(detail)}</small>
-          <button type="button" data-beta-shop-buy="${index}" data-label="${escapeHtml(buyLabel)}" ${item.purchased || !canBuy ? "disabled" : ""}>
-            ${item.purchased ? "已兑换" : `${betaShopItemHpCost} 生命兑换`}
+          <button type="button" data-beta-shop-buy="${index}" data-label="${escapeHtml(buyLabel)}" ${item.purchased || !canBuyItem ? "disabled" : ""}>
+            ${item.purchased ? "已兑换" : freeClaim ? "免费领取" : `${cost} 生命兑换`}
           </button>
         </article>
       `;
@@ -9991,7 +14781,7 @@
           <span>生命 <strong>${hp}</strong></span>
           <span>刷新 <strong>${refreshCost}</strong></span>
         </div>
-        <p class="beta-shop-note">每件商品消耗 ${betaShopItemHpCost} 生命；刷新只消耗学分，费用依次为 1、3、5 学分，之后保持 5 学分。进入商店时的房间回血已经结算，开始 Boss 战后不会再次回血。</p>
+        <p class="beta-shop-note">基础商品消耗 ${betaShopItemHpCost} 生命；+1 到 +5 商品价格每级提高 50%，高阶出现概率会指数级降低，且高阶增益比高阶武器更稀有。刷新只消耗学分，费用依次为 1、3、5 学分，之后保持 5 学分。</p>
         <div class="beta-shop-grid">${cards}</div>
         <div class="beta-shop-footer">
           <p class="beta-shop-message">${escapeHtml(shop.message || "可以直接开始 Boss 战，也可以用生命和学分做最后准备。")}</p>
@@ -10395,9 +15185,54 @@
     `;
   }
 
+  function audioPercent(key) {
+    return Math.round(clamp(Number(audioSettings[key]) || 0, 0, 1) * 100);
+  }
+
+  function audioSettingsMarkup() {
+    const checked = audioSettings.enabled ? "checked" : "";
+    return `
+      <div class="audio-settings">
+        <label class="audio-setting-row audio-setting-row-toggle">
+          <span>
+            <strong>声音总开关</strong>
+            <small>控制背景音乐、命中、受击和换弹音效。</small>
+          </span>
+          <input type="checkbox" data-audio-setting="enabled" ${checked}>
+        </label>
+        <label class="audio-setting-row">
+          <span>
+            <strong>总音量</strong>
+            <small><span data-audio-value="volume">${audioPercent("volume")}%</span></small>
+          </span>
+          <input type="range" min="0" max="1" step="0.01" value="${clamp(audioSettings.volume, 0, 1)}" data-audio-setting="volume">
+        </label>
+        <label class="audio-setting-row">
+          <span>
+            <strong>背景音乐</strong>
+            <small><span data-audio-value="music">${audioPercent("music")}%</span></small>
+          </span>
+          <input type="range" min="0" max="1" step="0.01" value="${clamp(audioSettings.music, 0, 1)}" data-audio-setting="music">
+        </label>
+        <label class="audio-setting-row">
+          <span>
+            <strong>战斗音效</strong>
+            <small><span data-audio-value="sfx">${audioPercent("sfx")}%</span></small>
+          </span>
+          <input type="range" min="0" max="1" step="0.01" value="${clamp(audioSettings.sfx, 0, 1)}" data-audio-setting="sfx">
+        </label>
+        <div class="audio-setting-actions">
+          <button type="button" class="secondary-button" data-audio-test>测试音效</button>
+        </div>
+        <p class="audio-setting-note">首次播放需要点击或按键激活浏览器音频；具体内容以现场展示为准。</p>
+      </div>
+    `;
+  }
+
   function openModal(kind) {
     if (kind === "funFacts") funFactsPageIndex = 0;
     if (kind === "weapons") weaponInfoPageIndex = 0;
+    const mechanicTutorial = mechanicTutorials[game.activeMechanicTutorialId] || null;
     const content = {
       weapons: {
         title: "武器与增益",
@@ -10406,6 +15241,10 @@
       enemyCodex: {
         title: "名人堂",
         body: enemyCodexMarkup(),
+      },
+      knowledgeCodex: {
+        title: "知识图鉴",
+        body: knowledgeCodexMarkup(),
       },
       funFacts: {
         title: "趣味知识",
@@ -10429,15 +15268,25 @@
       },
       settings: {
         title: "设置",
-        body: `
-          <p>基础版暂时采用固定难度和固定键位。后续可以继续加入音量、难度和画面设置。</p>
-        `,
+        body: audioSettingsMarkup(),
+      },
+      mechanicTutorial: {
+        title: mechanicTutorial?.title || "机制说明",
+        body: mechanicTutorialMarkup(mechanicTutorial || {}),
+      },
+      onboardingGuide: {
+        title: "开局提示",
+        body: onboardingGuideMarkup(),
       },
     }[kind];
+    if (!content) return;
     ui.modal.dataset.kind = kind;
-    ui.modalPanel.classList.toggle("modal-panel-wide", kind === "weapons" || kind === "enemyCodex" || kind === "inventory" || kind === "leaderboard" || kind === "funFacts" || kind === "developer" || kind === "betaShop");
+    ui.modalPanel.classList.toggle("modal-panel-wide", kind === "weapons" || kind === "enemyCodex" || kind === "knowledgeCodex" || kind === "inventory" || kind === "leaderboard" || kind === "funFacts" || kind === "developer" || kind === "betaShop");
     ui.modalPanel.classList.toggle("modal-panel-shop", kind === "betaShop");
     ui.modalPanel.classList.toggle("modal-panel-no-title", kind === "funFacts");
+    ui.modalPanel.classList.toggle("modal-panel-tutorial", kind === "mechanicTutorial");
+    ui.modalPanel.classList.toggle("modal-panel-onboarding", kind === "onboardingGuide");
+    ui.modalClose.hidden = kind === "mechanicTutorial" || kind === "onboardingGuide";
     if (kind === "funFacts") {
       ui.modalPanel.setAttribute("aria-label", content.title);
       ui.modalPanel.removeAttribute("aria-labelledby");
@@ -10461,7 +15310,14 @@
   }
 
   function closeModal() {
+    if (ui.modal.dataset.kind === "mechanicTutorial") {
+      game.activeMechanicTutorialId = "";
+    }
     ui.modal.hidden = true;
+    ui.modal.dataset.kind = "";
+    ui.modalClose.hidden = false;
+    ui.modalPanel.classList.remove("modal-panel-tutorial");
+    ui.modalPanel.classList.remove("modal-panel-onboarding");
   }
 
   function canvasMousePosition(event) {
@@ -10521,11 +15377,18 @@
     enemy.fireTimer = Math.max(enemy.fireTimer || 0, 1.05);
     enemy.shieldFlash = 0.65;
     burst(enemy.x, enemy.y, enemy.color || colors.warning, 24);
+    maybeShowMechanicTutorial("lhopitalPhase");
     return true;
   }
 
   function onMonsterDamaged(enemy, amount, source = {}) {
     if (!enemy || amount <= 0) return;
+    if (hasEnemyMechanic(enemy, "qLearningAi")) {
+      enemy.qLearningRecentHitTimer = Math.max(enemy.qLearningRecentHitTimer || 0, qLearningRuntimeConfig.hitMemorySeconds || 0.85);
+      if ((enemy.qLearningActionHold || 0) <= 0.08) {
+        enemy.qLearningDecisionTimer = Math.min(enemy.qLearningDecisionTimer || 0, 0.1);
+      }
+    }
     addEnemyStagger(enemy, amount, source);
     const state = game.knowledgeSynergy;
     if (
@@ -10567,6 +15430,7 @@
     const dt = Math.min(0.033, (now - lastTime) / 1000);
     lastTime = now;
     update(dt);
+    updateAudio();
     draw();
   }
 
@@ -10584,14 +15448,40 @@
   hud.inventory?.addEventListener("click", () => openModal("inventory"));
   ui.ingameHelp?.addEventListener("click", () => openModal("weapons"));
   ui.enemyCodex?.addEventListener("click", () => openModal("enemyCodex"));
+  ui.knowledgeCodex?.addEventListener("click", () => openModal("knowledgeCodex"));
   ui.funFacts?.addEventListener("click", () => openModal("funFacts"));
   ui.leaderboard?.addEventListener("click", () => openModal("leaderboard"));
   ui.settings.addEventListener("click", () => openModal("settings"));
   ui.modalClose.addEventListener("click", closeModal);
   ui.modal.addEventListener("click", (event) => {
+    if (ui.modal.dataset.kind === "mechanicTutorial" || ui.modal.dataset.kind === "onboardingGuide") return;
     if (event.target === ui.modal) closeModal();
   });
   ui.modalBody.addEventListener("click", (event) => {
+    const onboardingConfirm = event.target.closest("[data-onboarding-confirm]");
+    if (onboardingConfirm && ui.modal.dataset.kind === "onboardingGuide") {
+      markOnboardingGuideSeen();
+      closeModal();
+      return;
+    }
+    const onboardingSkipAll = event.target.closest("[data-onboarding-skip-all]");
+    if (onboardingSkipAll && ui.modal.dataset.kind === "onboardingGuide") {
+      markOnboardingGuideSeen();
+      markAllMechanicTutorialsSeen();
+      closeModal();
+      return;
+    }
+    const mechanicTutorialConfirm = event.target.closest("[data-mechanic-tutorial-confirm]");
+    if (mechanicTutorialConfirm && ui.modal.dataset.kind === "mechanicTutorial") {
+      closeModal();
+      return;
+    }
+    const audioTestButton = event.target.closest("[data-audio-test]");
+    if (audioTestButton && ui.modal.dataset.kind === "settings") {
+      startAudio();
+      playSfx("crit", 0.95);
+      return;
+    }
     const betaShopBuy = event.target.closest("[data-beta-shop-buy]");
     if (betaShopBuy && ui.modal.dataset.kind === "betaShop") {
       buyBetaShopItem(Number(betaShopBuy.dataset.betaShopBuy));
@@ -10625,6 +15515,17 @@
     funFactsPageIndex = Math.max(0, Math.round(nextPage));
     ui.modalBody.innerHTML = funFactsMarkup();
   });
+  function handleAudioSettingInput(event) {
+    if (ui.modal.dataset.kind !== "settings") return;
+    const control = event.target.closest("[data-audio-setting]");
+    if (!control) return;
+    const key = control.dataset.audioSetting;
+    setAudioSetting(key, control.type === "checkbox" ? control.checked : control.value);
+    const value = ui.modalBody.querySelector(`[data-audio-value="${CSS.escape(key)}"]`);
+    if (value) value.textContent = `${audioPercent(key)}%`;
+  }
+  ui.modalBody.addEventListener("input", handleAudioSettingInput);
+  ui.modalBody.addEventListener("change", handleAudioSettingInput);
   [ui.monsterRoom, ui.chestRoom, ui.geometryRoom, ui.linearRoom, ui.randomRoomB, ui.randomRoomC, ui.bossRoom].forEach((door) => {
     door.tabIndex = -1;
   });
@@ -10665,14 +15566,20 @@
     if (hud.root) hud.root.hidden = true;
   });
 
+  window.addEventListener("pointerdown", startAudio, { passive: true });
+  window.addEventListener("touchstart", startAudio, { passive: true });
+
   window.addEventListener("keydown", (event) => {
+    startAudio();
     if (event.code === "KeyI" && event.shiftKey && !isTextInputTarget(event.target)) {
       event.preventDefault();
       toggleDeveloperMode();
       return;
     }
     if (event.code === "Escape") {
+      event.preventDefault();
       if (!ui.modal.hidden) {
+        if (ui.modal.dataset.kind === "onboardingGuide") return;
         closeModal();
       } else if (mode === "combat") {
         mode = "paused";
@@ -10703,11 +15610,23 @@
     if (event.code === "KeyB") {
       event.preventDefault();
       if (!game.player) return;
+      if (!ui.modal.hidden && (ui.modal.dataset.kind === "mechanicTutorial" || ui.modal.dataset.kind === "onboardingGuide")) return;
       if (!ui.modal.hidden && ui.modal.dataset.kind === "inventory") {
         closeModal();
       } else {
         openModal("inventory");
       }
+      return;
+    }
+    if (!ui.modal.hidden && ui.modal.dataset.kind === "mechanicTutorial" && event.code === "Enter") {
+      event.preventDefault();
+      closeModal();
+      return;
+    }
+    if (!ui.modal.hidden && ui.modal.dataset.kind === "onboardingGuide" && event.code === "Enter") {
+      event.preventDefault();
+      markOnboardingGuideSeen();
+      closeModal();
       return;
     }
     if (!ui.modal.hidden) return;
@@ -10733,6 +15652,11 @@
     if (event.code === "KeyF") {
       event.preventDefault();
       useBetaItem();
+      return;
+    }
+    if (event.code === "KeyG") {
+      event.preventDefault();
+      cycleBetaItem();
       return;
     }
     keys.add(event.code);
@@ -10785,7 +15709,7 @@
         while (game.enemies.length && guard < 8) {
           game.enemies.forEach((enemy) => {
             enemy.mechanics = (enemy.mechanics || []).filter(
-              (mechanic) => !["splitOnDeath", "gaussHalfField", "jordanDomain"].includes(mechanic)
+              (mechanic) => !["splitOnDeath", "gaussHalfField", "jordanDomain", "jordanOrbitDash"].includes(mechanic)
             );
             enemy.jordanTransitionTimer = 0;
             enemy.hp = 0;
@@ -10918,6 +15842,16 @@
       openBetaBossShop();
       return this.state();
     },
+    setBetaShopItemLevelForVerify(index = 0, level = 0) {
+      const shop = ensureBetaBossShopStock();
+      const target = shop.stock[Math.max(0, Math.round(Number(index) || 0))];
+      if (target) {
+        target.bonusLevels = normalizeBetaShopBonusLevel(level);
+        target.hpCost = betaShopItemCost(target);
+      }
+      rerenderBetaShopModal();
+      return this.state();
+    },
     buyBetaShopItemForVerify(index = 0) {
       buyBetaShopItem(Number(index) || 0);
       return this.state();
@@ -10942,12 +15876,56 @@
       useBetaItem();
       return this.state();
     },
+    cycleBetaItemForVerify() {
+      cycleBetaItem();
+      return this.state();
+    },
+    openBetaSupplyRoomForVerify(roomKey = "randomB") {
+      openBetaSupplyRoom(String(roomKey || "randomB"));
+      return this.state();
+    },
+    startBetaEliteRoomForVerify(roomKey = "randomB") {
+      startBetaEliteRoom(String(roomKey || "randomB"));
+      return this.state();
+    },
     toggleDeveloperModeForVerify() {
       toggleDeveloperMode();
       return this.state();
     },
     setDeveloperModeForVerify(active = true) {
       setDeveloperMode(Boolean(active), false);
+      return this.state();
+    },
+    resetMechanicTutorialsForVerify() {
+      writeMechanicTutorialSeen({});
+      game.activeMechanicTutorialId = "";
+      if (!ui.modal.hidden && ui.modal.dataset.kind === "mechanicTutorial") closeModal();
+      return this.state();
+    },
+    markAllMechanicTutorialsSeenForVerify() {
+      markAllMechanicTutorialsSeen();
+      if (!ui.modal.hidden && ui.modal.dataset.kind === "mechanicTutorial") closeModal();
+      return this.state();
+    },
+    resetOnboardingGuideForVerify() {
+      writeOnboardingGuideState({});
+      if (!ui.modal.hidden && ui.modal.dataset.kind === "onboardingGuide") closeModal();
+      return this.state();
+    },
+    markOnboardingGuideSeenForVerify() {
+      markOnboardingGuideSeen();
+      if (!ui.modal.hidden && ui.modal.dataset.kind === "onboardingGuide") closeModal();
+      return this.state();
+    },
+    showOnboardingGuideForVerify() {
+      writeOnboardingGuideState({});
+      maybeShowOnboardingGuide(true);
+      return this.state();
+    },
+    showMechanicTutorialForVerify(id = "stagger") {
+      writeMechanicTutorialSeen({});
+      game.activeMechanicTutorialId = "";
+      maybeShowMechanicTutorial(String(id || "stagger"));
       return this.state();
     },
     setBattleSecondsForVerify(seconds = 0) {
@@ -11024,6 +16002,21 @@
       updateHud();
       return this.state();
     },
+    tickBossRoomForVerify(seconds = 0.1) {
+      let remaining = Math.max(0, Number(seconds) || 0);
+      let guard = 0;
+      while (remaining > 0 && guard < 600) {
+        const dt = Math.min(1 / 30, remaining);
+        if (game.activeRoom === "boss" && mode === "combat") {
+          update(dt);
+        }
+        remaining -= dt;
+        guard += 1;
+      }
+      draw();
+      updateHud();
+      return this.state();
+    },
     forceMonsterMechanicForVerify(index = 0, mechanic = "") {
       const enemy = game.enemies[Math.max(0, Math.round(Number(index) || 0))];
       const action = String(mechanic || "");
@@ -11060,7 +16053,19 @@
         const point = arenaPoint(Number(x) || game.player.x, Number(y) || game.player.y, 20);
         game.player.x = point.x;
         game.player.y = point.y;
+        constrainPlayerToWalkableFloor(game.player);
         resolvePlayerObstacles();
+      }
+      return this.state();
+    },
+    setEnemyPositionForVerify(index = 0, x = 0, y = 0) {
+      const enemy = game.enemies[Math.max(0, Math.round(Number(index) || 0))];
+      if (enemy) {
+        enemy.x = Number(x) || 0;
+        enemy.y = Number(y) || 0;
+        enemy.baseX = enemy.x;
+        enemy.baseY = enemy.y;
+        constrainEnemyToArena(enemy);
       }
       return this.state();
     },
@@ -11109,6 +16114,26 @@
     },
     weaponBalanceForVerify() {
       return Object.fromEntries(Object.entries(weapons).map(([id, weapon]) => [id, weaponTheory({ ...weapon, level: 1 })]));
+    },
+    qLearningPolicyForVerify() {
+      return {
+        loaded: qLearningPolicyLoaded(),
+        states: qLearningPolicyStateCount,
+        defaultProfile: qLearningDefaultProfile,
+        profiles: [...qLearningProfileIds],
+        profileStateCounts: qLearningProfileStateCounts(),
+        actions: [...qLearningActionList],
+        keyPolicy: { ...(qLearningTrainingSummary.profiles?.[qLearningDefaultProfile]?.keyPolicy || qLearningTrainingSummary.keyPolicy || {}) },
+        evaluation: qLearningDefaultSummaryField("evaluation"),
+        profileEvaluations: qLearningProfileSummaryField("evaluation"),
+        randomBaseline: qLearningDefaultSummaryField("randomBaseline"),
+        profileRandomBaselines: qLearningProfileSummaryField("randomBaseline"),
+      };
+    },
+    forceQLearningDecisionForVerify(index = 0) {
+      const enemy = game.enemies[Math.max(0, Math.round(Number(index) || 0))];
+      if (enemy) refreshQLearningDecision(enemy, true);
+      return this.state();
     },
     dropModelForVerify,
     scoreForVerify(options = {}) {
@@ -11205,6 +16230,36 @@
       }
       return score;
     },
+    prepareBossShowcaseForVerify() {
+      const boss = game.boss;
+      if (!boss) return this.state();
+      if (boss.intro) boss.intro.elapsed = boss.intro.total;
+      endBossDomain(boss);
+      boss.rotating = false;
+      boss.rotateTimer = bossDomainCycleSeconds;
+      boss.pressure = 0;
+      boss.attackPauseTimer = 0;
+      boss.comboQueue = [];
+      boss.comboTimer = bossComboCadence(boss);
+      boss.cauchyBombs = [];
+      boss.gaussZones = [];
+      boss.gaussShockwaves = [];
+      game.enemyShots = [];
+      game.enemyLasers = [];
+      game.enemies = game.enemies.filter((enemy) => !enemy.bossProjection);
+      boss.cores.forEach((core) => {
+        core.fireTimer = 999;
+        core.invisibleTimer = 0;
+        core.revealTimer = 0;
+        core.breakTimer = 0;
+        core.breakFlash = 0;
+        core.hitFlash = 0;
+        core.guardFlash = 0;
+        core.overloadFlash = 0;
+      });
+      draw();
+      return this.state();
+    },
     forceBossMechanic(kind) {
       const boss = game.boss;
       if (!boss) return this.state();
@@ -11214,6 +16269,8 @@
       if (kind === "gauss") startBossDomain(boss, bossCoreById("gauss"));
       if (kind === "cauchyHighlight") highlightRandomCauchyCandidate(boss);
       if (kind === "gaussZones") createGaussZones(bossCoreById("gauss"));
+      if (kind === "gaussDodgeReward") openBossBreakWindow(bossCoreById("gauss"), "verifyGaussDodge");
+      if (kind === "cauchyBreakReward") resolveCauchyDashBreakReward(boss, true) || openBossBreakWindow(bossCoreById("cauchy"), "verifyCauchyBreak");
       if (kind === "cauchyAttack") {
         const core = bossCoreById("cauchy");
         if (core) fireCauchySquares(corePosition(core), core);
@@ -11222,6 +16279,41 @@
         const core = bossCoreById("descartes");
         if (core) fireDescartesCross(corePosition(core), core);
       }
+      return this.state();
+    },
+    forceGaussShockwaveMissForVerify() {
+      const boss = game.boss;
+      const core = bossCoreById("gauss");
+      if (!boss || !core) return this.state();
+      const playerPoint = arenaPoint(arena.right - 80, arena.bottom - 80, 24);
+      if (game.player) {
+        game.player.x = playerPoint.x;
+        game.player.y = playerPoint.y;
+        game.player.invuln = 0;
+      }
+      boss.gaussShockwaves = [{
+        x: arena.left + 80,
+        y: arena.top + 80,
+        r: 86,
+        age: 0,
+        warnTime: 0.12,
+        activeTime: 0.34,
+        hitPlayer: false,
+        pulse: 0,
+        coreId: core.id,
+      }];
+      return this.state();
+    },
+    triggerCauchyDashWallsForVerify() {
+      const boss = game.boss;
+      if (!boss) return this.state();
+      if (game.player) {
+        const point = arenaPoint(arena.right - 120, arena.bottom - 120, 24);
+        game.player.x = point.x;
+        game.player.y = point.y;
+        game.player.invuln = 0;
+      }
+      triggerCauchyDashWalls();
       return this.state();
     },
     state: () => ({
@@ -11234,6 +16326,21 @@
       betaItems: [...(game.betaItems || [])],
       betaItemNames: (game.betaItems || []).map(betaItemName),
       betaShopRaid: { ...(game.betaShopRaid || {}) },
+      mechanicTutorialSeen: readMechanicTutorialSeen(),
+      onboardingGuideSeen: onboardingGuideSeen(),
+      onboardingGuideVersion,
+      qLearningPolicyLoaded: qLearningPolicyLoaded(),
+      qLearningPolicyStates: qLearningPolicyStateCount,
+      qLearningPolicyVersion: qLearningRuntimeConfig.version || qLearningTrainingSummary.config?.version || "",
+      qLearningDefaultProfile,
+      qLearningProfiles: [...qLearningProfileIds],
+      qLearningProfileStateCounts: qLearningProfileStateCounts(),
+      qLearningEvaluation: qLearningDefaultSummaryField("evaluation"),
+      qLearningRandomBaseline: qLearningDefaultSummaryField("randomBaseline"),
+      qLearningProfileEvaluations: qLearningProfileSummaryField("evaluation"),
+      activeMechanicTutorialId: game.activeMechanicTutorialId || "",
+      modalKind: ui.modal.dataset.kind || "",
+      modalHidden: Boolean(ui.modal.hidden),
       betaBossShopEntered: Boolean(game.betaBossShop?.entered),
       betaBossShopRefreshCost: game.betaBossShop?.refreshCost || 1,
       betaBossShopMessage: game.betaBossShop?.message || "",
@@ -11241,6 +16348,8 @@
         type: item.type,
         id: item.id,
         name: betaShopItemName(item),
+        bonusLevels: normalizeBetaShopBonusLevel(item.bonusLevels || 0),
+        hpCost: betaShopItemCost(item),
         purchased: Boolean(item.purchased),
       })),
       developerMode: Boolean(game.developerMode),
@@ -11291,7 +16400,7 @@
       bossCounterSuppressionMultiplier: game.player ? bossCounterSuppressionMultiplier(game.player) : 1,
       weaponCooldown: game.player?.weapon ? game.player.weapon.cooldown * playerAttackCooldownMultiplier(game.player) : 0,
       effectiveReloadTime: game.player?.weapon ? weaponReloadTime(game.player.weapon, game.player) : 0,
-      chickenBuffReady: Boolean(game.player && hasBuff(game.player, "鸡煲") && game.elapsed >= chickenHotpotDelayMs),
+      chickenBuffReady: Boolean(game.player && chickenHotpotActive(game.player)),
       weaponSlashRadius: game.player?.weapon?.slashRadius || swordSlashRadius,
       weaponSlashReach: game.player?.weapon?.slashReach || swordSlashReach,
       directBossSwordAwakened: Boolean(game.player?.weapons?.some((weapon) => weapon.id === "sword" && weapon.directBossAwakened)),
@@ -11315,10 +16424,11 @@
       funStats: readFunStats(),
       leaderboardBoards: Object.fromEntries(Object.entries(leaderboardRankings()).map(([kind, rows]) => [kind, rows.length])),
       pendingPassiveChoice: Boolean(game.pendingPassiveChoice),
+      pendingPassiveChoiceKind: game.pendingPassiveChoice?.kind || "passive",
       pendingPassiveLevel: Math.max(0, Math.round(Number(game.pendingPassiveChoice?.level || 0))),
       pendingPassiveOptions: game.pendingPassiveChoice?.options?.map((id) => ({
         id,
-        name: challengePassiveMap[id]?.name || id,
+        name: game.pendingPassiveChoice?.kind === "item" ? betaItemName(id) : challengePassiveMap[id]?.name || id,
       })) || [],
       pendingSelectedPassiveIndex: Number.isInteger(game.pendingPassiveChoice?.selectedIndex) ? game.pendingPassiveChoice.selectedIndex : null,
       pendingWeaponChoice: Boolean(game.pendingWeaponChoice),
@@ -11374,9 +16484,23 @@
         name: enemy.name || "",
         kind: enemy.kind,
         pattern: enemy.pattern,
+        x: Number((enemy.x || 0).toFixed(2)),
+        y: Number((enemy.y || 0).toFixed(2)),
+        baseX: Number((enemy.baseX || 0).toFixed(2)),
+        baseY: Number((enemy.baseY || 0).toFixed(2)),
+        radius: Number((enemy.r || 0).toFixed(2)),
         mechanics: [...(enemy.mechanics || [])],
         roles: [...(enemy.roles || [])],
         betaExtraProjectileEligible: betaExtraProjectileEligible(enemy),
+        qLearningAi: enemyUsesQLearning(enemy),
+        qLearningProfile: enemyUsesQLearning(enemy) ? qLearningProfileForEnemy(enemy) : enemy.qLearningProfile || "",
+        qLearningState: enemy.qLearningState || "",
+        qLearningAction: enemy.qLearningAction || "",
+        qLearningDecisionCount: enemy.qLearningDecisionCount || 0,
+        qLearningSight: enemyUsesQLearning(enemy) ? qLearningSightKey(enemy) : "",
+        qLearningSpace: enemyUsesQLearning(enemy) ? qLearningSpaceKey(enemy) : "",
+        qLearningAllies: enemyUsesQLearning(enemy) ? qLearningAllyKey(enemy) : "",
+        qLearningRecentHitTimer: Number((enemy.qLearningRecentHitTimer || 0).toFixed(3)),
         knowledgeSynergy: enemy.knowledgeSynergy || "",
         synergyPivot: Boolean(enemy.synergyPivot),
         synergyGuarded: Boolean(enemy.synergyGuarded),
@@ -11388,8 +16512,11 @@
         finalPursuitWarn: Number((enemy.finalPursuitWarnTimer || 0).toFixed(3)),
         finalPursuitRevenge: Boolean(enemy.finalPursuitRevenge),
         shopTaxTimer: enemy.shopTaxTimer || 0,
+        shopTaxWarnTimer: Number((enemy.shopTaxWarnTimer || 0).toFixed(3)),
         shopPressureTimer: Number((enemy.shopPressureTimer || 0).toFixed(3)),
+        shopPressureWarnTimer: Number((enemy.shopPressureWarnTimer || 0).toFixed(3)),
         shopEnrage: Boolean(enemy.shopEnrage),
+        shopEnrageIntroTimer: Number((enemy.shopEnrageIntroTimer || 0).toFixed(3)),
         splitChild: Boolean(enemy.splitChild),
         randomDrift: Boolean(enemy.randomDrift),
         fireEvery: Number((enemy.fireEvery || 0).toFixed(3)),
@@ -11416,12 +16543,19 @@
         archimedesDashWarn: enemy.archimedesDashWarnTimer || 0,
         archimedesDashActive: enemy.archimedesDashActiveTimer || 0,
         archimedesDashTimer: Number((enemy.archimedesDashTimer || 0).toFixed(3)),
+        archimedesDashTargetX: Number((enemy.archimedesDashTargetX || 0).toFixed(2)),
+        archimedesDashTargetY: Number((enemy.archimedesDashTargetY || 0).toFixed(2)),
         taylorDashWarn: enemy.taylorDashWarnTimer || 0,
         taylorDashActive: enemy.taylorDashActiveTimer || 0,
         taylorRest: enemy.taylorRestTimer || 0,
         jacobiBlinkWarn: enemy.jacobiBlinkWarnTimer || 0,
         jordanTransition: enemy.jordanTransitionTimer || 0,
         jordanDomainActive: Boolean(enemy.jordanDomainActive),
+        jordanOrbitMode: enemy.jordanOrbitMode || "",
+        jordanOrbitTimer: Number((enemy.jordanOrbitTimer || 0).toFixed(3)),
+        jordanRageDashRemaining: enemy.jordanRageDashRemaining || 0,
+        jordanRageDashWarn: enemy.jordanRageDashWarnTimer || 0,
+        jordanRageDashActive: enemy.jordanRageDashActiveTimer || 0,
         gaussTopHalf: hasEnemyMechanic(enemy, "gaussHalfField") ? enemyInTopHalf(enemy) : null,
       })),
       obstacleCount: game.obstacles.length,
@@ -11437,9 +16571,13 @@
         marked: Boolean(obstacle.marked),
         cauchyDomain: Boolean(obstacle.cauchyDomain),
         cauchyCoreWall: Boolean(obstacle.cauchyCoreWall),
+        cauchyPlayerArcWall: Boolean(obstacle.cauchyPlayerArcWall),
+        cauchyPassiveWall: Boolean(obstacle.cauchyPassiveWall),
         cauchyCandidate: Boolean(obstacle.cauchyCandidate),
       })),
       bossAttackTypes: game.boss?.cores.map((core) => core.attack) || [],
+      bossModelKinds: game.boss?.cores.map((core) => core.modelKind || `${core.id}UniqueBoss`) || [],
+      bossCentralBodyStyle: game.boss ? "sigil-no-head" : "",
       bossPhase: game.boss?.phaseName || "",
       bossX: game.boss?.x || 0,
       bossY: game.boss?.y || 0,
@@ -11453,25 +16591,54 @@
       bossDomainCoreId: game.boss?.domainCoreId || "",
       bossDomainName: game.boss?.domainName || "",
       bossDomainElapsed: game.boss?.domainElapsed || 0,
+      bossDomainFlashCoreId: game.boss?.domainFlashCoreId || "",
+      bossDomainFlashTimer: Number((game.boss?.domainFlashTimer || 0).toFixed(2)),
+      bossCoreDefeatFlashCoreId: game.boss?.coreDefeatFlashCoreId || "",
+      bossCoreDefeatFlashTimer: Number((game.boss?.coreDefeatFlashTimer || 0).toFixed(2)),
+      bossFinalCoreFlashCoreId: game.boss?.finalCoreFlashCoreId || "",
+      bossFinalCoreFlashTimer: Number((game.boss?.finalCoreFlashTimer || 0).toFixed(2)),
       bossDomainCycleSeconds,
       bossGaussZoneBaseCount: gaussZoneBaseCount,
       bossGaussZoneMaxCount: gaussZoneMaxCount,
       bossGaussZoneDebuffDuration: gaussZoneDebuffDuration,
       bossGaussZoneCount: game.boss?.gaussZones?.length || 0,
+      bossGaussShockwaveCount: game.boss?.gaussShockwaves?.length || 0,
       bossGaussZoneBonus: game.boss?.gaussZoneBonus || 0,
       bossGaussNextZoneCount: game.boss?.gaussNextZoneCount || 0,
       bossGaussDomainKillHealCount: game.boss?.gaussDomainKillHealCount || 0,
+      bossGaussDodgeRewardCount: game.boss?.gaussDodgeRewardCount || 0,
+      bossGaussDodgeRewardCooldown: Number((game.boss?.gaussDodgeRewardTimer || 0).toFixed(2)),
       bossGaussBoostedCoreIds: game.boss ? game.boss.cores.filter((core) => (core.domainShieldBonus || 0) > 0 || (core.domainDamageMultiplier || 1) > 1).map((core) => core.id) : [],
       bossInvisibleCoreIds: game.boss ? game.boss.cores.filter((core) => isBossCoreHidden(core)).map((core) => core.id) : [],
       bossRevealedCoreIds: game.boss ? game.boss.cores.filter((core) => core.hp > 0 && isBossCoreRevealed(core)).map((core) => core.id) : [],
       bossCoreRevealTimers: game.boss?.cores.map((core) => Math.max(0, Number((core.revealTimer || 0).toFixed(2)))) || [],
+      bossCoreBreakTimers: game.boss?.cores.map((core) => Math.max(0, Number((core.breakTimer || 0).toFixed(2)))) || [],
+      bossBreakCoreIds: game.boss ? game.boss.cores.filter((core) => core.hp > 0 && (core.breakTimer || 0) > 0).map((core) => core.id) : [],
+      bossLastBreakCoreId: game.boss?.lastBreakCoreId || "",
+      bossLastBreakReason: game.boss?.lastBreakReason || "",
+      bossBreakWindowCount: game.boss?.breakWindowCount || 0,
+      bossBreakHitCount: game.boss?.breakHitCount || 0,
       bossFullPowerCoreId: game.boss?.fullPowerCoreId || "",
+      bossAttackPauseTimer: Number((game.boss?.attackPauseTimer || 0).toFixed(2)),
+      bossComboChainCount: game.boss?.comboCount || 0,
+      bossComboQueueLength: game.boss?.comboQueue?.length || 0,
+      bossLastComboName: game.boss?.lastComboName || "",
+      bossDefeatOrder: [...(game.boss?.defeatOrder || [])],
+      bossDefeatReliefCount: game.boss?.defeatReliefCount || 0,
+      bossFinalCoreEntryCount: game.boss?.finalCoreEntryCount || 0,
+      bossCauchyBreakRewardCount: game.boss?.cauchyBreakRewardCount || 0,
+      bossCauchyBreakPending: Boolean(game.boss?.cauchyDashBreakPending),
+      bossCauchyFullPowerWallCycleCount: game.boss?.cauchyFullPowerWallCycleCount || 0,
+      bossDescartesFinalLaserBurstCount: game.boss?.descartesFinalLaserBurstCount || 0,
       bossDescartesQuadrant: game.boss?.descartesQuadrant || "",
       bossDescartesQuadrantChanges: game.boss?.descartesQuadrantChanges || 0,
       bossDescartesQuadrantProjectionCount: game.boss?.descartesQuadrantProjectionCount || 0,
       bossProjectionCount: game.enemies.filter((enemy) => enemy.bossProjection).length,
       bossCauchyDomainWallCount: game.obstacles.filter((obstacle) => obstacle.cauchyDomain).length,
       bossCauchyCoreWallCount: game.obstacles.filter((obstacle) => obstacle.cauchyCoreWall).length,
+      bossCauchyPlayerArcWallCount: game.obstacles.filter((obstacle) => obstacle.cauchyPlayerArcWall).length,
+      bossCauchyPassiveCooldown: Number((game.boss?.cauchyPassiveTimer || 0).toFixed(2)),
+      bossCauchyPassiveWallCount: game.obstacles.filter((obstacle) => obstacle.cauchyPassiveWall).length,
       bossCauchyCandidateCount: game.obstacles.filter((obstacle) => obstacle.cauchyCandidate && !obstacle.cauchyDomain).length,
       bossCauchyExplosionBulletCount: cauchyExplosionBulletCount,
       bossCauchyBombCount: game.boss?.cauchyBombs?.length || 0,
@@ -11506,6 +16673,11 @@
       enemyWallSplitShotCount: game.enemyShots.filter((shot) => shot.wallSplit).length,
       enemyLaserCount: game.enemyLasers.length,
       activeLaserCount: game.enemyLasers.filter(isLaserActive).length,
+      hitImpactCount: game.hitImpacts.length,
+      hurtFlash: Number((game.hurtFlash || 0).toFixed(3)),
+      screenShake: Number((game.screenShake || 0).toFixed(3)),
+      audioEnabled: Boolean(audioSettings.enabled),
+      audioStarted: Boolean(audio.started),
       gaussDeathBeamCount: game.enemyLasers.filter((laser) => laser.deathBeam).length,
     }),
   };

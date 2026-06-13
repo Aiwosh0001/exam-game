@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import sqlite3
 import traceback
+from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -12,9 +14,11 @@ from urllib.parse import unquote, urlparse
 BASE_DIR = Path(__file__).resolve().parent
 LEADERBOARD_PATH = BASE_DIR / "data" / "leaderboard.json"
 STATS_PATH = BASE_DIR / "data" / "stats.json"
+DB_PATH = BASE_DIR / "data" / "game.db"
 LEADERBOARD_LIMIT = 10
 DEFAULT_LEADERBOARD_NAME = "考生"
 LEADERBOARD_SCORE_VERSION = "combat-time-v2"
+_DB_READY = False
 
 GAME_CONFIG = {
     "title": "今天你挂科了吗？",
@@ -274,18 +278,211 @@ def retained_leaderboard(entries: list[object]) -> list[dict]:
     return sorted(retained.values(), key=lambda item: (-item["score"], item["seconds"], item["playedAt"]))
 
 
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def connect_db() -> sqlite3.Connection:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(DB_PATH)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def upsert_leaderboard_row(connection: sqlite3.Connection, entry: dict) -> None:
+    payload = json.dumps(entry, ensure_ascii=False)
+    connection.execute(
+        """
+        INSERT INTO leaderboard_entries (id, payload, score, seconds, sword_only, played_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            payload = excluded.payload,
+            score = excluded.score,
+            seconds = excluded.seconds,
+            sword_only = excluded.sword_only,
+            played_at = excluded.played_at,
+            updated_at = excluded.updated_at
+        """,
+        (
+            entry["id"],
+            payload,
+            int(entry.get("score", 0)),
+            int(entry.get("seconds", 0)),
+            1 if entry.get("swordOnly") else 0,
+            str(entry.get("playedAt") or ""),
+            utc_now(),
+        ),
+    )
+
+
+def upsert_stats_entry_row(connection: sqlite3.Connection, entry: dict) -> None:
+    payload = json.dumps(entry, ensure_ascii=False)
+    connection.execute(
+        """
+        INSERT INTO stats_entries (id, payload, result, seconds, played_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            payload = excluded.payload,
+            result = excluded.result,
+            seconds = excluded.seconds,
+            played_at = excluded.played_at,
+            updated_at = excluded.updated_at
+        """,
+        (
+            entry["id"],
+            payload,
+            str(entry.get("result") or "win"),
+            int(entry.get("seconds", 0)),
+            str(entry.get("playedAt") or ""),
+            utc_now(),
+        ),
+    )
+
+
+def write_stats_snapshot_row(connection: sqlite3.Connection, stats: dict) -> dict:
+    normalized = normalize_stats(stats)
+    connection.execute(
+        """
+        INSERT INTO stats_snapshot (id, payload, updated_at)
+        VALUES (1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            payload = excluded.payload,
+            updated_at = excluded.updated_at
+        """,
+        (json.dumps(normalized, ensure_ascii=False), utc_now()),
+    )
+    return normalized
+
+
+def read_stats_snapshot_row(connection: sqlite3.Connection) -> dict | None:
+    row = connection.execute("SELECT payload FROM stats_snapshot WHERE id = 1").fetchone()
+    if not row:
+        return None
+    try:
+        return normalize_stats(json.loads(row["payload"]))
+    except (TypeError, json.JSONDecodeError):
+        return None
+
+
+def stats_from_stats_entries(entries: list[object]) -> dict:
+    stats = default_stats()
+    seen: set[str] = set()
+    seen_ids: list[str] = []
+    for entry in (normalize_stats_entry(item) for item in entries):
+        if not entry or entry["id"] in seen:
+            continue
+        seen.add(entry["id"])
+        seen_ids.append(entry["id"])
+        update_stats_with_entry(stats, entry)
+    stats["entryIds"] = seen_ids[-1000:]
+    return stats
+
+
+def migrate_json_to_sqlite(connection: sqlite3.Connection) -> None:
+    migrated = connection.execute("SELECT value FROM app_meta WHERE key = 'json_migrated'").fetchone()
+    if migrated and migrated["value"] == "1":
+        return
+
+    migrated_leaderboard: list[dict] = []
+    try:
+        raw_leaderboard = json.loads(LEADERBOARD_PATH.read_text(encoding="utf-8"))
+        source_entries = raw_leaderboard if isinstance(raw_leaderboard, list) else raw_leaderboard.get("entries", [])
+        migrated_leaderboard = retained_leaderboard(source_entries)
+    except (OSError, json.JSONDecodeError, AttributeError):
+        migrated_leaderboard = []
+
+    for entry in migrated_leaderboard:
+        upsert_leaderboard_row(connection, entry)
+
+    try:
+        raw_stats = json.loads(STATS_PATH.read_text(encoding="utf-8"))
+        stats = normalize_stats(raw_stats)
+    except FileNotFoundError:
+        stats = stats_from_entries(migrated_leaderboard)
+    except (OSError, json.JSONDecodeError):
+        stats = stats_from_entries(migrated_leaderboard)
+    write_stats_snapshot_row(connection, stats)
+
+    connection.execute(
+        "INSERT INTO app_meta (key, value) VALUES ('json_migrated', '1') "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    )
+
+
+def ensure_database() -> None:
+    global _DB_READY
+    if _DB_READY:
+        return
+    with connect_db() as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS leaderboard_entries (
+                id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                score INTEGER NOT NULL DEFAULT 0,
+                seconds INTEGER NOT NULL DEFAULT 0,
+                sword_only INTEGER NOT NULL DEFAULT 0,
+                played_at TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS stats_entries (
+                id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                result TEXT NOT NULL DEFAULT 'win',
+                seconds INTEGER NOT NULL DEFAULT 0,
+                played_at TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS stats_snapshot (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                payload TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        migrate_json_to_sqlite(connection)
+    _DB_READY = True
+
+
 def read_leaderboard() -> list[dict]:
     try:
-        data = json.loads(LEADERBOARD_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        ensure_database()
+        with connect_db() as connection:
+            rows = connection.execute("SELECT payload FROM leaderboard_entries").fetchall()
+        entries = []
+        for row in rows:
+            try:
+                entries.append(json.loads(row["payload"]))
+            except (TypeError, json.JSONDecodeError):
+                continue
+        return retained_leaderboard(entries)
+    except sqlite3.Error:
         return []
-    return retained_leaderboard(data if isinstance(data, list) else data.get("entries", []))
 
 
 def write_leaderboard(entries: list[object]) -> list[dict]:
     top_ten = retained_leaderboard(entries)
-    LEADERBOARD_PATH.parent.mkdir(parents=True, exist_ok=True)
-    LEADERBOARD_PATH.write_text(json.dumps(top_ten, ensure_ascii=False, indent=2), encoding="utf-8")
+    ensure_database()
+    with connect_db() as connection:
+        connection.execute("DELETE FROM leaderboard_entries")
+        for entry in top_ten:
+            upsert_leaderboard_row(connection, entry)
     return top_ten
 
 
@@ -517,33 +714,44 @@ def public_stats(stats: dict) -> dict:
 
 def read_stats() -> dict:
     try:
-        data = json.loads(STATS_PATH.read_text(encoding="utf-8"))
-    except FileNotFoundError:
+        ensure_database()
+        with connect_db() as connection:
+            snapshot = read_stats_snapshot_row(connection)
+            if snapshot:
+                return snapshot
+            rows = connection.execute("SELECT payload FROM stats_entries").fetchall()
+        entries = []
+        for row in rows:
+            try:
+                entries.append(json.loads(row["payload"]))
+            except (TypeError, json.JSONDecodeError):
+                continue
+        if entries:
+            return stats_from_stats_entries(entries)
         return stats_from_entries(read_leaderboard())
-    except (OSError, json.JSONDecodeError):
+    except sqlite3.Error:
         return default_stats()
-    return normalize_stats(data)
 
 
 def write_stats(stats: dict) -> dict:
-    normalized = normalize_stats(stats)
-    STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    STATS_PATH.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
-    return normalized
+    ensure_database()
+    with connect_db() as connection:
+        return write_stats_snapshot_row(connection, stats)
 
 
 def add_stats_entry(entry: object) -> dict:
     normalized = normalize_stats_entry(entry)
     if not normalized:
         return read_stats()
-    stats = read_stats()
-    entry_ids = stats.get("entryIds", [])
-    if normalized["id"] in entry_ids:
-        return write_stats(stats)
-
-    update_stats_with_entry(stats, normalized)
-    stats["entryIds"] = [*entry_ids, normalized["id"]][-1000:]
-    return write_stats(stats)
+    ensure_database()
+    with connect_db() as connection:
+        stats = read_stats_snapshot_row(connection) or default_stats()
+        entry_ids = stats.get("entryIds", [])
+        if normalized["id"] not in entry_ids:
+            update_stats_with_entry(stats, normalized)
+            stats["entryIds"] = [*entry_ids, normalized["id"]][-1000:]
+            upsert_stats_entry_row(connection, normalized)
+        return write_stats_snapshot_row(connection, stats)
 
 
 def create_app():

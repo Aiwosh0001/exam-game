@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>今天你挂科了吗？</title>
-    <link rel="stylesheet" href="/static/css/styles.css?v=20260606-reward-plus">
+    <link rel="stylesheet" href="/static/css/styles.css?v=20260612-mechanic-tutorials">
   </head>
   <body>
     <main class="game-shell" aria-label="今天你挂科了吗基础版">
@@ -39,7 +39,7 @@
         <span>左键 攻击</span>
         <span>Space 冲刺</span>
         <span>R 换弹</span>
-        <span>F 道具</span>
+        <span>F 道具 / G 切换</span>
         <span>1-9/Q 武器</span>
         <span>B 背包</span>
         <span>Esc 暂停</span>
@@ -55,6 +55,7 @@
         <div class="menu-actions" aria-label="主菜单">
           <button id="startBtn" class="primary-action" type="button">开始复习</button>
           <button id="enemyCodexBtn" type="button">名人堂</button>
+          <button id="knowledgeCodexBtn" type="button">知识图鉴</button>
           <button id="funFactsBtn" type="button">趣味知识</button>
           <button id="leaderboardBtn" type="button">排行榜</button>
           <button id="settingsBtn" type="button">设置</button>
@@ -282,11 +283,12 @@
         }
       };
     </script>
-    <script src="/static/js/core/constants.js?v=20260605-boss-large-arena"></script>
+    <script src="/static/js/core/constants.js?v=20260610-gauss-cauchy-passive"></script>
     <script src="/static/js/utils/math.js?v=20260603-modules"></script>
     <script src="/static/js/data/weapons.js?v=20260605-combat-flow"></script>
     <script src="/static/js/data/buffs.js?v=20260605-combat-flow"></script>
-    <script src="/static/js/data/enemies.js?v=20260605-monster-overhaul"></script>
-    <script src="/static/js/game.js?v=20260606-reward-plus"></script>
+    <script src="/static/js/data/enemies.js?v=20260610-gauss-cauchy-passive"></script>
+    <script src="/static/js/data/qlearning-policy.js?v=20260613-qlearning-v5"></script>
+    <script src="/static/js/game.js?v=20260613-qlearning-v5"></script>
   </body>
 </html>

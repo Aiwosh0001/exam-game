@@ -8,11 +8,15 @@ verification/
 server.pid
 
 .env
+.env.image
+.env.image.local
 .venv/
 venv/
 
 data/leaderboard.json
 data/stats.json
+data/*.db
+data/*.db-*
 exam-game-pythonanywhere.zip
 极客道期末作业-修改版.docx
 make_revised_doc.py
